@@ -95,3 +95,30 @@ against a real Postgres instance.
 available must run `npm run db:migrate -w backend` and confirm the
 migration applies cleanly before this schema is considered verified
 end-to-end.
+
+---
+
+## 2026-08-18 — Adopt a controlled multi-agent development system
+
+**Context:** As implementation moves past the initial foundation, work
+increasingly benefits from specialist agents (Frontend, Backend, Database,
+QA, Security, DevOps) rather than one generalist doing everything. Without
+explicit boundaries, that risks agents overwriting each other's work or
+editing files outside their domain (e.g. a UI task touching the Prisma
+schema).
+
+**Decision:** Documented a multi-agent system in `AGENTS.md` plus one file
+per role under `docs/agents/`, defining each agent's file-scope ownership,
+communication via written handoff reports, git-worktree-per-task isolation
+on `agent/<role>/<slug>` branches, a bug flow (report → triage → reproduce
+→ fix → verify → conditional security review), and a human-approval gate
+before anything merges to `main`. This is process documentation only — no
+application code, tech stack, or existing architecture changed as part of
+this decision, and no agent is authorized to implement business features
+outside a task explicitly defined in `TASKS.md`.
+
+**Why:** Fixing ownership boundaries and a handoff protocol in writing,
+before delegating real feature work, is cheaper than untangling conflicting
+edits after the fact — and keeps every agent's job legible to a human
+reviewer at the approval step.
+

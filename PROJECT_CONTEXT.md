@@ -35,6 +35,15 @@ requires it.
 See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) for the schema and
 [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together.
 
+## How work gets implemented
+
+Implementation work is carried out through a controlled multi-agent
+system — specialist agents (Frontend, Backend, Database, QA, Security,
+DevOps) coordinated by an Orchestrator, each with a defined file-scope
+boundary. This is a process convention, not a product feature: it governs
+how the codebase gets built, not what gets built. See
+[AGENTS.md](AGENTS.md).
+
 ## Provenance note
 
 This set of docs (PROJECT_CONTEXT.md, ARCHITECTURE.md, DATABASE_SCHEMA.md,
