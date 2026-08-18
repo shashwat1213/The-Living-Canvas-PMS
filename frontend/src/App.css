@@ -1,0 +1,35 @@
+.shell {
+  max-width: 640px;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+}
+
+.tagline {
+  color: #666;
+}
+
+.api-status {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.api-status[data-status='checking'] {
+  background: #eee;
+  color: #555;
+}
+
+.api-status[data-status='online'] {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.api-status[data-status='offline'] {
+  background: #fee2e2;
+  color: #991b1b;
+}
