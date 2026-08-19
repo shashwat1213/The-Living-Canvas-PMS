@@ -93,25 +93,33 @@ delegation model. Nothing in this phase begins until approved.
   new migration's statements were diffed against a from-empty full-schema
   regeneration to confirm the incremental SQL is equivalent — not a
   substitute for applying it to a real database (see 1a).
-- [ ] **1c. Backend — auth endpoints**
-  Login, refresh, logout; argon2id password hashing; JWT issuance against
-  the new `Session` model.
-- [ ] **1d. Backend — tenancy & RBAC middleware**
-  `platform/tenancy` (request-scoped org/property context + the Prisma
-  tenant-scoping extension) and `platform/rbac` (permission-guard
-  middleware), per the enforcement design in
+- [x] **1c. Backend — auth endpoints** (2026-08-19)
+  `POST /api/v1/auth/{login,refresh,logout}`; argon2id password hashing;
+  JWT access token + DB-backed refresh session with rotation and replay
+  detection. See `backend/src/modules/auth/**` and
+  `backend/src/platform/auth/**`.
+- [x] **1d. Backend — tenancy & RBAC middleware** (2026-08-19)
+  `platform/tenancy` (`AsyncLocalStorage` request context + the tenant-
+  scoping Prisma Client Extension) and `platform/rbac` (permission-guard
+  + property-access-guard middleware), per the enforcement design in
   [ARCHITECTURE.md](ARCHITECTURE.md).
-- [ ] **1e. Backend — Organizations/Properties/Rooms CRUD**
-  Authenticated, tenant-scoped, permission-guarded endpoints, built on
-  1c/1d from the start rather than retrofitted after.
-- [ ] **1f. QA — tenant-isolation regression suite**
-  Stood up alongside 1e's endpoints: cross-org access attempts must
-  403/404 on every tenant-scoped route. A permanent gate, not a one-off
-  check.
-- [ ] **1g. Security — sign-off**
-  Mandatory review of 1c/1d/1b before merge, per the fixed sign-off list
-  in [AGENTS.md](AGENTS.md)'s approval process (session/permission
-  schema, tenant-scoping enforcement).
+- [x] **1e. Backend — Organizations/Properties/Rooms CRUD** (2026-08-19)
+  Authenticated (except the one public signup endpoint), tenant-scoped,
+  permission-guarded endpoints built on 1c/1d from the start. See
+  `backend/src/modules/{organizations,properties,rooms}/**`.
+- [x] **1f. QA — tenant-isolation regression suite** (2026-08-19)
+  `backend/test/tenant-isolation.test.ts` — cross-org list/get/create/
+  update/delete, slug-reuse-across-orgs, and PropertyAccess-grant
+  scenarios. A permanent suite, not a one-off check. Found and closed one
+  real gap during manual pre-automation verification: cross-org room-list
+  returned 200/empty instead of 404 (see DECISIONS.md).
+- [x] **1g. Security — sign-off** (2026-08-19)
+  Reviewed per the fixed sign-off list in [AGENTS.md](AGENTS.md). Added
+  login rate-limiting (was missing entirely); reviewed and documented the
+  refresh-cookie `SameSite` deployment constraint and its residual CSRF
+  surface (accepted for Phase 1); no-lockout/no-password-reset noted as
+  an intentional Phase 1 scope boundary, not a silent gap. Full findings
+  in [DECISIONS.md](DECISIONS.md).
 - [ ] **1h. DevOps — CI pipeline**
   GitHub Actions (or equivalent) running the root verification commands
   (`typecheck && lint && build && test`) on every PR, plus a migration
@@ -123,6 +131,15 @@ delegation model. Nothing in this phase begins until approved.
   [docs/agents/frontend.md](docs/agents/frontend.md).
 - [ ] **1j. Frontend — Properties/Rooms management screens**
   Against the now-real, authenticated CRUD API from 1e.
+
+**1c–1g verified together:** `npm run typecheck && npm run lint && npm
+run build && npm run test` all pass for both workspaces. Backend's 30
+tests (6 files) run against the same live database used to verify 1a's
+migrations — see DECISIONS.md for what that environment is and its one
+known limitation (a WASM Postgres wire-protocol quirk around genuine
+unique-constraint errors, worked around by checking uniqueness
+proactively rather than relying solely on catching the database's own
+error — a real improvement in its own right, not only a workaround).
 
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

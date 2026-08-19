@@ -20,11 +20,22 @@ The-Living-Canvas-PMS/
 ├── backend/                 Node/Express API
 │   ├── prisma/
 │   │   ├── schema.prisma    Source of truth for the DB schema
-│   │   └── migrations/      Generated SQL migrations
+│   │   ├── migrations/      Generated SQL migrations
+│   │   └── seed.ts          Seeds the global permission catalog
 │   ├── src/
 │   │   ├── config/          Environment/config loading
-│   │   ├── lib/             Shared infra (Prisma client singleton)
-│   │   ├── routes/          Express route handlers
+│   │   ├── lib/             Shared infra (Prisma client singleton, HTTP errors)
+│   │   ├── platform/        Cross-cutting infra — not a business domain
+│   │   │   ├── auth/        Password hashing, JWT, refresh sessions, cookies, rate limiting
+│   │   │   ├── tenancy/     Request context + the tenant-scoping Prisma extension
+│   │   │   └── rbac/        Permission catalog, role provisioning, route guards
+│   │   ├── modules/         One dir per business domain
+│   │   │   ├── auth/        Login/refresh/logout routes
+│   │   │   ├── organizations/
+│   │   │   ├── properties/
+│   │   │   └── rooms/       Nested under /properties/:propertyId/rooms
+│   │   ├── middleware/      Centralized error handling
+│   │   ├── routes/          health.ts (the one route with no module of its own)
 │   │   ├── app.ts           Express app factory (used by tests)
 │   │   └── index.ts         Process entry point
 │   └── test/                Vitest tests
@@ -41,13 +52,23 @@ The-Living-Canvas-PMS/
   entry point (`src/index.ts`) so tests can exercise the app with
   supertest without binding a real port.
 - **Prisma** is the single data-access layer. `src/lib/prisma.ts` exports
-  one shared `PrismaClient` instance (reused across hot reloads in dev to
-  avoid exhausting Postgres connections).
-- **No authentication yet.** The `User` model has a nullable
-  `passwordHash` field reserved for a future auth task; there is currently
-  no login, session, or token handling.
-- `GET /health` is the only route so far — used to verify the server is up
-  and to let the frontend show live API connectivity.
+  one shared, *unscoped* `PrismaClient` instance (used by the platform
+  code that runs before tenant context exists — auth, signup). Every
+  tenant-scoped module (`properties`, `rooms`) instead imports
+  `scopedPrisma` from `platform/tenancy/scoped-prisma.ts` — see
+  "Multi-tenancy model" below.
+- **Authentication is implemented** (Phase 1, 2026-08-19): JWT access
+  token + a DB-backed, rotating refresh session delivered as an httpOnly
+  cookie. See `platform/auth/**` and `modules/auth/**`, and
+  [DECISIONS.md](DECISIONS.md) for the reasoning.
+- **Authorization is permission-based**, not a raw role-string check:
+  every route declares the permission(s) it needs via
+  `platform/rbac/guard.ts`'s `requirePermission`; property-level routes
+  additionally sit behind `requirePropertyAccess`. See
+  [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) for the underlying
+  `Role`/`Permission`/`PropertyAccess` schema.
+- Routes live under `/api/v1/...`, one Express router per module.
+  `GET /health` (unversioned, no module) remains for connectivity checks.
 
 ## Frontend
 
@@ -59,9 +80,14 @@ The-Living-Canvas-PMS/
 ## Multi-tenancy model
 
 Every domain row is scoped under `Organization` (directly, or transitively
-through `Property`). There is no cross-organization data access — enforcing
-that at the query layer is a concern for the task that adds real API
-endpoints beyond `/health`.
+through `Property`). Enforced at the query layer (not just by convention)
+via a Prisma Client Extension — `platform/tenancy/scoped-prisma.ts` —
+that reads the caller's `organizationId` from request-scoped context
+(`AsyncLocalStorage`) and injects it into every query a tenant-scoped
+repository issues. A repository function cannot forget the tenant filter
+because it never writes it. See the "Approved direction" section below
+and `DECISIONS.md`'s Phase 1 backend entry for the mechanism's specifics
+and its documented gotchas.
 
 ## Local development
 

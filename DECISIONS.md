@@ -257,4 +257,145 @@ effectively zero cost, and is worth doing again rather than re-accepting
 the weaker bar by default just because Docker access repeated the same
 gap.
 
+---
+
+## 2026-08-19 — Phase 1 backend: platform layer, auth, tenancy, CRUD (1c/1d/1e)
+
+**Decision:** Implemented the `platform/` cross-cutting layer described in
+`ARCHITECTURE.md`'s "Approved direction" and the `organizations`,
+`properties`, `rooms`, and `auth` modules on top of it, per the locked
+Phase 1 decisions.
+
+**Notable implementation choices not already covered by the locked
+decisions:**
+
+- **Tenant-scoping mechanism:** a Prisma Client Extension
+  (`platform/tenancy/scoped-prisma.ts`) reading from an
+  `AsyncLocalStorage`-based request context. One config block per
+  tenant-scoped model — `Property` (direct `organizationId` column) and
+  `Room` (scoped via its `property` relation, since it has no
+  `organizationId` column of its own). Extend this file the same way —
+  one block per model — as new tenant-scoped models land; a model not
+  listed is not auto-scoped.
+- **A real gotcha, documented in code:** combining `AsyncLocalStorage`
+  with Prisma's lazily-evaluated queries requires the query to actually
+  be `await`ed *inside* the `storage.run()` callback — merely returning
+  the (unawaited) query loses the context, because Prisma doesn't start
+  real execution until `.then()`/`await`, which by then runs outside
+  `storage.run`'s synchronous extent. Documented on
+  `runWithRequestContext` itself so it isn't rediscovered the hard way.
+- **`PropertyAccess` vs. tenant boundary are two independent layers, on
+  purpose:** the RBAC guard's `canAccessProperty` only answers
+  "property-level grant within the org" and deliberately does not verify
+  organization membership — that's the tenant-scoping extension's job,
+  enforced unconditionally at the data-access layer regardless of what
+  the RBAC guard decided. Neither layer re-implements the other's job.
+- **Room creation's tenant boundary:** since `Room` has no
+  `organizationId` column, a `create` can't have it injected the way
+  `Property`'s can. The rooms repository instead resolves the parent
+  `Property` through the *scoped* client first — a cross-organization
+  `propertyId` resolves to nothing there and 404s before any room row is
+  written.
+- **Uniqueness checks are proactive, not catch-only:** property slug and
+  room name uniqueness are checked with a `findFirst` before `create`/
+  `update`, with the database's own unique-constraint error still caught
+  as a backstop for the narrow check-then-write race. Chosen for a clean
+  `ConflictError` on the common path rather than depending solely on the
+  database round-tripping a well-formed constraint-violation error.
+- **Signup is the one public endpoint:** `POST /organizations` has no
+  authenticated caller by construction — it bootstraps a new tenant (org
+  + OWNER user + the org's four system roles, seeded from the code-level
+  permission catalog) in one transaction. Every other route sits behind
+  `authenticate`.
+
+**Verification:** `npm run typecheck && npm run lint && npm run build &&
+npm run test` all pass for both workspaces. Beyond that, the full
+login → org → property → room flow, cookie-based refresh rotation with
+replay detection, and validation/auth-guard error paths were exercised
+end-to-end over HTTP against the live PGlite instance (see the migration-
+verification entry above) via manual `curl` runs before the automated
+suite was written.
+
+**A real bug found and fixed during that manual verification:** `GET
+/properties/:propertyId/rooms` for a property belonging to a *different*
+organization returned `200 {"rooms":[]}` instead of `404` — not a data
+leak (tenant scoping still zeroed the result correctly), but inconsistent
+with every other property sub-route, which 404s on a cross-org ID. Fixed
+by having the rooms repository verify the parent property exists (through
+the scoped client) before listing, same pattern already used for `create`.
+
+---
+
+## 2026-08-19 — Phase 1 QA: standing tenant-isolation regression suite (1f)
+
+**Decision:** Added `backend/test/tenant-isolation.test.ts` as a
+permanent regression suite (not a one-off check) covering: a property/
+room created in one organization is invisible to another organization
+across list/get/create/update/delete; two organizations can reuse the
+same property slug independently; a `MANAGER` without a `PropertyAccess`
+grant gets 403 on a property in their *own* org, and gains access once
+granted. Since Phase 1 has no staff-invite endpoint yet, the
+`PropertyAccess` scenarios provision a second user directly against the
+database rather than through the API — exactly the schema path a future
+staff-management task will wire an endpoint onto.
+
+**Also decided:** `backend/vitest.config.ts` now sets
+`fileParallelism: false`. This suite shares one real database across all
+test files with no per-worker isolation (no schema-per-worker, no
+transactional rollback) — running files concurrently risks state races
+regardless of which Postgres is behind it. Revisit if/when the suite
+gains real per-worker DB isolation.
+
+**Verification:** `npm run test -w backend` — 30 tests across 6 files,
+all passing against the live (PGlite) database, including every
+cross-tenant case above.
+
+---
+
+## 2026-08-19 — Phase 1 Security review (1g)
+
+**Context:** Reviewed the auth, tenancy, and RBAC code from the two
+entries above per `docs/agents/security.md`'s focus areas before Phase 1
+proceeds to Frontend.
+
+**Findings and outcomes:**
+
+1. **No rate limiting on `/auth/login` (fixed).** Unlimited login
+   attempts against a known email is a brute-force exposure. Added a
+   minimal in-memory limiter (`platform/auth/rate-limit.ts`, 10 attempts
+   per 15-minute window per IP+email) — a narrow, isolated fix within
+   Security's write exception. **Follow-up:** this is single-process
+   only; a shared store (e.g. Redis) is needed before running more than
+   one API process, which doesn't apply yet (see the hosting/job-queue
+   decisions above) but will need revisiting alongside that.
+2. **`sameSite: 'lax'` on the refresh cookie (reviewed, kept).** Works
+   for local dev (different ports on `localhost` are same-site) and for
+   any production topology where the frontend and API share a
+   registrable domain. Documented directly on `cookies.ts` as a
+   deployment-topology constraint, since choosing genuinely different
+   registrable domains for frontend/API later would silently break the
+   refresh flow rather than erroring loudly.
+3. **Residual CSRF surface on `/auth/refresh` and `/auth/logout`
+   (reviewed, accepted for now).** `sameSite: 'lax'` already blocks a
+   truly cross-*site* POST from carrying the cookie at all; the remaining
+   exposure is same-site-but-different-subdomain, and even then CORS
+   blocks the attacker from reading the response — worst case is a forced
+   logout/session rotation, not token theft. No fix applied; noted as
+   acceptable for Phase 1's threat model, not for the payments/guest-PII
+   modules later.
+4. **No account lockout / password-reset flow.** Out of Phase 1 scope by
+   design (`TASKS.md` doesn't call for it yet) — noted, not fixed, so it
+   isn't silently forgotten before Phase 5 (payments) raises the stakes.
+5. **Secrets handling, CORS, input validation, Prisma query
+   parameterization:** reviewed, no findings — `.env` stays gitignored,
+   `.env.example` stays placeholder-only, CORS is origin-locked (not
+   wildcard) with credentials, every route validates input via `zod`
+   before it reaches Prisma, and no raw SQL exists anywhere in the
+   Phase 1 code.
+
+**Status:** sign-off given for Phase 1's auth/tenancy/RBAC code with the
+above two follow-ups (items 1 handled inline; items 2–4 documented for
+future phases) — required per `AGENTS.md`'s mandatory-sign-off list for
+this exact category of change.
+
 
