@@ -122,3 +122,89 @@ before delegating real feature work, is cheaper than untangling conflicting
 edits after the fact — and keeps every agent's job legible to a human
 reviewer at the approval step.
 
+---
+
+## 2026-08-19 — Production architecture direction, locked
+
+**Context:** With the foundation stage complete, a full architecture and
+product-planning review was carried out against the entire scope in
+`PROJECT_CONTEXT.md` plus the future modules described in planning
+(bookings, OTA integrations, payments, and a provider-agnostic AI
+Marketing Studio). That review produced a proposed production
+architecture; the following decisions from it are now confirmed by the
+human and locked for Phase 1 planning. See `ARCHITECTURE.md`'s "Approved
+direction" section for how these fit together.
+
+**Decisions:**
+
+1. **Session model:** JWT access token + DB-backed refresh session (not
+   stateless JWT alone). **Why:** a fired staff member's access must be
+   revocable immediately, which a stateless token can't guarantee before
+   it expires.
+2. **Authorization model:** permission-based RBAC from day one — a
+   `Permission`/`Role`/`RolePermission` schema, not the raw four-value
+   `UserRole` enum used as the authorization mechanism itself. The
+   existing OWNER/ADMIN/MANAGER/STAFF labels remain as built-in role
+   presets in the UI. **Why:** migrating live staff accounts off a
+   hardcoded enum onto a permission table later is a breaking,
+   user-visible change; building the permission schema now costs little.
+3. **Reservation date/time storage:** stay dates (check-in/check-out)
+   stored as date-only; actual event timestamps (e.g. actual check-in
+   moment) stored as `timestamptz`. **Why:** a stay date is a property-
+   local calendar date independent of clock time; an event timestamp is a
+   real moment that needs timezone-correct ordering.
+4. **Currency & tax scope:** INR-only for the initial release. No
+   multi-currency modeling in Phase 1's schema beyond what's trivially
+   additive later (e.g. not hardcoding "₹" into display strings). **Why:**
+   confirmed no near-term international property; avoids speculative
+   currency-conversion complexity.
+5. **Object storage:** an S3-compatible provider, selected to match
+   whichever cloud the production hosting decision (#9) puts the app on,
+   accessed only through the `platform/storage` abstraction — never a
+   vendor SDK called directly from a route or module. **Why:** no
+   provider choice should be able to leak into application code; the
+   abstraction is the actual decision, the vendor behind it is a config
+   value.
+6. **Background job queue:** pg-boss (Postgres-backed), no Redis. **Why:**
+   introduces zero new infrastructure classes — the project already runs
+   Postgres — consistent with the existing DevOps convention against
+   adding a second data store without a documented reason. Revisit only
+   if real throughput demands it.
+7. **AI provider integration order:** build and ship the first real
+   `AIMediaProvider` adapter against an image-generation provider before
+   attempting video. **Why:** lower cost and latency to validate the
+   provider-agnostic abstraction end-to-end; video adapters follow once
+   the pattern is proven. The specific first vendor (Higgsfield / Veo /
+   Kling / Seedance) is chosen at the start of that implementation task,
+   not here — the abstraction is what's locked, not the vendor.
+8. **Payment gateway:** Razorpay. **Why:** fits the INR/GST context
+   confirmed above; tokenized card handling only, the PMS never stores
+   raw card data.
+9. **Hosting:** the simplest production-ready option compatible with the
+   current repo shape (npm-workspaces monorepo, two Node deployables —
+   API and worker — plus Postgres) — a managed PaaS that runs both
+   processes from one repo with a managed Postgres add-on and
+   git-push/CI-triggered deploys, rather than a self-managed
+   container-orchestration platform. **Why:** the team and traffic don't
+   yet justify Kubernetes-class operational overhead; a PaaS gets managed
+   TLS, managed Postgres, and zero-downtime deploys without a DevOps
+   role dedicated to infrastructure. The specific vendor is a DevOps task
+   at Phase 1 kickoff (see `TASKS.md`), evaluated against: native support
+   for a second background-worker process from the same repo, a managed
+   Postgres offering, and GitHub-based deploy triggers — not re-litigated
+   here.
+10. **Documentation Agent:** added as the eighth role now (see `AGENTS.md`
+    and `docs/agents/documentation.md`), rather than deferred. **Why:**
+    doc drift compounds fastest exactly when feature velocity picks up,
+    which is what Phase 1 is about to do.
+11. **Shared-types workspace (`packages/shared`):** deferred until the
+    Reservations phase (Phase 4), not introduced now. **Why:** Phase 1's
+    surface (auth, org/property/room CRUD) doesn't yet generate enough
+    cross-workspace shared shapes to justify a third workspace's
+    boundary overhead.
+
+**Status:** these are architecture-direction decisions, not implemented
+code. No schema, route, or config file has changed as a result of this
+entry — Phase 1 implementation begins only after separate, explicit human
+approval per task, per the existing approval process in `AGENTS.md`.
+

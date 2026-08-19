@@ -37,20 +37,78 @@ Not feature work — governs how implementation tasks get carried out.
   - Verified: cross-checked every path referenced in the new docs against
     the actual repo layout; no code changes to build/lint/test
 
-## Next up (not started)
+## Architecture & product planning (2026-08-19)
 
-- [ ] **Staff authentication** — login, session/token handling, wire up
-  `User.passwordHash`. Blocks any endpoint that needs to know who's
-  calling it.
-- [ ] **Organizations & properties CRUD API** — authenticated endpoints to
-  create/read/update organizations, properties, and rooms, scoped to the
-  caller's organization.
-- [ ] **Admin UI shell** — authenticated frontend routes/layout for
-  managing properties and rooms once the CRUD API exists.
+- [x] **Architecture and product-planning review** (2026-08-19)
+  - Full repository read against the complete product scope (core PMS
+    through AI Marketing Studio); produced a proposed production
+    architecture, domain model, agent-role extension, and phased roadmap
+  - No code changed — planning output only
+- [x] **Lock Phase 1 architecture decisions** (2026-08-19)
+  - Session model (JWT + DB-backed refresh), permission-based RBAC,
+    date-only stay dates / `timestamptz` event timestamps, INR-only
+    initial scope, storage/job-queue/AI-provider/payment-gateway/hosting
+    choices, Documentation Agent added, shared-types workspace deferred —
+    see [DECISIONS.md](DECISIONS.md) for the full list and reasoning, and
+    [ARCHITECTURE.md](ARCHITECTURE.md)'s "Approved direction" section for
+    how they fit together
+  - Documentation-only: `AGENTS.md`, `docs/agents/documentation.md`
+    (new), `ARCHITECTURE.md`, `PROJECT_CONTEXT.md`, `DECISIONS.md`,
+    `TASKS.md` (this entry) updated; no application code, schema, or
+    config touched
+  - **Phase 1 implementation below is planned but not started — waiting
+    on explicit human approval before any agent is dispatched.**
 
-Each of the above will be delegated per [AGENTS.md](AGENTS.md) once
-started — expect them to appear as sequenced Database → Backend → Frontend
-sub-tasks rather than one task per bullet.
+## Phase 1 — Auth, RBAC, tenancy enforcement (planned, not started)
+
+Sequenced Database → Backend → Frontend, per [AGENTS.md](AGENTS.md)'s
+delegation model. Nothing in this phase begins until approved.
+
+- [ ] **1a. Database — apply & verify the foundation migration**
+  Apply the existing initial migration to a real Postgres instance and
+  confirm it applies cleanly (standing follow-up from the foundation
+  task, carried forward — see [DECISIONS.md](DECISIONS.md)).
+- [ ] **1b. Database — auth & access schema**
+  Add `Session` (refresh-token records), `Permission`, `Role`,
+  `RolePermission`, `UserRole` (join), and `PropertyAccess` (join) per the
+  locked RBAC decision. Update [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)
+  to match.
+- [ ] **1c. Backend — auth endpoints**
+  Login, refresh, logout; argon2id password hashing; JWT issuance against
+  the new `Session` model.
+- [ ] **1d. Backend — tenancy & RBAC middleware**
+  `platform/tenancy` (request-scoped org/property context + the Prisma
+  tenant-scoping extension) and `platform/rbac` (permission-guard
+  middleware), per the enforcement design in
+  [ARCHITECTURE.md](ARCHITECTURE.md).
+- [ ] **1e. Backend — Organizations/Properties/Rooms CRUD**
+  Authenticated, tenant-scoped, permission-guarded endpoints, built on
+  1c/1d from the start rather than retrofitted after.
+- [ ] **1f. QA — tenant-isolation regression suite**
+  Stood up alongside 1e's endpoints: cross-org access attempts must
+  403/404 on every tenant-scoped route. A permanent gate, not a one-off
+  check.
+- [ ] **1g. Security — sign-off**
+  Mandatory review of 1c/1d/1b before merge, per the fixed sign-off list
+  in [AGENTS.md](AGENTS.md)'s approval process (session/permission
+  schema, tenant-scoping enforcement).
+- [ ] **1h. DevOps — CI pipeline**
+  GitHub Actions (or equivalent) running the root verification commands
+  (`typecheck && lint && build && test`) on every PR, plus a migration
+  dry-run. Do this alongside Phase 1 rather than after — manual
+  verification stops scaling once more than one or two tasks are in
+  flight concurrently.
+- [ ] **1i. Frontend — router, auth context, login screen, admin shell**
+  First introduction of routing/state for auth per
+  [docs/agents/frontend.md](docs/agents/frontend.md).
+- [ ] **1j. Frontend — Properties/Rooms management screens**
+  Against the now-real, authenticated CRUD API from 1e.
+
+Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
+housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
+OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the
+phased roadmap in the architecture review; each phase gets its own
+`TASKS.md` breakdown when it starts, not before.
 
 ## Explicitly out of scope for now
 
