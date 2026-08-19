@@ -64,15 +64,25 @@ Not feature work — governs how implementation tasks get carried out.
 Sequenced Database → Backend → Frontend, per [AGENTS.md](AGENTS.md)'s
 delegation model. Nothing in this phase begins until approved.
 
-- [ ] **1a. Database — apply & verify the foundation migration**
-  Apply the existing initial migration to a real Postgres instance and
-  confirm it applies cleanly (standing follow-up from the foundation
-  task, carried forward — see [DECISIONS.md](DECISIONS.md)).
-- [ ] **1b. Database — auth & access schema**
-  Add `Session` (refresh-token records), `Permission`, `Role`,
-  `RolePermission`, `UserRole` (join), and `PropertyAccess` (join) per the
-  locked RBAC decision. Update [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)
-  to match.
+- [~] **1a. Database — apply & verify the foundation migration**
+  **Blocked, not closed:** no live Postgres was reachable in this
+  sandbox — Docker's socket requires group access this session doesn't
+  have non-interactively, and no local `postgres`/`psql` binary exists
+  either. Same gap as the original foundation migration, now compounded
+  by a second unverified migration (1b). Both `prisma validate` and
+  `prisma generate` pass. **Standing follow-up:** the next person with
+  real Postgres access must run `npm run db:migrate -w backend` and
+  confirm both migrations apply cleanly, in order, before this schema is
+  considered verified end-to-end.
+- [x] **1b. Database — auth & access schema** (2026-08-19)
+  Added `Session`, `Permission`, `Role`, `RolePermission`,
+  `UserRoleAssignment`, and `PropertyAccess` per the locked RBAC decision
+  — see `backend/prisma/schema.prisma` and migration
+  `20260819000000_phase1_auth_rbac_tenancy`. `DATABASE_SCHEMA.md` updated
+  to match. Verified: `prisma validate` and `prisma generate` pass; the
+  new migration's statements were diffed against a from-empty full-schema
+  regeneration to confirm the incremental SQL is equivalent — not a
+  substitute for applying it to a real database (see 1a).
 - [ ] **1c. Backend — auth endpoints**
   Login, refresh, logout; argon2id password hashing; JWT issuance against
   the new `Session` model.

@@ -1,6 +1,9 @@
 // The Living Canvas PMS — core database schema
-// Scope for this task: organizations, staff users, properties, rooms.
-// Out of scope (future tasks): bookings, OTA integrations, reviews, payments, marketing.
+// Foundation scope: organizations, staff users, properties, rooms.
+// Phase 1 scope (2026-08-19, see DECISIONS.md): sessions, permission-based
+// RBAC, property-level access grants — auth/tenancy/authorization plumbing.
+// Still out of scope (future phases): bookings, OTA integrations, reviews,
+// payments, marketing.
 
 generator client {
   provider = "prisma-client-js"
@@ -22,6 +25,7 @@ model Organization {
 
   users      User[]
   properties Property[]
+  roles      Role[]
 
   @@map("organizations")
 }
@@ -34,8 +38,10 @@ enum UserRole {
 }
 
 /// A staff member who can log in and operate the PMS on behalf of
-/// an Organization. Authentication itself is implemented in a later task;
-/// passwordHash is nullable until then.
+/// an Organization. `role` is a coarse, UI-facing preset — the
+/// authorization decision itself is made from resolved permissions via
+/// UserRoleAssignment -> Role -> RolePermission (see Phase 1 decisions in
+/// DECISIONS.md), not from this enum directly.
 model User {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
@@ -48,10 +54,128 @@ model User {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessions        Session[]
+  roleAssignments UserRoleAssignment[]
+  propertyAccess  PropertyAccess[]
 
   @@index([organizationId])
   @@map("users")
+}
+
+/// A refresh session backing the JWT access token (Phase 1 decision #1,
+/// see DECISIONS.md): the access token is short-lived and stateless, but
+/// the refresh token is a real row here so a session can be revoked
+/// immediately (e.g. staff offboarding) rather than waiting out an
+/// expiry. Only a hash of the refresh token is stored, never the token
+/// itself.
+model Session {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// The global permission catalog (Phase 1 decision #2, see DECISIONS.md).
+/// Deliberately NOT scoped under Organization — a permission key like
+/// "properties:update" is a platform-defined capability, the same across
+/// every tenant, not a piece of any one organization's business data.
+/// The source of truth for which keys exist is
+/// `backend/src/platform/rbac/permissions.ts`; this table exists so
+/// RolePermission can have a real foreign key and so a future admin UI
+/// can list permissions without hardcoding them.
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  description String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+/// An organization-scoped role. Every organization gets its own copy of
+/// the four built-in presets (OWNER/ADMIN/MANAGER/STAFF, `isSystem =
+/// true`) seeded at organization-creation time, matching `User.role`'s
+/// enum values — this is what lets a future custom-role builder extend
+/// the same schema without a breaking migration, while Phase 1 itself
+/// only ever creates the four system presets.
+model Role {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+  userAssignments UserRoleAssignment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+/// Join table: which permissions a Role grants.
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// Join table: which roles a User holds. Named `UserRoleAssignment`
+/// (rather than `UserRole`) because `UserRole` is already the enum on
+/// `User.role`.
+model UserRoleAssignment {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  roleId         String   @map("role_id")
+  organizationId String   @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("user_role_assignments")
+}
+
+/// Explicit grant of a User onto a Property. OWNER/ADMIN role-holders
+/// reach every property in their organization implicitly (checked in
+/// application code, not via a row here); MANAGER/STAFF need an explicit
+/// row per property they may access. Absence of a row is the default
+/// (no access) — this table only ever grants, never restricts.
+model PropertyAccess {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  propertyId String   @map("property_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@index([propertyId])
+  @@map("property_access")
 }
 
 /// A single physical venue (hotel, guesthouse, etc.) belonging to an Organization.
@@ -71,8 +195,9 @@ model Property {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  rooms        Room[]
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rooms          Room[]
+  propertyAccess PropertyAccess[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
