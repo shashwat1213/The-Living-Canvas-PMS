@@ -82,6 +82,13 @@ export async function createSession(
  * one — so a stolen-then-reused refresh token is detectable (the
  * original session is already revoked by the time an attacker replays
  * it) rather than remaining valid indefinitely.
+ *
+ * Also checks the session's owner is still active — a deactivated user
+ * (e.g. staff offboarding, exactly the scenario `Session` exists for)
+ * must not be able to keep refreshing indefinitely just because their
+ * refresh cookie hasn't expired yet. The session is revoked here too, so
+ * a since-deactivated user's stored refresh token is fully dead on first
+ * use rather than merely rejected-and-retryable.
  */
 export async function rotateSession(
   presentedToken: string,
@@ -91,6 +98,12 @@ export async function rotateSession(
   const existing = await prisma.session.findUnique({ where: { refreshTokenHash: tokenHash } });
 
   if (!existing || existing.revokedAt || existing.expiresAt < new Date()) {
+    return null;
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: existing.userId }, select: { isActive: true } });
+  if (!user || !user.isActive) {
+    await prisma.session.update({ where: { id: existing.id }, data: { revokedAt: new Date() } });
     return null;
   }
 

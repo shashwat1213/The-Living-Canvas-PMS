@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
+import { prisma } from '../src/lib/prisma.js';
 import { app, signupOrganization } from './helpers.js';
 
 describe('POST /api/v1/auth/login', () => {
@@ -100,5 +101,42 @@ describe('POST /api/v1/auth/refresh + /logout', () => {
     // Replaying the ORIGINAL (now-revoked) refresh token must fail.
     const replay = await request(app).post('/api/v1/auth/refresh').set('Cookie', originalCookie).send();
     expect(replay.status).toBe(401);
+  });
+
+  it('rejects a refresh once the user has been deactivated, and revokes the session (the fix)', async () => {
+    const { ownerEmail, ownerPassword } = await signupOrganization();
+    const agent = request.agent(app);
+    await agent.post('/api/v1/auth/login').send({ email: ownerEmail, password: ownerPassword });
+
+    // No staff-deactivation endpoint exists yet (Phase 1 scope) — this is
+    // exactly the scenario the schema/mechanism exists to support once
+    // one does, so the test provisions it directly, same pattern already
+    // used in tenant-isolation.test.ts for PropertyAccess.
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } });
+    await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
+
+    const refreshed = await agent.post('/api/v1/auth/refresh').send();
+    expect(refreshed.status).toBe(401);
+
+    // The session was revoked as part of discovering the deactivation —
+    // not just this one attempt rejected, so retrying doesn't keep
+    // hitting the same live-but-now-inactive-user check indefinitely.
+    const session = await prisma.session.findFirstOrThrow({ where: { userId: user.id } });
+    expect(session.revokedAt).not.toBeNull();
+
+    // A second refresh attempt with the same (now-revoked) cookie fails
+    // the same way a replayed token does.
+    const secondAttempt = await agent.post('/api/v1/auth/refresh').send();
+    expect(secondAttempt.status).toBe(401);
+  });
+
+  it('still lets an active user refresh normally (no regression for the common case)', async () => {
+    const { ownerEmail, ownerPassword } = await signupOrganization();
+    const agent = request.agent(app);
+    await agent.post('/api/v1/auth/login').send({ email: ownerEmail, password: ownerPassword });
+
+    const refreshed = await agent.post('/api/v1/auth/refresh').send();
+    expect(refreshed.status).toBe(200);
+    expect(typeof refreshed.body.accessToken).toBe('string');
   });
 });
