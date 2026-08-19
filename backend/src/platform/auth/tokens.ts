@@ -13,6 +13,19 @@ export interface AccessTokenPayload {
   grantedPropertyIds: string[];
 }
 
+/**
+ * What `verifyAccessToken` actually returns: `jwt.sign`/`jwt.verify` add
+ * `iat`/`exp` automatically, on top of whatever was passed to
+ * `signAccessToken`. Callers that need those claims — e.g. the
+ * token-revocation watermark check in `tenancy/middleware.ts`, which
+ * compares `iat` against `User.tokensValidAfter` — use this type rather
+ * than the plain `AccessTokenPayload` a caller signs with.
+ */
+export interface VerifiedAccessTokenPayload extends AccessTokenPayload {
+  iat: number;
+  exp: number;
+}
+
 /** Short-lived, stateless JWT access token (Phase 1 decision #1). */
 export function signAccessToken(payload: AccessTokenPayload): string {
   return jwt.sign(payload, env.auth.jwtSecret, {
@@ -20,8 +33,8 @@ export function signAccessToken(payload: AccessTokenPayload): string {
   });
 }
 
-export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, env.auth.jwtSecret) as AccessTokenPayload;
+export function verifyAccessToken(token: string): VerifiedAccessTokenPayload {
+  return jwt.verify(token, env.auth.jwtSecret) as VerifiedAccessTokenPayload;
 }
 
 /**

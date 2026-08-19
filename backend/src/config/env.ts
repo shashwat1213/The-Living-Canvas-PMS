@@ -31,5 +31,11 @@ export const env = {
     jwtSecret: process.env.JWT_SECRET ?? 'test-only-jwt-secret-do-not-use-in-production',
     accessTokenTtlMinutes: Number(process.env.JWT_ACCESS_TOKEN_TTL_MINUTES ?? 15),
     refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30),
+    // How long `platform/auth/revocation-cache.ts` trusts a cached
+    // User.tokensValidAfter value before re-checking the database. This
+    // is the actual bound on how quickly a revocation (deactivation)
+    // becomes enforced against an already-issued access token — see
+    // DECISIONS.md, "token-revocation watermark".
+    tokensValidAfterCacheTtlSeconds: Number(process.env.TOKENS_VALID_AFTER_CACHE_TTL_SECONDS ?? 30),
   },
 };

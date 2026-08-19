@@ -36,18 +36,30 @@ A staff member who can operate the PMS on behalf of an Organization.
 is made from resolved permissions via `UserRoleAssignment` → `Role` →
 `RolePermission` (see below), not from this enum directly.
 
-| Column           | Type      | Notes                                   |
-|------------------|-----------|------------------------------------------|
-| id               | uuid      | PK                                       |
-| organization_id  | uuid      | FK → organizations, cascade delete       |
-| email            | text      | unique                                   |
-| password_hash    | text?     | nullable until a user completes signup   |
-| first_name       | text      |                                           |
-| last_name        | text      |                                           |
-| role             | enum      | OWNER \| ADMIN \| MANAGER \| STAFF       |
-| is_active        | boolean   | default true                             |
-| created_at       | timestamp |                                           |
-| updated_at       | timestamp |                                           |
+| Column              | Type       | Notes                                   |
+|---------------------|------------|-------------------------------------------|
+| id                  | uuid       | PK                                       |
+| organization_id     | uuid       | FK → organizations, cascade delete       |
+| email               | text       | unique                                   |
+| password_hash       | text?      | nullable until a user completes signup   |
+| first_name          | text       |                                           |
+| last_name           | text       |                                           |
+| role                | enum       | OWNER \| ADMIN \| MANAGER \| STAFF       |
+| is_active           | boolean    | default true                             |
+| tokens_valid_after  | timestamp? | token-revocation watermark — see below   |
+| created_at          | timestamp  |                                           |
+| updated_at          | timestamp  |                                           |
+
+`tokens_valid_after` is the token-revocation watermark (added
+2026-08-20, see [DECISIONS.md](DECISIONS.md)): `authenticate` rejects an
+already-issued access token whose `iat` predates this value, even though
+its own signature and expiry are still valid — closing the gap
+`Session` revocation alone can't (an access token that was minted
+*before* a user was deactivated and hasn't expired yet). Null (the
+default, and the state of every user who has never been deactivated)
+means "no floor" — nothing is rejected on this basis. Set via
+`platform/auth/revocation.ts`'s `bumpTokensValidAfter`/`deactivateUser`,
+never written directly elsewhere.
 
 ### Session
 
@@ -187,20 +199,20 @@ Migrations live in `backend/prisma/migrations/`:
   Property, Room).
 - `20260819000000_phase1_auth_rbac_tenancy` — Session, Permission, Role,
   RolePermission, UserRoleAssignment, PropertyAccess.
+- `20260819182224_token_revocation_watermark` — adds `User.tokensValidAfter`
+  (see the User table above).
 
-Both were generated via `prisma migrate diff` against the schema file
-alone. **No live Docker-backed Postgres has been reachable in the dev
-sandbox that authored either one** — but both have now been applied and
-exercised against a real Postgres wire-protocol server backed by
-[PGlite](https://pglite.dev/) (the actual PostgreSQL engine compiled to
-WASM, not an emulation), including a full create/read round-trip across
-every table and a verified cascade-delete from `Organization` down
-through every child model (see the 2026-08-19 entries in
-[TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the method and
-what it did and didn't prove). A confirmation run against the project's
-actual `docker-compose.yml` Postgres 16 is still worth doing once Docker
-access is available:
+The first two were generated via `prisma migrate diff` against the
+schema file alone and verified against
+[PGlite](https://pglite.dev/) (the real PostgreSQL engine compiled to
+WASM) — no live Docker-backed Postgres was reachable in the sandbox that
+authored either one at the time (see the 2026-08-19 entries in
+[DECISIONS.md](DECISIONS.md)). **Docker access opened up partway through
+Phase 1** — the third migration was generated and applied the normal way
+(`prisma migrate dev`) against a real, native `postgres:16-alpine`, and a
+full run confirmed the first two apply cleanly there as well, closing the
+"WASM, not the real target engine" caveat those earlier entries flagged.
 
 ```bash
-npm run db:migrate -w backend   # prisma migrate dev — applies both migrations
+npm run db:migrate -w backend   # prisma migrate dev — applies all pending migrations
 ```

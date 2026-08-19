@@ -164,8 +164,53 @@ known limitation (a WASM Postgres wire-protocol quirk around genuine
 unique-constraint errors, worked around by checking uniqueness
 proactively rather than relying solely on catching the database's own
 error — a real improvement in its own right, not only a workaround).
-Frontend: 14 tests across 5 files. **Phase 1 is now feature-complete
-except 1h (CI pipeline).**
+Frontend: 14 tests across 5 files. **Phase 1 (1a–1j) is feature-complete.**
+
+## Branch review (2026-08-19/20) — findings and fixes, pre-merge
+
+A full-diff review of `phase1/auth-rbac-tenancy` (correctness, security,
+tenant isolation, architecture compliance, tests, unintended changes)
+surfaced 10 findings before merge. Two were fixed immediately; the
+remaining eight are tracked here for a separate pass — **not merged to
+`main` yet.**
+
+- [x] **Session revocation gap (finding #1)** (2026-08-19) — `rotateSession`
+  never checked `User.isActive`, only `login()` did. Fixed; see
+  [DECISIONS.md](DECISIONS.md).
+- [x] **Hardcoded secret reachable via `NODE_ENV=test` alone (finding #2)**
+  (2026-08-19) — `isTest` now also requires `VITEST === 'true'`. Fixed;
+  see [DECISIONS.md](DECISIONS.md).
+- [x] **Token-revocation watermark (Option B)** (2026-08-20) — closes the
+  residual gap fix #1 explicitly couldn't (an already-issued access token
+  survives deactivation until its own expiry). `User.tokensValidAfter`,
+  checked in `authenticate` via a 30s-default configurable in-process
+  cache; `deactivateUser`/`bumpTokensValidAfter` in
+  `platform/auth/revocation.ts`. Not wired to any route — Phase 1 still
+  has no staff-deactivation endpoint; this is infrastructure for that
+  future task. Full design plan reviewed and approved before
+  implementation; see [DECISIONS.md](DECISIONS.md) for the mechanism,
+  the fail-closed decision, and what it did and didn't prove.
+- [ ] **Finding #3** — login timing side-channel (argon2id only runs when
+  a user exists, undermining the uniform-error-message intent).
+- [ ] **Finding #4** — `scoped-prisma.ts`'s tenant extension doesn't cover
+  `upsert`'s `create` payload (dormant today — no repository calls
+  `upsert` on `Property`/`Room` yet — but a landmine in the core
+  tenant-isolation mechanism if one ever does).
+- [ ] **Finding #5** — `organizations/service.ts`'s signup uniqueness race
+  isn't caught (raw 500 instead of 409 under concurrent duplicate
+  signups; every other create path in this diff handles this).
+- [ ] **Finding #6** — `context.ts`'s `canAccessProperty` re-implements
+  the org-wide-role check instead of reusing `ORG_WIDE_ROLES`.
+- [ ] **Finding #7** — `seed.ts` instantiates its own `PrismaClient`
+  instead of the shared singleton (violates the documented single-client
+  rule).
+- [ ] **Finding #8** — a `feat(frontend)` commit modified
+  `frontend/src/test/setup.ts`, which `AGENTS.md`'s ownership map assigns
+  to QA, with no boundary-crossing note recorded at the time.
+- [ ] **Finding #9** — the check-then-write-then-catch uniqueness pattern
+  is duplicated across properties/rooms/organizations `service.ts` files.
+- [ ] **Finding #10** — the property/room slug validation regex is
+  duplicated across 4 files (2 backend, 2 frontend).
 
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

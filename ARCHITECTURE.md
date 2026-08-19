@@ -26,7 +26,7 @@ The-Living-Canvas-PMS/
 │   │   ├── config/          Environment/config loading
 │   │   ├── lib/             Shared infra (Prisma client singleton, HTTP errors)
 │   │   ├── platform/        Cross-cutting infra — not a business domain
-│   │   │   ├── auth/        Password hashing, JWT, refresh sessions, cookies, rate limiting
+│   │   │   ├── auth/        Password hashing, JWT, refresh sessions, cookies, rate limiting, revocation
 │   │   │   ├── tenancy/     Request context + the tenant-scoping Prisma extension
 │   │   │   └── rbac/        Permission catalog, role provisioning, route guards
 │   │   ├── modules/         One dir per business domain
@@ -68,6 +68,15 @@ The-Living-Canvas-PMS/
   token + a DB-backed, rotating refresh session delivered as an httpOnly
   cookie. See `platform/auth/**` and `modules/auth/**`, and
   [DECISIONS.md](DECISIONS.md) for the reasoning.
+- **Token revocation has two layers** (Phase 1, 2026-08-20): revoking a
+  user's `Session` rows (e.g. `deactivateUser`) stops them minting *new*
+  access tokens; a per-user revocation watermark
+  (`User.tokensValidAfter`, checked in `authenticate` via
+  `platform/auth/revocation-cache.ts`) additionally rejects an
+  *already-issued* access token, bounded by a short in-process cache TTL
+  rather than the token's own (longer) expiry. Single-process only —
+  same caveat as the login rate limiter, needs a shared store before
+  running more than one API process. See DECISIONS.md.
 - **Authorization is permission-based**, not a raw role-string check:
   every route declares the permission(s) it needs via
   `platform/rbac/guard.ts`'s `requirePermission`; property-level routes

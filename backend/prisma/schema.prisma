@@ -43,16 +43,24 @@ enum UserRole {
 /// UserRoleAssignment -> Role -> RolePermission (see Phase 1 decisions in
 /// DECISIONS.md), not from this enum directly.
 model User {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  email          String   @unique
-  passwordHash   String?  @map("password_hash")
-  firstName      String   @map("first_name")
-  lastName       String   @map("last_name")
-  role           UserRole @default(STAFF)
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  email            String    @unique
+  passwordHash     String?   @map("password_hash")
+  firstName        String    @map("first_name")
+  lastName         String    @map("last_name")
+  role             UserRole  @default(STAFF)
+  isActive         Boolean   @default(true) @map("is_active")
+  /// Token-revocation watermark (see DECISIONS.md, "token-revocation
+  /// watermark"): an already-issued JWT access token with an `iat` before
+  /// this timestamp is rejected by `authenticate`, regardless of its own
+  /// expiry. Null means "no floor" — the default, no-op state for every
+  /// user who has never been deactivated; nullable specifically so this
+  /// column needs no backfill and changes nothing for existing users on
+  /// migration day.
+  tokensValidAfter DateTime? @map("tokens_valid_after")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sessions        Session[]
@@ -216,9 +224,9 @@ model Room {
   id         String     @id @default(uuid())
   propertyId String     @map("property_id")
   name       String
-  roomType   String      @map("room_type")
+  roomType   String     @map("room_type")
   floor      String?
-  capacity   Int         @default(1)
+  capacity   Int        @default(1)
   status     RoomStatus @default(ACTIVE)
   notes      String?
   createdAt  DateTime   @default(now()) @map("created_at")

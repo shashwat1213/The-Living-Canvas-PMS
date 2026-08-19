@@ -488,4 +488,141 @@ happened from this sandbox. That's a real gap, not glossed over: the
 workflow file's syntax and command sequence are verified as correct as
 they can be without actually triggering a GitHub Actions run.
 
+---
+
+## 2026-08-19 — Branch review fixes: session revocation + secret-fallback guard
+
+**Context:** A full-diff review of `phase1/auth-rbac-tenancy` (correctness,
+security, tenant isolation, architecture compliance, tests, unintended
+changes) surfaced ten findings. Per explicit instruction, only the two
+most severe were fixed at this point; #3–#10 were deliberately left
+untouched pending separate review.
+
+**Fix 1 — `rotateSession` never checked `User.isActive`.** Only `login()`
+did, so a deactivated staff member's existing refresh cookie (up to 30
+days) kept minting valid access tokens indefinitely via
+`POST /auth/refresh`. `rotateSession` now checks the session owner's
+`isActive` and revokes the session the moment a deactivated user's cookie
+is presented — dead on first use, not just rejected-and-retryable.
+
+**Fix 2 — the hardcoded fallback JWT secret was reachable via `NODE_ENV`
+alone.** `isTest` was `nodeEnv === 'test'`, which a misconfigured real
+deployment could end up with, silently signing tokens with a secret
+committed in this repo. `isTest` now additionally requires
+`process.env.VITEST === 'true'` (confirmed empirically: Vitest sets this
+for its whole process; a real running server never has it), so a real
+deployment merely misconfigured with `NODE_ENV=test` still hits the
+required-variable throw.
+
+**What this fix deliberately did NOT close:** an access token minted
+*before* deactivation and not yet expired remains valid until its own
+(≤15 min) expiry — inherent to a stateless JWT, and explicitly scoped as
+an accepted tradeoff in the original session-model decision above ("a
+stateless token can't guarantee [revocation] before it expires"). See the
+next entry for the follow-up that closes this specific gap.
+
+**Verification:** `npm run typecheck/lint/build -w backend` pass; full
+backend suite 36/36 (30 pre-existing + 6 new — 2 in `auth.test.ts`
+proving the revocation behavior, 4 in new `env.test.ts` covering the
+`isTest`/`VITEST` guard via isolated child processes, since that guard
+runs once at module-import time and can't safely be exercised by
+mutating this suite's own live `process.env`).
+
+---
+
+## 2026-08-20 — Token-revocation watermark (Option B)
+
+**Context:** Following up on the residual gap named in the entry above:
+an already-issued access token survives a user's deactivation for up to
+its own TTL, because `authenticate` verifies it purely by signature and
+expiry — no database or cache lookup on that path, by design (that's the
+entire performance point of using a JWT for the access-token layer).
+Several designs were weighed (shorten the TTL; a per-user revocation
+watermark; a fully stateful per-token check; a push-based "kick" signal)
+before implementing a per-user watermark, checked through a short-lived
+in-process cache — bounding the lag to the cache TTL instead of the
+access-token TTL, without a database hit on every request and without a
+new infrastructure dependency (no Redis).
+
+**Schema:** `User.tokensValidAfter DateTime?`, nullable and
+unbackfilled — `null` is "no floor," the state of every existing user on
+migration day, so this is purely additive with no forced logout on
+deploy.
+Migration `20260819182224_token_revocation_watermark`.
+
+**Mechanism:**
+- `authenticate` (`tenancy/middleware.ts`) compares the verified token's
+  `iat` against `User.tokensValidAfter` (via
+  `platform/auth/revocation-cache.ts`), rejecting when `iat` predates it,
+  regardless of the token's own expiry.
+- The cache is cache-first including a cached `null` (the common case —
+  this is what avoids a database hit for every request from a user who's
+  never been touched, not only for revoked ones), database fallback on a
+  miss, `env.auth.tokensValidAfterCacheTtlSeconds` — **30s default,
+  configurable via `TOKENS_VALID_AFTER_CACHE_TTL_SECONDS`.**
+- `platform/auth/revocation.ts` exposes `bumpTokensValidAfter` (sets the
+  watermark + proactively evicts the cache entry, so the process
+  performing a revocation enforces it immediately in its own subsequent
+  requests) and `deactivateUser` (composes the watermark bump with
+  `isActive: false` and `revokeAllSessionsForUser`, so a deactivated
+  user's already-issued access token *and* refresh cookie both die
+  together — closing this gap and the one from the entry above in one
+  call). Neither is wired to a route yet — **Phase 1 still has no
+  staff-deactivation endpoint** (see TASKS.md); this is the seam a future
+  task calls into, built now specifically so that task doesn't have to
+  invent it or forget the watermark.
+
+**Fail-closed on a database error during a cache miss (explicit choice,
+overriding the plan's own recommendation of fail-open):** the lookup
+(`prisma.user.findUniqueOrThrow`) is not swallowed — a database error, or
+the user no longer existing, propagates and `authenticate` rejects the
+request. Chosen deliberately in favor of stricter security over
+availability at this checkpoint specifically.
+
+**Logout does not bump the watermark; deactivation does.** Plain
+single-device logout must only kill the caller's own session — bumping
+the watermark there would silently log out every other device/tab that
+user has open, which is not what "log out" means. A future explicit
+"log out everywhere" feature would call the same bump helper; ordinary
+logout is unchanged.
+
+**Multi-instance caveat, stated plainly:** the cache is in-process, same
+limitation already documented for the login rate limiter. Phase 1 is
+single-process, so this is fully effective as built. Before running more
+than one API process, this needs a shared store (e.g. Redis) — each
+process otherwise tracks its own independent cache, bounding revocation
+lag to "within TTL, per process" rather than "within TTL, globally."
+
+**A real, predicted edge case, confirmed in testing:** JWT `iat` has
+one-second granularity. A token minted in the same wall-clock second as
+a watermark bump can have a truncated `iat` that appears to predate the
+bump even though it was actually issued after — this can only cause
+spurious *rejection*, never spurious *acceptance*, so it's an accepted,
+safe-direction imprecision (a rare, harmless "please log in again," not
+a security gap). The "accepts a token minted after the bump" test
+originally failed on exactly this collision and was fixed by waiting
+past the second boundary — confirming the behavior matches what was
+designed, not papering over a bug.
+
+**Verification:** `npm run typecheck/lint/build -w backend` pass. New
+`test/token-revocation.test.ts` (7 tests) covers: proactive same-process
+rejection immediately after a bump; a fresh post-bump login still works;
+`deactivateUser` closing both the access-token and refresh-session gaps
+together; no regression to the default null-watermark case; the cache
+TTL boundary itself (a cached value survives within TTL, a direct DB
+write — bypassing the proactive-eviction helper on purpose — is picked
+up once the TTL elapses); and fail-closed behavior on a simulated
+database error, including recovery once the database is reachable again.
+Full backend suite: 43/43. Additionally verified live against a real
+`postgres:16-alpine` (Docker access became available partway through
+Phase 1 — see the migration-verification follow-up in
+[DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)): deactivated a user from a
+separate process while the API server kept running, confirmed the
+existing token still worked within the 30s cache window and was rejected
+immediately after it elapsed — the exact real-world sequence the design
+was built for, not just the test suite's simulation of it.
+
+**Status:** implemented on `phase1/auth-rbac-tenancy`, not merged to
+`main`.
+
 

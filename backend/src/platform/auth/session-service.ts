@@ -119,3 +119,16 @@ export async function revokeSession(presentedToken: string): Promise<void> {
     data: { revokedAt: new Date() },
   });
 }
+
+/**
+ * Revokes every active session a user holds — used by
+ * `platform/auth/revocation.ts`'s `deactivateUser` so a deactivated
+ * user's refresh capability dies immediately across every device, not
+ * just the one session that happens to be presented next.
+ */
+export async function revokeAllSessionsForUser(userId: string): Promise<void> {
+  await prisma.session.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
