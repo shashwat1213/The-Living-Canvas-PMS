@@ -219,6 +219,21 @@ remaining eight are tracked here for a separate pass — **not merged to
 **All 10 branch-review findings are now resolved.** See DECISIONS.md for
 verification detail on each.
 
+## Phase 1 UX completeness (2026-08-20)
+
+- [x] **Dashboard placeholder** — `/app` now shows a real `DashboardPage`
+  (org name, real property count, honest "not built yet" note) instead
+  of silently redirecting to Properties. Nav updated to match.
+- [x] **Loading/success feedback** — `PropertiesPage`/`RoomsPage` now
+  give a brief success confirmation after create/delete/status-change,
+  and loading text is visually consistent with `RequireAuth`'s session-
+  init loading state. No new dependency, no fabricated data.
+
+Verified: `npm run typecheck/lint/build -w frontend` pass; frontend
+suite 19/19 (6 files, 5 new); backend fully re-verified unaffected
+(47/47 full suite; 34/34 auth/tenant-isolation/token-revocation/
+organizations specifically). See DECISIONS.md for detail.
+
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the

@@ -38,6 +38,9 @@ export function AppShell() {
       <header className="shell-topbar">
         <span className="shell-org-name">{organization?.name ?? 'The Living Canvas'}</span>
         <nav className="shell-nav">
+          <NavLink to="/app" end className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
+            Dashboard
+          </NavLink>
           <NavLink to="/app/properties" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
             Properties
           </NavLink>

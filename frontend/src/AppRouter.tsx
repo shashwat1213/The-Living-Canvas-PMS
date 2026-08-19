@@ -1,8 +1,9 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 
 import App from './App';
 import { RequireAuth } from './auth/RequireAuth';
 import { AppShell } from './layout/AppShell';
+import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { PropertiesPage } from './pages/PropertiesPage';
 import { RoomsPage } from './pages/RoomsPage';
@@ -22,7 +23,7 @@ export function AppRouter() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="properties" replace />} />
+        <Route index element={<DashboardPage />} />
         <Route path="properties" element={<PropertiesPage />} />
         <Route path="properties/:propertyId/rooms" element={<RoomsPage />} />
       </Route>

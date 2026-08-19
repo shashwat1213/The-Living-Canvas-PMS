@@ -723,4 +723,49 @@ across 8 files) passing against the live database. `npm run db:seed -w
 backend` re-run successfully for #7. No test was weakened, skipped, or
 removed to reach this state.
 
+---
+
+## 2026-08-20 — Phase 1 UX completeness: dashboard, loading/success feedback
+
+**Context:** the E2E verification pass flagged that `/app` silently
+redirected straight to `PropertiesPage` — functional, but it meant there
+was no honest "this is what Phase 1 actually has" screen; a genuinely
+empty product surface was being papered over by treating a CRUD list as
+the dashboard.
+
+**Decision:** Added a real `DashboardPage` as the `/app` index route,
+replacing the redirect. It shows the org name, a real property count
+(fetched, never fabricated) linking to Properties, and an explicit note
+naming what isn't built yet (occupancy, revenue, booking activity) rather
+than a blank space or a silent redirect pretending nothing was skipped.
+Added a "Dashboard" nav link alongside "Properties" in `AppShell`.
+
+**Success feedback:** `PropertiesPage` and `RoomsPage` now show a brief,
+self-clearing (`setTimeout`, 3.5s) confirmation banner after create/
+delete/status-change actions, reusing the same visual pattern as the
+existing error banner (`.page-error` → new `.page-success`) rather than
+introducing a toast library or new dependency. The updated list was
+already the "real" evidence an action worked; this makes it also
+immediately legible without reading the list diff.
+
+**Loading states:** `PropertiesPage`/`RoomsPage`'s bare `<p>Loading…</p>`
+now uses the same `.page-loading` class `RequireAuth` already uses for
+session-initialization loading, for visual consistency — no new
+component, no animation, matching the existing minimal style.
+
+**Explicitly not done, and why:** no fake dashboard data of any kind; no
+analytics/billing/reporting (Phase 2+ territory); no toast/notification
+library added; no redesign of existing pages beyond the loading/success
+additions described above.
+
+**Verification:** `npm run typecheck/lint/build -w frontend` pass. New
+`DashboardPage.test.tsx` (5 tests): loading state, real org name + count
+rendered, singular/plural property label, the "not yet built" note is
+present (guards against ever silently reverting to fabricated data),
+and the error state. Full frontend suite: 19/19 (14 pre-existing + 5
+new), across 6 files. Backend untouched — re-ran the full backend suite
+(47/47) and the auth/tenant-isolation/token-revocation/organizations
+regression suites specifically (34/34) to confirm zero impact, as
+required before this phase could be considered done.
+
 

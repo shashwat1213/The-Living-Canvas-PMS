@@ -16,8 +16,16 @@ const emptyForm = { name: '', slug: '' };
 export function PropertiesPage() {
   const [properties, setProperties] = useState<Property[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+
+  // A brief, self-clearing confirmation rather than a persistent banner —
+  // the updated list itself is the lasting evidence the action worked.
+  function flashSuccess(message: string) {
+    setSuccess(message);
+    setTimeout(() => setSuccess(null), 3500);
+  }
 
   async function load() {
     try {
@@ -37,9 +45,10 @@ export function PropertiesPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await apiFetch('/api/v1/properties', { method: 'POST', body: form });
+      const created = await apiFetch<{ property: Property }>('/api/v1/properties', { method: 'POST', body: form });
       setForm(emptyForm);
       await load();
+      flashSuccess(`"${created.property.name}" was added.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create property.');
     } finally {
@@ -47,12 +56,13 @@ export function PropertiesPage() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, name: string) {
     if (!confirm('Delete this property and all of its rooms? This cannot be undone.')) return;
     setError(null);
     try {
       await apiFetch(`/api/v1/properties/${id}`, { method: 'DELETE' });
       await load();
+      flashSuccess(`"${name}" was deleted.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not delete property.');
     }
@@ -65,6 +75,11 @@ export function PropertiesPage() {
       {error && (
         <p className="page-error" role="alert">
           {error}
+        </p>
+      )}
+      {success && (
+        <p className="page-success" role="status">
+          {success}
         </p>
       )}
 
@@ -89,7 +104,9 @@ export function PropertiesPage() {
       </form>
 
       {properties === null ? (
-        <p>Loading…</p>
+        <p className="page-loading" role="status">
+          Loading…
+        </p>
       ) : properties.length === 0 ? (
         <p className="empty-state">No properties yet — add your first one above.</p>
       ) : (
@@ -105,7 +122,7 @@ export function PropertiesPage() {
               </div>
               <div className="resource-actions">
                 <Link to={`/app/properties/${property.id}/rooms`}>Manage rooms</Link>
-                <button type="button" className="danger" onClick={() => void handleDelete(property.id)}>
+                <button type="button" className="danger" onClick={() => void handleDelete(property.id, property.name)}>
                   Delete
                 </button>
               </div>

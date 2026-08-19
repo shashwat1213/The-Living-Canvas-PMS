@@ -6,6 +6,12 @@ import './resource-pages.css';
 
 type RoomStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
 
+const STATUS_LABEL: Record<RoomStatus, string> = {
+  ACTIVE: 'Active',
+  INACTIVE: 'Inactive',
+  MAINTENANCE: 'Maintenance',
+};
+
 interface Room {
   id: string;
   name: string;
@@ -26,8 +32,14 @@ export function RoomsPage() {
   const [property, setProperty] = useState<Property | null>(null);
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+
+  function flashSuccess(message: string) {
+    setSuccess(message);
+    setTimeout(() => setSuccess(null), 3500);
+  }
 
   async function load() {
     if (!propertyId) return;
@@ -55,12 +67,13 @@ export function RoomsPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await apiFetch(`/api/v1/properties/${propertyId}/rooms`, {
+      const created = await apiFetch<{ room: Room }>(`/api/v1/properties/${propertyId}/rooms`, {
         method: 'POST',
         body: { name: form.name, roomType: form.roomType, capacity: Number(form.capacity) },
       });
       setForm(emptyForm);
       await load();
+      flashSuccess(`Room "${created.room.name}" was added.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create room.');
     } finally {
@@ -68,23 +81,25 @@ export function RoomsPage() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, name: string) {
     if (!propertyId || !confirm('Delete this room?')) return;
     setError(null);
     try {
       await apiFetch(`/api/v1/properties/${propertyId}/rooms/${id}`, { method: 'DELETE' });
       await load();
+      flashSuccess(`Room "${name}" was deleted.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not delete room.');
     }
   }
 
-  async function handleStatusChange(id: string, status: RoomStatus) {
+  async function handleStatusChange(id: string, name: string, status: RoomStatus) {
     if (!propertyId) return;
     setError(null);
     try {
       await apiFetch(`/api/v1/properties/${propertyId}/rooms/${id}`, { method: 'PATCH', body: { status } });
       await load();
+      flashSuccess(`Room "${name}" marked ${STATUS_LABEL[status]}.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not update room.');
     }
@@ -100,6 +115,11 @@ export function RoomsPage() {
       {error && (
         <p className="page-error" role="alert">
           {error}
+        </p>
+      )}
+      {success && (
+        <p className="page-success" role="status">
+          {success}
         </p>
       )}
 
@@ -129,7 +149,9 @@ export function RoomsPage() {
       </form>
 
       {rooms === null ? (
-        <p>Loading…</p>
+        <p className="page-loading" role="status">
+          Loading…
+        </p>
       ) : rooms.length === 0 ? (
         <p className="empty-state">No rooms yet — add your first one above.</p>
       ) : (
@@ -146,13 +168,13 @@ export function RoomsPage() {
               <div className="resource-actions">
                 <select
                   value={room.status}
-                  onChange={(e) => void handleStatusChange(room.id, e.target.value as RoomStatus)}
+                  onChange={(e) => void handleStatusChange(room.id, room.name, e.target.value as RoomStatus)}
                 >
                   <option value="ACTIVE">Active</option>
                   <option value="INACTIVE">Inactive</option>
                   <option value="MAINTENANCE">Maintenance</option>
                 </select>
-                <button type="button" className="danger" onClick={() => void handleDelete(room.id)}>
+                <button type="button" className="danger" onClick={() => void handleDelete(room.id, room.name)}>
                   Delete
                 </button>
               </div>

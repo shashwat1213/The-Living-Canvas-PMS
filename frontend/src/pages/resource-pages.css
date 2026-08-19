@@ -6,10 +6,23 @@
   font-size: 0.85rem;
 }
 
+.page-success {
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 0.85rem;
+}
+
 @media (prefers-color-scheme: dark) {
   .page-error {
     background: rgba(153, 27, 27, 0.25);
     color: #fca5a5;
+  }
+
+  .page-success {
+    background: rgba(6, 95, 70, 0.25);
+    color: #6ee7b7;
   }
 }
 
