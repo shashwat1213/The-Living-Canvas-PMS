@@ -64,16 +64,26 @@ Not feature work — governs how implementation tasks get carried out.
 Sequenced Database → Backend → Frontend, per [AGENTS.md](AGENTS.md)'s
 delegation model. Nothing in this phase begins until approved.
 
-- [~] **1a. Database — apply & verify the foundation migration**
-  **Blocked, not closed:** no live Postgres was reachable in this
-  sandbox — Docker's socket requires group access this session doesn't
-  have non-interactively, and no local `postgres`/`psql` binary exists
-  either. Same gap as the original foundation migration, now compounded
-  by a second unverified migration (1b). Both `prisma validate` and
-  `prisma generate` pass. **Standing follow-up:** the next person with
-  real Postgres access must run `npm run db:migrate -w backend` and
-  confirm both migrations apply cleanly, in order, before this schema is
-  considered verified end-to-end.
+- [x] **1a. Database — apply & verify the foundation migration** (2026-08-19)
+  Docker's socket wasn't reachable non-interactively in this sandbox
+  (no docker-group membership, no passwordless sudo, no local
+  `postgres`/`psql` binary), so verification used
+  [PGlite](https://pglite.dev/) — the real PostgreSQL engine compiled to
+  WASM — fronted by `@electric-sql/pglite-socket` so it speaks the actual
+  Postgres wire protocol on a local TCP port. Both migrations
+  (`20260818130940_init` and `20260819000000_phase1_auth_rbac_tenancy`)
+  applied cleanly via `prisma migrate deploy`, in order. Verified beyond
+  "applies": a full Prisma Client round-trip (create + nested read) across
+  every table including the new Phase 1 models, and a cascade-delete
+  check confirming `Organization` deletion cascades through
+  `User`/`Role`/`Session`/`PropertyAccess`/`Room` while `Permission`
+  correctly survives as its documented non-tenant exception. **Caveat:**
+  this is WASM Postgres, not the project's actual Postgres 16
+  `docker-compose.yml` target — a real-binary confirmation
+  (`npm run db:migrate -w backend` once Docker access is available) is
+  still worth doing before treating this as the final word, but the SQL
+  itself, the constraints, and the cascade behavior are now genuinely
+  exercised rather than schema-validated only.
 - [x] **1b. Database — auth & access schema** (2026-08-19)
   Added `Session`, `Permission`, `Role`, `RolePermission`,
   `UserRoleAssignment`, and `PropertyAccess` per the locked RBAC decision

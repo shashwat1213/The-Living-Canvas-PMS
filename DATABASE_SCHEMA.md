@@ -189,16 +189,18 @@ Migrations live in `backend/prisma/migrations/`:
   RolePermission, UserRoleAssignment, PropertyAccess.
 
 Both were generated via `prisma migrate diff` against the schema file
-alone — **no live Postgres instance has been reachable in the dev sandbox
-that authored either one** (see [DECISIONS.md](DECISIONS.md) for both
-entries). Neither has been applied to a real database yet. The next
-person with Postgres access must run, in order:
+alone. **No live Docker-backed Postgres has been reachable in the dev
+sandbox that authored either one** — but both have now been applied and
+exercised against a real Postgres wire-protocol server backed by
+[PGlite](https://pglite.dev/) (the actual PostgreSQL engine compiled to
+WASM, not an emulation), including a full create/read round-trip across
+every table and a verified cascade-delete from `Organization` down
+through every child model (see the 2026-08-19 entries in
+[TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the method and
+what it did and didn't prove). A confirmation run against the project's
+actual `docker-compose.yml` Postgres 16 is still worth doing once Docker
+access is available:
 
 ```bash
 npm run db:migrate -w backend   # prisma migrate dev — applies both migrations
 ```
-
-and confirm both apply cleanly before this schema is considered verified
-end-to-end. This is a standing follow-up, not a new one — the same gap
-flagged for the foundation migration now also covers the Phase 1
-migration.

@@ -208,3 +208,53 @@ code. No schema, route, or config file has changed as a result of this
 entry — Phase 1 implementation begins only after separate, explicit human
 approval per task, per the existing approval process in `AGENTS.md`.
 
+---
+
+## 2026-08-19 — Migration verification via PGlite, in lieu of Docker access
+
+**Context:** Phase 1 was approved and implementation began. The Phase 1
+schema task (1a/1b) needed to apply and verify two migrations
+(`20260818130940_init`, `20260819000000_phase1_auth_rbac_tenancy`)
+against a real Postgres, but this dev sandbox has no path to one:
+`docker compose up` fails (`permission denied` on the Docker socket — the
+sandbox user isn't in the `docker` group and `sudo` requires interactive
+auth this session doesn't have), and no local `postgres`/`psql` binary is
+installed.
+
+**Decision:** Rather than repeat the original foundation migration's
+"schema-validated only" outcome, verification used
+[PGlite](https://pglite.dev/) (`@electric-sql/pglite`) — the actual
+PostgreSQL engine compiled to WASM, run in-process — fronted by
+`@electric-sql/pglite-socket`, which speaks the real Postgres wire
+protocol on a local TCP port. `prisma migrate deploy` was pointed at it
+like any other Postgres instance. This is not a repo dependency: it was
+installed and run from the session's scratchpad directory, entirely
+outside `backend/`, purely as a verification tool.
+
+**What this did and didn't prove:**
+
+- Did: both migrations apply cleanly and in order from an empty
+  database; every table, constraint, and foreign key referenced by the
+  new Phase 1 models works under real SQL execution (verified with a full
+  Prisma Client create + nested-read round-trip across every table); the
+  documented cascade-delete behavior is real — deleting an `Organization`
+  removes every dependent row through `User`/`Role`/`Session`/
+  `PropertyAccess`/`Room`, while `Permission` correctly survives as its
+  documented non-tenant exception.
+- Didn't: confirm behavior against the project's actual Postgres 16
+  binary (the one `docker-compose.yml` runs) or under real concurrent
+  connection-pool load — PGlite is single-session internally, and
+  Prisma's connection string needed `pgbouncer=true` to avoid a prepared-
+  statement collision artifact of that. Neither limitation affects the
+  migration SQL's correctness, but a native-Postgres confirmation via
+  `npm run db:migrate -w backend` is still worth doing once Docker access
+  is available.
+
+**Why:** a schema-validated-only migration was already the accepted
+starting position for the foundation migration; a real (if WASM) engine
+execution is strictly more evidence than that starting position, at
+effectively zero cost, and is worth doing again rather than re-accepting
+the weaker bar by default just because Docker access repeated the same
+gap.
+
+
