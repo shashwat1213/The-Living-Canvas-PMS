@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
@@ -14,9 +15,21 @@ describe('App', () => {
       vi.fn().mockResolvedValue({ ok: true } as Response),
     );
 
-    render(<App />);
+    render(<App />, { wrapper: MemoryRouter });
 
     expect(screen.getByText('The Living Canvas PMS')).toBeInTheDocument();
     expect(await screen.findByText('API: online')).toBeInTheDocument();
+  });
+
+  it('links to login and signup', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true } as Response),
+    );
+
+    render(<App />, { wrapper: MemoryRouter });
+
+    expect(screen.getByRole('link', { name: 'Log in' })).toHaveAttribute('href', '/login');
+    expect(screen.getByRole('link', { name: 'Create an organization' })).toHaveAttribute('href', '/signup');
   });
 });

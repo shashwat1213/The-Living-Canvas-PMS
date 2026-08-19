@@ -19,7 +19,7 @@ frontend change touching the Prisma schema), and two agents clobbering
 each other's concurrent work. This document exists to prevent both by
 fixing, in writing, who owns what and how work hands off.
 
-## The seven roles
+## The eight roles
 
 | # | Agent | Mission | Detail |
 |---|-------|---------|--------|
@@ -30,6 +30,12 @@ fixing, in writing, who owns what and how work hands off.
 | 5 | QA/Test | Unit/integration/E2E tests, bug repro, fix verification | [docs/agents/qa.md](docs/agents/qa.md) |
 | 6 | Security | Reviews auth, validation, secrets, vulnerabilities | [docs/agents/security.md](docs/agents/security.md) |
 | 7 | DevOps | Docker, env config, CI/CD, deployment config | [docs/agents/devops.md](docs/agents/devops.md) |
+| 8 | Documentation | Keeps README/architecture docs accurate as the codebase grows | [docs/agents/documentation.md](docs/agents/documentation.md) |
+
+Added 2026-08-19 (see [DECISIONS.md](DECISIONS.md)): the Documentation role
+was folded in once feature work moved past the foundation stage, so doc
+upkeep has an explicit owner rather than riding on whichever agent
+touched a file last.
 
 Each role file uses the same structure: **Mission**, **Owns** (may
 modify), **Must not modify**, **Reads**, **Handoff output**, **Escalation
@@ -55,6 +61,7 @@ capable of editing any file, and is expected not to.
 | `AGENTS.md`, `docs/agents/**`, `TASKS.md` | Orchestrator | this process documentation itself |
 | `PROJECT_CONTEXT.md`, `ARCHITECTURE.md` | Orchestrator maintains | any agent may propose a change; Orchestrator merges to avoid conflicting edits |
 | `DECISIONS.md` | Any agent appends an entry for its own decision; Orchestrator never edits another agent's entry | append-only log |
+| `README.md`, module-level `README.md` files | Documentation | see [docs/agents/documentation.md](docs/agents/documentation.md); drafts content changes to `PROJECT_CONTEXT.md`/`ARCHITECTURE.md` for Orchestrator to merge, same as any agent |
 
 Security has no directory ownership by default — see
 [docs/agents/security.md](docs/agents/security.md) for its narrow,
@@ -194,7 +201,13 @@ Before any task branch merges to `main`:
 3. QA has verified the fix/feature (bug flow) or the task's own tests pass
    (new work).
 4. Security has signed off, if the change was in a security-sensitive
-   area.
+   area. Sign-off is **mandatory, regardless of diff size**, for: schema
+   changes to `User`/session/permission/property-access models, any
+   change to the tenant-scoping enforcement layer once it exists, any
+   code path handling a payment-gateway or AI-provider credential, and
+   any change to session/token issuance or revocation. A one-line diff in
+   one of these areas still waits for Security — size is not a substitute
+   for review here.
 5. The Orchestrator presents a summary to the human: what changed, which
    agent(s) did it, what was verified, and any open follow-ups (mirroring
    the pattern already used for this project's foundational commit).

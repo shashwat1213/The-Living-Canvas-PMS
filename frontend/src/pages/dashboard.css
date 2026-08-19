@@ -1,0 +1,48 @@
+.dashboard h1 {
+  font-size: 1.5rem;
+  margin: 0 0 1.25rem;
+}
+
+.dashboard-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 140px;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.dashboard-card:hover {
+  border-color: var(--accent-border);
+}
+
+.dashboard-card-value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-card-label {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.dashboard-note {
+  max-width: 60ch;
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 0.9rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}

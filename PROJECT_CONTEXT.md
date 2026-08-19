@@ -39,10 +39,17 @@ See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) for the schema and
 
 Implementation work is carried out through a controlled multi-agent
 system — specialist agents (Frontend, Backend, Database, QA, Security,
-DevOps) coordinated by an Orchestrator, each with a defined file-scope
-boundary. This is a process convention, not a product feature: it governs
-how the codebase gets built, not what gets built. See
+DevOps, Documentation) coordinated by an Orchestrator, each with a
+defined file-scope boundary. This is a process convention, not a product
+feature: it governs how the codebase gets built, not what gets built. See
 [AGENTS.md](AGENTS.md).
+
+## Initial release scope
+
+Confirmed 2026-08-19 (see [DECISIONS.md](DECISIONS.md)): the initial
+release targets a single currency (INR) with no multi-currency schema
+work, and Razorpay as the sole payment gateway. Multi-currency and
+additional gateways are future-module concerns, not Phase 1 scope.
 
 ## Provenance note
 

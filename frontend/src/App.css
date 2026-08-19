@@ -33,3 +33,11 @@
   background: #fee2e2;
   color: #991b1b;
 }
+
+.home-nav {
+  display: flex;
+  justify-content: center;
+  gap: 1.25rem;
+  margin-top: 1.75rem;
+  font-size: 0.9rem;
+}
