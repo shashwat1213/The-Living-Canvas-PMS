@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import './App.css';
 
 type ApiStatus = 'checking' | 'online' | 'offline';
@@ -29,6 +30,10 @@ function App() {
       <p className="api-status" data-status={apiStatus}>
         API: {apiStatus}
       </p>
+      <nav className="home-nav">
+        <Link to="/login">Log in</Link>
+        <Link to="/signup">Create an organization</Link>
+      </nav>
     </main>
   );
 }

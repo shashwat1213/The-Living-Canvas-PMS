@@ -41,6 +41,12 @@ The-Living-Canvas-PMS/
 │   └── test/                Vitest tests
 ├── frontend/                React/Vite SPA
 │   └── src/
+│       ├── auth/            AuthContext, useAuth, RequireAuth route guard
+│       ├── layout/          AppShell (protected layout: top bar + <Outlet/>)
+│       ├── pages/           LoginPage, SignupPage, PropertiesPage, RoomsPage
+│       ├── lib/api.ts       The only place that calls fetch() against the backend
+│       ├── AppRouter.tsx    Route tree
+│       └── App.tsx          "/" — the original connectivity-check landing page
 ├── docker-compose.yml       Local PostgreSQL for development
 ├── package.json             Workspace root (scripts fan out to both apps)
 └── *.md                     Project docs (this file and siblings)
@@ -72,8 +78,19 @@ The-Living-Canvas-PMS/
 
 ## Frontend
 
-- Plain Vite + React SPA, no router or state library yet — there's
-  nothing to route to until the next feature task adds real screens.
+- Vite + React SPA with `react-router-dom` (introduced Phase 1,
+  2026-08-19 — the task that finally needed it). Route tree lives in
+  `src/AppRouter.tsx`: `/` (the original connectivity-check landing
+  page), `/login`, `/signup`, and a protected `/app/*` tree guarded by
+  `auth/RequireAuth.tsx`.
+- `auth/AuthContext.tsx` is the one piece of app-wide state. The access
+  token lives in memory only (`lib/api.ts`), never `localStorage`; a
+  silent `POST /auth/refresh` against the httpOnly cookie on mount
+  recovers the session after a page reload.
+- `lib/api.ts` is the only place that calls `fetch` against the backend —
+  it attaches the `Authorization` header, retries once on a 401 after a
+  single-flight refresh, and throws a typed `ApiError`. Components never
+  call `fetch` directly.
 - Talks to the backend only via `VITE_API_URL` (defaults to
   `http://localhost:4000`), never a hardcoded origin.
 

@@ -126,20 +126,41 @@ delegation model. Nothing in this phase begins until approved.
   dry-run. Do this alongside Phase 1 rather than after — manual
   verification stops scaling once more than one or two tasks are in
   flight concurrently.
-- [ ] **1i. Frontend — router, auth context, login screen, admin shell**
-  First introduction of routing/state for auth per
-  [docs/agents/frontend.md](docs/agents/frontend.md).
-- [ ] **1j. Frontend — Properties/Rooms management screens**
-  Against the now-real, authenticated CRUD API from 1e.
+- [x] **1i. Frontend — router, auth context, login screen, admin shell** (2026-08-19)
+  First introduction of routing (`react-router-dom`) and app-wide state
+  (`auth/AuthContext.tsx`) per [docs/agents/frontend.md](docs/agents/frontend.md).
+  Access token kept in memory only (never `localStorage`); a silent
+  `POST /auth/refresh` on load restores the session from the httpOnly
+  cookie. Also added `/signup` (organization bootstrap) — without it,
+  `/login` would be a dead end with no way to create the first account.
+  `AppShell` is the protected layout (`RequireAuth` guard + `<Outlet/>`).
+- [x] **1j. Frontend — Properties/Rooms management screens** (2026-08-19)
+  `PropertiesPage` and `RoomsPage` (nested under
+  `/app/properties/:propertyId/rooms`) against the real CRUD API from 1e:
+  list, create, delete for properties; list, create, status update,
+  delete for rooms.
 
-**1c–1g verified together:** `npm run typecheck && npm run lint && npm
-run build && npm run test` all pass for both workspaces. Backend's 30
-tests (6 files) run against the same live database used to verify 1a's
+**Verified:** the full signup → login → property → room flow was
+exercised over real HTTP from the frontend's own origin (`curl` with
+`Origin: http://localhost:5173`, confirming CORS + the refresh cookie's
+`SameSite=Lax`/`HttpOnly` attributes are actually usable by a browser at
+that origin) against the live backend + database — see DECISIONS.md.
+Browser-based click-through wasn't available in this sandbox (no Chrome
+extension connected); the HTTP-level check above plus 14 passing
+component tests (mocked fetch, same request/response shapes just
+verified live) stand in for it. A real click-through is worth doing
+before this phase is considered fully closed.
+
+**1c–1j verified together:** `npm run typecheck && npm run lint && npm
+run build && npm run test` all pass for both workspaces. Backend: 30
+tests across 6 files, against the same live database used to verify 1a's
 migrations — see DECISIONS.md for what that environment is and its one
 known limitation (a WASM Postgres wire-protocol quirk around genuine
 unique-constraint errors, worked around by checking uniqueness
 proactively rather than relying solely on catching the database's own
 error — a real improvement in its own right, not only a workaround).
+Frontend: 14 tests across 5 files. **Phase 1 is now feature-complete
+except 1h (CI pipeline).**
 
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

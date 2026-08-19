@@ -398,4 +398,55 @@ above two follow-ups (items 1 handled inline; items 2–4 documented for
 future phases) — required per `AGENTS.md`'s mandatory-sign-off list for
 this exact category of change.
 
+---
+
+## 2026-08-19 — Phase 1 frontend: router, auth context, admin shell (1i/1j)
+
+**Decision:** Introduced `react-router-dom` and `AuthContext` — the
+first routing/state-management dependency, exactly the task this
+project's conventions said to wait for (see `docs/agents/frontend.md`).
+Built `/login`, `/signup`, and a protected `/app/*` tree (`AppShell` +
+`RequireAuth`) with `PropertiesPage` and `RoomsPage` against the Phase 1
+CRUD API.
+
+**Notable choices:**
+
+- **Access token in memory only, never `localStorage`.** A page reload
+  loses it by design; `AuthContext` recovers the session with a silent
+  `POST /auth/refresh` against the httpOnly cookie on mount. Keeps the
+  access token out of reach of an XSS payload that can read
+  `localStorage`.
+- **`/signup` wasn't originally scoped in TASKS.md's 1i description
+  ("login screen"), but was added anyway:** without it, `/login` has no
+  way to produce a first account — `POST /organizations` (the backend's
+  one public endpoint, from 1e) is otherwise unreachable from the UI.
+  Treated as necessarily part of "login screen + admin shell" rather
+  than scope creep.
+- **`lib/api.ts`'s fetch wrapper** centralizes the Authorization header,
+  a single-flight refresh-and-retry on a 401 (concurrent 401s coalesce
+  into one refresh call), and a typed `ApiError` — no component calls
+  `fetch` directly.
+
+**A real bug found and fixed along the way (unrelated to this task's own
+code, but blocking it):** the frontend's Vitest setup had no Testing
+Library cleanup wired up (`globals: true` isn't enabled, so
+`@testing-library/react`'s automatic `afterEach(cleanup)` registration
+never fires) — every test's rendered DOM was accumulating across tests
+within the same file. Invisible with the original single-test
+`App.test.tsx`; surfaced immediately once a second test was added. Fixed
+in `src/test/setup.ts` with an explicit `afterEach(cleanup)`.
+
+**Verification:** `npm run typecheck && npm run lint && npm run build &&
+npm run test -w frontend` pass (14 tests, 5 files, mocked-fetch component
+tests). Additionally verified over real HTTP: signup → login → property
+→ room CRUD exercised via `curl` sent with `Origin: http://localhost:5173`
+against the live backend, confirming CORS (echoed origin +
+`Access-Control-Allow-Credentials`) and the refresh cookie's
+`SameSite=Lax`/`HttpOnly`/`Path=/api/v1/auth` attributes are actually
+usable from the frontend's real origin — not just asserted in code
+comments. No Chrome extension was connected in this sandbox, so an actual
+browser click-through wasn't performed; that's a reasonable follow-up
+before treating Phase 1's frontend as fully closed, but the HTTP contract
+itself is proven end-to-end.
+
 
