@@ -47,6 +47,7 @@ The-Living-Canvas-PMS/
 │       ├── lib/api.ts       The only place that calls fetch() against the backend
 │       ├── AppRouter.tsx    Route tree
 │       └── App.tsx          "/" — the original connectivity-check landing page
+├── .github/workflows/ci.yml Root verification commands against real Postgres
 ├── docker-compose.yml       Local PostgreSQL for development
 ├── package.json             Workspace root (scripts fan out to both apps)
 └── *.md                     Project docs (this file and siblings)
@@ -117,6 +118,15 @@ npm run db:migrate           # applies Prisma migrations
 npm run dev:backend          # http://localhost:4000
 npm run dev:frontend         # http://localhost:5173
 ```
+
+## CI
+
+`.github/workflows/ci.yml` (added Phase 1, 2026-08-19) runs on every push
+to `main` and every PR: a real `postgres:16-alpine` service container,
+then the same `typecheck`/`lint`/`build`/`test` commands documented
+above and in `README.md` — no separate CI-only check. Migrations are
+applied via `prisma migrate deploy` against that real Postgres before
+the test suite runs.
 
 ## Approved direction (locked 2026-08-19, not yet implemented)
 

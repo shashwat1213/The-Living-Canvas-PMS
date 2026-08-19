@@ -120,12 +120,17 @@ delegation model. Nothing in this phase begins until approved.
   surface (accepted for Phase 1); no-lockout/no-password-reset noted as
   an intentional Phase 1 scope boundary, not a silent gap. Full findings
   in [DECISIONS.md](DECISIONS.md).
-- [ ] **1h. DevOps — CI pipeline**
-  GitHub Actions (or equivalent) running the root verification commands
-  (`typecheck && lint && build && test`) on every PR, plus a migration
-  dry-run. Do this alongside Phase 1 rather than after — manual
-  verification stops scaling once more than one or two tasks are in
-  flight concurrently.
+- [x] **1h. DevOps — CI pipeline** (2026-08-19)
+  `.github/workflows/ci.yml` — GitHub Actions, one job, running against a
+  real `postgres:16-alpine` service container (credentials matching
+  `docker-compose.yml`): install → generate Prisma Client → apply
+  migrations (`prisma migrate deploy`) → typecheck → lint → build → test.
+  Once this runs on GitHub's infrastructure, it will be the first time
+  both migrations are applied against a real (non-WASM) Postgres — see
+  DECISIONS.md. Runs on every push to `main` and every PR. **Not yet
+  observed running on GitHub itself** in this sandbox (no push/PR has
+  been made) — the full sequence was verified locally instead (same
+  commands, real PGlite database), see DECISIONS.md.
 - [x] **1i. Frontend — router, auth context, login screen, admin shell** (2026-08-19)
   First introduction of routing (`react-router-dom`) and app-wide state
   (`auth/AuthContext.tsx`) per [docs/agents/frontend.md](docs/agents/frontend.md).

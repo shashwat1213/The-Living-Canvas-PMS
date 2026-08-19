@@ -449,4 +449,43 @@ browser click-through wasn't performed; that's a reasonable follow-up
 before treating Phase 1's frontend as fully closed, but the HTTP contract
 itself is proven end-to-end.
 
+---
+
+## 2026-08-19 — Phase 1 DevOps: CI pipeline (1h)
+
+**Decision:** Added `.github/workflows/ci.yml` — one job, one
+`postgres:16-alpine` service container with credentials matching
+`docker-compose.yml`, running install → `prisma generate` → `prisma
+migrate deploy` → the same `typecheck`/`lint`/`build`/`test` root
+commands documented in `README.md` and required by `AGENTS.md`. No
+parallel verification path invented — this runs exactly what a human
+already runs locally, per the DevOps role's stated convention.
+
+**Why a real Postgres service container, not another workaround:** the
+Phase 1 backend and database work in this sandbox had to verify
+migrations against PGlite (see the 2026-08-19 "Migration verification via
+PGlite" entry) because Docker wasn't reachable non-interactively here.
+GitHub Actions doesn't have that constraint — a `postgres:16-alpine`
+service container is the actual target engine, not an emulation. Once
+this workflow runs on a real push/PR, it becomes the first genuine
+confirmation that both Phase 1 migrations apply cleanly against real
+Postgres, closing the gap flagged since the very first foundation
+migration.
+
+**JWT_SECRET in CI:** a hardcoded dummy value
+(`ci-only-dummy-secret-not-used-anywhere-else`), not a GitHub Actions
+secret — it signs tokens that live only for the duration of one CI run
+against a database that's destroyed immediately after, so there's
+nothing here worth protecting as a secret. Real deployment secrets are
+a separate, later DevOps concern (see the hosting decision in the
+architecture-lock entry above).
+
+**Verification:** the workflow's exact command sequence
+(`db:generate` → `db:migrate:deploy` → `typecheck` → `lint` → `build` →
+`test`) was run locally against a live database and passed. **Not yet
+observed running on GitHub's own infrastructure** — no push/PR has
+happened from this sandbox. That's a real gap, not glossed over: the
+workflow file's syntax and command sequence are verified as correct as
+they can be without actually triggering a GitHub Actions run.
+
 
