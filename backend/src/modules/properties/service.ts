@@ -1,7 +1,7 @@
 import type { Property } from '@prisma/client';
 
 import { ConflictError, NotFoundError } from '../../lib/http-errors.js';
-import { isUniqueConstraintError } from '../../lib/prisma-errors.js';
+import { withUniqueConstraintGuard } from '../../lib/prisma-errors.js';
 import { getRequestContext } from '../../platform/tenancy/context.js';
 import { ORG_WIDE_ROLES } from '../../platform/rbac/permissions.js';
 import { propertiesRepository } from './repository.js';
@@ -44,14 +44,10 @@ export async function createProperty(input: CreatePropertyInput): Promise<Proper
   if (existing) {
     throw new ConflictError('A property with that slug already exists.');
   }
-  try {
-    return await propertiesRepository.create(input);
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw new ConflictError('A property with that slug already exists.');
-    }
-    throw error;
-  }
+  return withUniqueConstraintGuard(
+    () => propertiesRepository.create(input),
+    'A property with that slug already exists.',
+  );
 }
 
 export async function updateProperty(id: string, input: UpdatePropertyInput): Promise<Property> {
@@ -61,14 +57,10 @@ export async function updateProperty(id: string, input: UpdatePropertyInput): Pr
       throw new ConflictError('A property with that slug already exists.');
     }
   }
-  try {
-    return await propertiesRepository.update(id, input);
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw new ConflictError('A property with that slug already exists.');
-    }
-    throw error;
-  }
+  return withUniqueConstraintGuard(
+    () => propertiesRepository.update(id, input),
+    'A property with that slug already exists.',
+  );
 }
 
 export async function deleteProperty(id: string): Promise<void> {

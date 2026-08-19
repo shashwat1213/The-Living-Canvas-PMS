@@ -1,5 +1,6 @@
+import argon2 from 'argon2';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { prisma } from '../src/lib/prisma.js';
 import { app, signupOrganization } from './helpers.js';
@@ -33,6 +34,26 @@ describe('POST /api/v1/auth/login', () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error.message).toBe('Invalid email or password.');
+  });
+
+  it('performs an argon2id verification even for a nonexistent email (timing side-channel fix)', async () => {
+    const spy = vi.spyOn(argon2, 'verify');
+    spy.mockClear();
+
+    await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: 'definitely-does-not-exist@example.com', password: 'whatever123' });
+
+    // Proves the structural fix — verifyPassword is no longer skipped by
+    // short-circuit evaluation when the account doesn't exist, which is
+    // what previously made "no such user" distinguishable from "wrong
+    // password" by response time alone.
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('rejects a malformed body with 400 validation details', async () => {

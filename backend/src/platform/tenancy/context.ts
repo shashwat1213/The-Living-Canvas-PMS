@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { Permission, SystemRoleName } from '../rbac/permissions.js';
+import { ORG_WIDE_ROLES, type Permission, type SystemRoleName } from '../rbac/permissions.js';
 
 /**
  * Resolved from the access token on every authenticated request (see
@@ -72,6 +72,6 @@ export function hasPermission(permission: Permission): boolean {
  */
 export function canAccessProperty(propertyId: string): boolean {
   const ctx = getRequestContext();
-  const isOrgWide = [...ctx.roleNames].some((name) => name === 'OWNER' || name === 'ADMIN');
+  const isOrgWide = [...ctx.roleNames].some((name) => ORG_WIDE_ROLES.has(name));
   return isOrgWide || ctx.grantedPropertyIds.has(propertyId);
 }

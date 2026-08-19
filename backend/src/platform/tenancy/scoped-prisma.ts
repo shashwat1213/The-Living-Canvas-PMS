@@ -47,6 +47,14 @@ export const scopedPrisma = prisma.$extends({
         if (operation === 'create') {
           a.data = { ...a.data, organizationId: ctx.organizationId };
         }
+        if (operation === 'upsert') {
+          // upsert's create payload lives at `create`, not `data` — a
+          // separate branch from plain `create` above. Its `where` is
+          // already scoped by the WHERE_OPERATIONS block, but without
+          // this the *created* row (on no match) would land with no
+          // organizationId enforced by this mechanism.
+          a.create = { ...a.create, organizationId: ctx.organizationId };
+        }
         return query(a);
       },
     },

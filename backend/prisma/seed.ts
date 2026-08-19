@@ -11,11 +11,8 @@
  * `prisma migrate dev` (Prisma's default behavior when a `seed` script is
  * configured in package.json).
  */
-import { PrismaClient } from '@prisma/client';
-
+import { prisma } from '../src/lib/prisma.js';
 import { ensurePermissionCatalog } from '../src/platform/rbac/provisioning.js';
-
-const prisma = new PrismaClient();
 
 async function main() {
   await ensurePermissionCatalog(prisma);

@@ -1,9 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
+import { Prisma } from '@prisma/client';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { prisma } from '../src/lib/prisma.js';
 import { app, authHeader, loginAsNewOwner, signupOrganization } from './helpers.js';
+
+function signupBody(suffix: string) {
+  return {
+    organizationName: `Race Test ${suffix}`,
+    organizationSlug: `race-test-${suffix}`,
+    owner: { email: `race-${suffix}@example.com`, password: 'password1234', firstName: 'A', lastName: 'B' },
+  };
+}
 
 describe('POST /api/v1/organizations (signup)', () => {
   it('creates an organization and an OWNER user that can immediately log in', async () => {
@@ -62,6 +72,55 @@ describe('POST /api/v1/organizations (signup)', () => {
         owner: { email: `short-${suffix}@example.com`, password: 'short', firstName: 'A', lastName: 'B' },
       });
     expect(res.status).toBe(400);
+  });
+
+  describe('race-condition backstop (the pre-check passes, the transaction does not)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('converts a real Prisma P2002 unique-constraint error from the transaction into a 409, not a raw 500', async () => {
+      const suffix = randomUUID().slice(0, 8);
+      const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`slug`)', {
+        code: 'P2002',
+        clientVersion: '6.19.3',
+        meta: { target: ['slug'] },
+      });
+      const spy = vi.spyOn(prisma, '$transaction').mockRejectedValueOnce(p2002);
+
+      const res = await request(app)
+        .post('/api/v1/organizations')
+        .send(signupBody(suffix));
+
+      // Proves the transaction path was actually reached (the pre-check
+      // alone can't have produced this — it never touches $transaction),
+      // and that the resulting P2002 is mapped to the same conflict
+      // behavior a sequential duplicate gets, not an internal-error leak.
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('conflict');
+    });
+
+    it('does not convert an unrelated transaction error into a conflict — it propagates as an internal error', async () => {
+      const suffix = randomUUID().slice(0, 8);
+      const spy = vi.spyOn(prisma, '$transaction').mockRejectedValueOnce(new Error('simulated unrelated database failure'));
+
+      const res = await request(app)
+        .post('/api/v1/organizations')
+        .send(signupBody(suffix));
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).not.toBe('conflict');
+    });
+
+    it('a genuinely unique signup still succeeds normally once the mock is restored (no regression to the common path)', async () => {
+      const suffix = randomUUID().slice(0, 8);
+      const res = await request(app)
+        .post('/api/v1/organizations')
+        .send(signupBody(suffix));
+      expect(res.status).toBe(201);
+    });
   });
 });
 

@@ -2,6 +2,7 @@ import type { Organization } from '@prisma/client';
 
 import { prisma } from '../../lib/prisma.js';
 import { ConflictError, NotFoundError } from '../../lib/http-errors.js';
+import { withUniqueConstraintGuard } from '../../lib/prisma-errors.js';
 import { hashPassword } from '../../platform/auth/password.js';
 import { assignSystemRole, ensurePermissionCatalog, seedSystemRoles } from '../../platform/rbac/provisioning.js';
 import { getRequestContext } from '../../platform/tenancy/context.js';
@@ -31,26 +32,35 @@ export async function createOrganization(input: CreateOrganizationInput): Promis
   await ensurePermissionCatalog();
   const passwordHash = await hashPassword(input.owner.password);
 
-  const organization = await prisma.$transaction(async (tx) => {
-    const org = await tx.organization.create({
-      data: { name: input.organizationName, slug: input.organizationSlug },
-    });
-    await seedSystemRoles(tx, org.id);
+  // withUniqueConstraintGuard is the backstop for the race the pre-check
+  // above can't fully close: two concurrent signups for the same
+  // slug/email can both pass the pre-check before either commits.
+  // Without it, the loser throws a raw Prisma error past this function
+  // instead of the same 409 a sequential duplicate attempt gets.
+  const organization = await withUniqueConstraintGuard(
+    () =>
+      prisma.$transaction(async (tx) => {
+        const org = await tx.organization.create({
+          data: { name: input.organizationName, slug: input.organizationSlug },
+        });
+        await seedSystemRoles(tx, org.id);
 
-    const owner = await tx.user.create({
-      data: {
-        organizationId: org.id,
-        email: input.owner.email,
-        passwordHash,
-        firstName: input.owner.firstName,
-        lastName: input.owner.lastName,
-        role: 'OWNER',
-      },
-    });
-    await assignSystemRole(tx, { userId: owner.id, organizationId: org.id, roleName: 'OWNER' });
+        const owner = await tx.user.create({
+          data: {
+            organizationId: org.id,
+            email: input.owner.email,
+            passwordHash,
+            firstName: input.owner.firstName,
+            lastName: input.owner.lastName,
+            role: 'OWNER',
+          },
+        });
+        await assignSystemRole(tx, { userId: owner.id, organizationId: org.id, roleName: 'OWNER' });
 
-    return org;
-  });
+        return org;
+      }),
+    'That organization slug or owner email is already in use.',
+  );
 
   return { organization };
 }

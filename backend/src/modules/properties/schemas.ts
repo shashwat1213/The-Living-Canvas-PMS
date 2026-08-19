@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-const slugPattern = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+import { SLUG_PATTERN, SLUG_PATTERN_MESSAGE } from '../../lib/slug.js';
 
 export const createPropertySchema = z.object({
   name: z.string().min(1).max(120),
-  slug: z.string().min(1).max(60).regex(slugPattern, 'Use lowercase letters, numbers, and hyphens only.'),
+  slug: z.string().min(1).max(60).regex(SLUG_PATTERN, SLUG_PATTERN_MESSAGE),
   timezone: z.string().min(1).max(60).optional(),
   addressLine1: z.string().max(200).optional(),
   addressLine2: z.string().max(200).optional(),

@@ -1,7 +1,7 @@
 import type { Room } from '@prisma/client';
 
 import { ConflictError, NotFoundError } from '../../lib/http-errors.js';
-import { isUniqueConstraintError } from '../../lib/prisma-errors.js';
+import { withUniqueConstraintGuard } from '../../lib/prisma-errors.js';
 import { roomsRepository } from './repository.js';
 import type { CreateRoomInput, UpdateRoomInput } from './schemas.js';
 
@@ -25,14 +25,10 @@ export async function createRoom(propertyId: string, input: CreateRoomInput): Pr
   if (existing) {
     throw new ConflictError('A room with that name already exists at this property.');
   }
-  try {
-    return await roomsRepository.create(propertyId, input);
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw new ConflictError('A room with that name already exists at this property.');
-    }
-    throw error;
-  }
+  return withUniqueConstraintGuard(
+    () => roomsRepository.create(propertyId, input),
+    'A room with that name already exists at this property.',
+  );
 }
 
 export async function updateRoom(propertyId: string, id: string, input: UpdateRoomInput): Promise<Room> {
@@ -42,14 +38,10 @@ export async function updateRoom(propertyId: string, id: string, input: UpdateRo
       throw new ConflictError('A room with that name already exists at this property.');
     }
   }
-  try {
-    return await roomsRepository.update(propertyId, id, input);
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw new ConflictError('A room with that name already exists at this property.');
-    }
-    throw error;
-  }
+  return withUniqueConstraintGuard(
+    () => roomsRepository.update(propertyId, id, input),
+    'A room with that name already exists at this property.',
+  );
 }
 
 export function deleteRoom(propertyId: string, id: string): Promise<void> {

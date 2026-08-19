@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { UnauthorizedError } from '../../lib/http-errors.js';
-import { verifyPassword } from '../../platform/auth/password.js';
+import { hashPassword, verifyPassword } from '../../platform/auth/password.js';
 import { signAccessToken } from '../../platform/auth/tokens.js';
 import { createSession, resolveAuthContext, rotateSession, revokeSession } from '../../platform/auth/session-service.js';
 
@@ -36,13 +36,24 @@ async function buildAccessToken(userId: string) {
   });
 }
 
+// Precomputed once per process (never a real password, never checked
+// against anything real) so `login` always pays the argon2id cost of a
+// verification, whether or not the account exists — without this, a
+// nonexistent email short-circuits before ever hashing, and the two
+// paths are distinguishable by response time even though they return
+// the identical error (see DECISIONS.md, "login timing side-channel").
+const dummyPasswordHash = hashPassword('never-a-real-password-timing-guard-only');
+
 export async function login(email: string, password: string, meta: RequestMeta): Promise<LoginResult> {
   const user = await prisma.user.findUnique({ where: { email } });
+
+  const hashToVerify = user?.passwordHash ?? (await dummyPasswordHash);
+  const passwordValid = await verifyPassword(hashToVerify, password);
 
   // Same error for "no such user" and "wrong password" — a distinct
   // message for the former would let an attacker enumerate registered
   // emails one login attempt at a time.
-  if (!user || !user.isActive || !user.passwordHash || !(await verifyPassword(user.passwordHash, password))) {
+  if (!user || !user.isActive || !user.passwordHash || !passwordValid) {
     throw new UnauthorizedError('Invalid email or password.');
   }
 

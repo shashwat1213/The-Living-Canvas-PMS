@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-const slugPattern = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+import { SLUG_PATTERN, SLUG_PATTERN_MESSAGE } from '../../lib/slug.js';
 
 export const createOrganizationSchema = z.object({
   organizationName: z.string().min(2).max(120),
-  organizationSlug: z.string().min(2).max(60).regex(slugPattern, 'Use lowercase letters, numbers, and hyphens only.'),
+  organizationSlug: z.string().min(2).max(60).regex(SLUG_PATTERN, SLUG_PATTERN_MESSAGE),
   owner: z.object({
     email: z.string().email(),
     password: z.string().min(8, 'Password must be at least 8 characters.'),

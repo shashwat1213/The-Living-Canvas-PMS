@@ -625,4 +625,102 @@ was built for, not just the test suite's simulation of it.
 **Status:** implemented on `phase1/auth-rbac-tenancy`, not merged to
 `main`.
 
+---
+
+## 2026-08-20 — Branch review findings #3, #4, #5, #6, #7, #9, #10 resolved; #8 documented
+
+**Context:** Continuing the branch review from the earlier entries above.
+Each finding was re-verified against the actual current code before
+fixing (none were false positives).
+
+**#3 — login timing side-channel (confirmed, fixed).** `login()` only
+called `verifyPassword` when a user existed, via short-circuit
+evaluation — a nonexistent email returned in a fraction of the time a
+real argon2id comparison takes. Fixed in `modules/auth/service.ts`: a
+precomputed dummy hash (never a real password) is used when no user is
+found, so `verifyPassword` always runs exactly once regardless of
+account existence. Test: `auth.test.ts` spies on `argon2.verify` and
+proves it's called for a nonexistent email.
+
+**#4 — `scoped-prisma.ts`'s `upsert` gap (confirmed, fixed).** The
+tenant-scoping extension injected `organizationId` into `create`'s
+`data`, but `upsert`'s create payload lives at `create`, a different
+field — never scoped. Dormant (no repository currently calls `upsert` on
+`Property`/`Room`) but a real gap in the mechanism the whole
+architecture treats as the single source of truth for tenant isolation.
+Fixed by adding the same injection for `operation === 'upsert'`.
+
+**#5 — organizations signup race (confirmed, fixed).** No `try/catch`
+around the signup transaction, unlike every other create path — a
+concurrent duplicate signup would have surfaced as a raw 500 instead of
+409. Fixed: the transaction is now wrapped via the new
+`withUniqueConstraintGuard` helper (see #9). Tests in
+`organizations.test.ts`: a real `Prisma.PrismaClientKnownRequestError`
+(P2002) mocked from `prisma.$transaction` is confirmed converted to 409;
+an unrelated mocked error is confirmed to propagate as 500, unconverted;
+a genuine unique signup still succeeds normally.
+
+**#6 — `context.ts` duplicated the org-wide-role check (confirmed,
+fixed).** `canAccessProperty` hand-rolled `name === 'OWNER' || name ===
+'ADMIN'` instead of reusing `ORG_WIDE_ROLES` from `rbac/permissions.ts`,
+risking drift between the property-list filter and the property-detail
+guard. Fixed to import and use the shared constant. No new test needed —
+behavior is unchanged (same two role names), and the existing
+`tenant-isolation.test.ts` PropertyAccess scenarios already exercise
+this exact function; re-run and still passing (6/6).
+
+**#7 — `seed.ts` instantiated its own `PrismaClient` (confirmed,
+fixed).** Violated the documented single-client rule
+(`lib/prisma.ts`'s shared instance is meant to be the only one).
+Fixed to import the shared client. Verified by actually running
+`npm run db:seed -w backend` against the live database, not just
+typechecking (`prisma/seed.ts` isn't covered by `tsconfig.typecheck.json`,
+which only includes `src`/`test` — running it for real was the only way
+to prove the change works).
+
+**#9 — duplicated check-then-write-then-catch pattern (confirmed,
+fixed).** The same five-line try/catch (`isUniqueConstraintError` →
+`ConflictError`) was repeated in `properties`/`rooms` `service.ts`
+(create + update, 4 sites) plus a less-complete variant in
+`organizations/service.ts` before #5's fix. Extracted
+`withUniqueConstraintGuard(write, message)` into `lib/prisma-errors.ts`
+— the proactive existence-check logic (which genuinely differs per
+entity) stays in each service; only the catch-and-convert boilerplate is
+now shared. All 5 call sites (organizations create, properties
+create/update, rooms create/update) now use it. No behavior change;
+proven by the full suite passing unchanged before and after (47/47).
+
+**#10 — slug regex duplicated across 4 files (confirmed, partially
+fixed).** `organizations/schemas.ts` and `properties/schemas.ts` each
+independently defined the same pattern and message. Consolidated into a
+new `lib/slug.ts` (`SLUG_PATTERN`, `SLUG_PATTERN_MESSAGE`), imported by
+both. The frontend's two HTML `pattern="..."` attributes
+(`SignupPage.tsx`, `PropertiesPage.tsx`) are left as-is, deliberately:
+there is no shared package between the two npm workspaces yet
+(`packages/shared` is explicitly deferred until the Reservations phase —
+see the Phase 1 architecture-lock entry above), and introducing one just
+to deduplicate one regex would be a larger change than the duplication
+it removes. Accepted as a known, explained remainder, not silently
+dropped.
+
+**#8 — a `feat(frontend)` commit touched QA-owned `frontend/src/test/setup.ts`
+(confirmed as a process finding, not a code defect — documented, no code
+change).** The fix itself (wiring up Testing Library's `afterEach(cleanup)`,
+missing since the original test infra was scaffolded) was necessary and
+correct — without it, every test file's rendered DOM leaked into the
+next test in the same file. It was bundled into a Frontend-owned feature
+commit without a recorded boundary-crossing note, which is what
+`AGENTS.md`'s ownership map asks for. Recorded here retroactively:
+future shared-test-infrastructure changes discovered while doing
+Frontend work should get an explicit one-line escalation note in the
+commit or in `DECISIONS.md`, even when the fix itself is correct and
+was reasonable to make in the moment.
+
+**Verification:** `npm run typecheck && npm run lint -w backend` pass.
+Full backend suite: 47/47 (30 Phase 1 + 6 finding #1/#2 tests + 4 Option B
+core tests + 3 additional Option B tests + 3 new #5 tests + the #3 test,
+across 8 files) passing against the live database. `npm run db:seed -w
+backend` re-run successfully for #7. No test was weakened, skipped, or
+removed to reach this state.
+
 

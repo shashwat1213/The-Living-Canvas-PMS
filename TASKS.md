@@ -190,27 +190,34 @@ remaining eight are tracked here for a separate pass — **not merged to
   future task. Full design plan reviewed and approved before
   implementation; see [DECISIONS.md](DECISIONS.md) for the mechanism,
   the fail-closed decision, and what it did and didn't prove.
-- [ ] **Finding #3** — login timing side-channel (argon2id only runs when
-  a user exists, undermining the uniform-error-message intent).
-- [ ] **Finding #4** — `scoped-prisma.ts`'s tenant extension doesn't cover
-  `upsert`'s `create` payload (dormant today — no repository calls
-  `upsert` on `Property`/`Room` yet — but a landmine in the core
-  tenant-isolation mechanism if one ever does).
-- [ ] **Finding #5** — `organizations/service.ts`'s signup uniqueness race
-  isn't caught (raw 500 instead of 409 under concurrent duplicate
-  signups; every other create path in this diff handles this).
-- [ ] **Finding #6** — `context.ts`'s `canAccessProperty` re-implements
-  the org-wide-role check instead of reusing `ORG_WIDE_ROLES`.
-- [ ] **Finding #7** — `seed.ts` instantiates its own `PrismaClient`
-  instead of the shared singleton (violates the documented single-client
-  rule).
-- [ ] **Finding #8** — a `feat(frontend)` commit modified
-  `frontend/src/test/setup.ts`, which `AGENTS.md`'s ownership map assigns
-  to QA, with no boundary-crossing note recorded at the time.
-- [ ] **Finding #9** — the check-then-write-then-catch uniqueness pattern
-  is duplicated across properties/rooms/organizations `service.ts` files.
-- [ ] **Finding #10** — the property/room slug validation regex is
-  duplicated across 4 files (2 backend, 2 frontend).
+- [x] **Finding #3** (2026-08-20) — login timing side-channel fixed: a
+  precomputed dummy hash means `verifyPassword` always runs, existence or
+  not. Test proves `argon2.verify` is always called.
+- [x] **Finding #4** (2026-08-20) — `scoped-prisma.ts` now also scopes
+  `upsert`'s `create` payload, not just plain `create`.
+- [x] **Finding #5** (2026-08-20) — signup transaction now wrapped via
+  `withUniqueConstraintGuard`; P2002 → 409, unrelated errors still
+  propagate as 500 (both proven with a real `PrismaClientKnownRequestError`
+  and a mocked unrelated error).
+- [x] **Finding #6** (2026-08-20) — `canAccessProperty` now reuses
+  `ORG_WIDE_ROLES` instead of a hand-rolled duplicate check.
+- [x] **Finding #7** (2026-08-20) — `seed.ts` uses the shared `prisma`
+  singleton; re-run for real (`npm run db:seed -w backend`) to verify,
+  since this file isn't covered by `tsc`'s typecheck include list.
+- [x] **Finding #8** (2026-08-20) — documented retroactively in
+  DECISIONS.md, not a code fix (the fix itself was correct; only the
+  missing boundary-crossing note was the finding).
+- [x] **Finding #9** (2026-08-20) — extracted `withUniqueConstraintGuard`
+  into `lib/prisma-errors.ts`; all 5 call sites (organizations/properties/
+  rooms create+update) now use it. No behavior change — full suite passes
+  unchanged before and after.
+- [x] **Finding #10** (2026-08-20) — backend slug pattern consolidated
+  into `lib/slug.ts`. Frontend's 2 HTML `pattern` attributes intentionally
+  left as-is (no shared workspace package yet — see DECISIONS.md), an
+  explained partial fix, not silently dropped.
+
+**All 10 branch-review findings are now resolved.** See DECISIONS.md for
+verification detail on each.
 
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
