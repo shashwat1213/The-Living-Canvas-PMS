@@ -1553,3 +1553,45 @@ state, including that the actor on a staff role change is the ADMIN who
 acted rather than the target, that a resubmitted unchanged field produces
 no diff entry, that no credential appears anywhere, and that a second
 organization sees nothing.
+
+
+---
+
+## 2026-08-21 — Role/property-access changes bump the token watermark inside the transaction
+
+**Context.** A focused trace of the role and property-access mutation
+flows, looking for anything escaping the transaction boundary.
+
+**What was already safe.** Both authorization reads (`requireStaff`,
+`assertPropertiesInOrganization`) run on the tenant-scoped client. They
+sit *outside* the transaction, which would be a TOCTOU concern if a row
+could change tenant between check and write — verified it cannot:
+`organizationId` is not an accepted input on any schema and is never
+updated anywhere in the codebase. No change made.
+
+**What was not.** `bumpTokensValidAfter` ran *after* the transaction on
+both paths. It is the mutation that actually removes the old authority —
+the access token embeds `permissions` and `grantedPropertyIds` — so a
+transaction that committed while the bump then failed would leave the
+change persisted **and audited** while the user kept the permissions they
+had just lost, for up to an access-token lifetime, with the trail saying
+otherwise.
+
+**Fix.** `bumpTokensValidAfter` takes an optional client, reusing the
+exact pattern `deactivateUser` already had; both call sites moved inside
+their existing transactions. No second transaction architecture, no
+change to the base-vs-scoped choice (staff writes `user`, `session` and
+`userRoleAssignment`, and `assignSystemRole` is typed for the base
+transaction client), no contract change. Cache eviction stays outside the
+transaction — an in-memory eviction cannot be rolled back, so a
+rolled-back change leaves at worst a cold cache entry that re-reads the
+unchanged row.
+
+**Verification.** Backend 155/155 (was 150). The load-bearing new test
+forces the transaction to fail and asserts `tokensValidAfter` stays null
+with the role assignment intact: if the bump is ever moved back out, that
+user would carry a watermark — and a needlessly killed session — for a
+change that never happened, and this test fails. Cross-tenant attempts
+still 404 with role, grants and watermark all untouched, and the
+pre-existing demotion-invalidates-token and stale-grant tests pass
+unchanged.

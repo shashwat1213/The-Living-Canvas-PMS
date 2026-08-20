@@ -209,6 +209,13 @@ export async function updateStaff(userId: string, input: UpdateStaffInput): Prom
       // on top, leaving the union of both roles' permissions in effect.
       await tx.userRoleAssignment.deleteMany({ where: { userId } });
       await assignSystemRole(tx, { userId, organizationId: ctx.organizationId, roleName: input.role });
+
+      // Inside the transaction, not after it. The access token embeds the
+      // permission list, so this bump is what actually takes the old
+      // permissions away; if the role change committed without it, the
+      // user would keep the authority they just lost for up to a token
+      // lifetime while the audit trail said otherwise.
+      await bumpTokensValidAfter(userId, tx);
     }
 
     // One request can legitimately be several audited events (a rename
@@ -260,16 +267,10 @@ export async function updateStaff(userId: string, input: UpdateStaffInput): Prom
     }
   });
 
-  // A role change rewrites what the user may do, but their already-issued
-  // access token still carries the OLD permission list until it expires
-  // (up to 15 minutes). Bumping the watermark makes the demotion take
-  // effect on their very next request instead — this is precisely what
-  // `platform/auth/revocation.ts` was built for. Their next silent
-  // refresh mints a token with the new permissions, so a *promotion*
-  // costs one extra round-trip rather than a forced logout.
-  if (input.role !== undefined) {
-    await bumpTokensValidAfter(userId);
-  }
+  // The role-change watermark bump now happens inside the transaction
+  // above, so a committed role change can never be missing it. A
+  // *promotion* still costs the user one extra silent refresh rather than
+  // a forced logout; a demotion takes effect on their very next request.
   if (input.isActive === false) {
     // Deactivation and its audit entry commit together. `deactivateUser`
     // takes the transaction client so its user-update and session-revoke
@@ -335,11 +336,14 @@ export async function setPropertyAccess(userId: string, requestedPropertyIds: st
         tx,
       );
     }
-  });
 
-  // Same reasoning as the role change above: the token carries the old
-  // grant list, so revoking access has to invalidate it to mean anything.
-  await bumpTokensValidAfter(userId);
+    // Same reasoning as the role change: the token carries the old grant
+    // list, so revoking access only means something once the token
+    // carrying it is invalidated — which has to commit with the change,
+    // not after it. Bumped unconditionally: the whole-set write may have
+    // reordered grants even when the added/removed sets are empty.
+    await bumpTokensValidAfter(userId, tx);
+  });
 
   return requireStaff(userId);
 }

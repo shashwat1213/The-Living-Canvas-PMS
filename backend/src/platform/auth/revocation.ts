@@ -8,8 +8,15 @@ type RevocationDb = Pick<typeof prisma, 'user' | 'session'>;
 /**
  * Invalidates every access token issued before now for this user —
  * `authenticate` (`tenancy/middleware.ts`) rejects any token whose `iat`
- * predates this watermark, regardless of the token's own expiry. Use
- * this whenever outstanding access tokens need to stop working
+ * predates this watermark, regardless of the token's own expiry.
+ *
+ * Accepts a transaction client so a caller can commit the invalidation
+ * together with the change that motivated it — a role or property-access
+ * change that persisted without its matching watermark bump would leave
+ * the user holding permissions they no longer have, for up to an access
+ * token's lifetime, with the audit trail already saying otherwise.
+ *
+ * Use this whenever outstanding access tokens need to stop working
  * immediately (bounded by the revocation-cache TTL); it does not touch
  * refresh sessions — pair with `revokeAllSessionsForUser` (see
  * `deactivateUser` below) when both need to die together.
@@ -20,8 +27,13 @@ type RevocationDb = Pick<typeof prisma, 'user' | 'session'>;
  * effect until the token expired on its own, and the user would keep
  * operating on authority they had just lost.
  */
-export async function bumpTokensValidAfter(userId: string): Promise<void> {
-  await prisma.user.update({ where: { id: userId }, data: { tokensValidAfter: new Date() } });
+export async function bumpTokensValidAfter(userId: string, client: RevocationDb = prisma): Promise<void> {
+  await client.user.update({ where: { id: userId }, data: { tokensValidAfter: new Date() } });
+
+  // Cache eviction stays outside the caller's transaction for the same
+  // reason as `deactivateUser`: an in-memory eviction cannot be rolled
+  // back. Doing it after the write means a rolled-back change leaves at
+  // worst a cold cache entry, which simply re-reads the unchanged row.
   invalidateCachedTokensValidAfter(userId);
 }
 

@@ -241,3 +241,121 @@ describe('the happy path still commits both halves', () => {
     expect(entries[0]!.entityId).toBe(res.body.property.id);
   });
 });
+
+/**
+ * Role and property-access changes additionally invalidate the target's
+ * access token (`bumpTokensValidAfter`), because the token embeds the
+ * permission list and the granted-property list. That bump is what
+ * actually takes the old authority away, so it has to commit with the
+ * change rather than after it: a role change that persisted without its
+ * bump would leave the user holding permissions they no longer have for
+ * up to a token lifetime, while the audit trail said otherwise.
+ */
+describe('role and property-access changes invalidate the token in the same transaction', () => {
+  async function seedStaff(orgLabel: string) {
+    const owner = await loginAsNewOwner(orgLabel);
+    const email = `rpa-${randomUUID().slice(0, 8)}@example.com`;
+    const created = await request(app)
+      .post('/api/v1/staff')
+      .set(...authHeader(owner.token))
+      .send({ email, password: 'correct-horse-battery-staple', firstName: 'Ria', lastName: 'Pace', role: 'STAFF' });
+    return { owner, email, staffId: created.body.staff.id as string };
+  }
+
+  async function createProperty(token: string) {
+    const res = await request(app)
+      .post('/api/v1/properties')
+      .set(...authHeader(token))
+      .send({ name: 'Access House', slug: `access-${randomUUID().slice(0, 8)}` });
+    return res.body.property.id as string;
+  }
+
+  it('a committed role change always carries its watermark bump', async () => {
+    const { owner, staffId } = await seedStaff('RPA Commit Org');
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: staffId } })).tokensValidAfter).toBeNull();
+
+    const res = await request(app)
+      .patch(`/api/v1/staff/${staffId}`)
+      .set(...authHeader(owner.token))
+      .send({ role: 'MANAGER' });
+
+    expect(res.status).toBe(200);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: staffId } });
+    expect(after.role).toBe('MANAGER');
+    expect(after.tokensValidAfter).not.toBeNull();
+  });
+
+  it('a rolled-back role change leaves the watermark untouched', async () => {
+    // The guarantee under test: the bump is inside the transaction, so a
+    // failure anywhere in it takes the bump with it. If the bump ran
+    // outside, this user would end up with a watermark — and a
+    // needlessly invalidated session — for a change that never happened.
+    const { owner, staffId } = await seedStaff('RPA Rollback Org');
+    failNextAuditWrite();
+
+    const res = await request(app)
+      .patch(`/api/v1/staff/${staffId}`)
+      .set(...authHeader(owner.token))
+      .send({ role: 'MANAGER' });
+
+    expect(res.status).toBe(500);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: staffId } });
+    expect(after.role).toBe('STAFF');
+    expect(after.tokensValidAfter).toBeNull();
+    expect(await prisma.userRoleAssignment.count({ where: { userId: staffId } })).toBe(1);
+  });
+
+  it('a committed property-access change always carries its watermark bump', async () => {
+    const { owner, staffId } = await seedStaff('RPA Access Commit Org');
+    const propertyId = await createProperty(owner.token);
+
+    const res = await request(app)
+      .put(`/api/v1/staff/${staffId}/property-access`)
+      .set(...authHeader(owner.token))
+      .send({ propertyIds: [propertyId] });
+
+    expect(res.status).toBe(200);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: staffId } });
+    expect(after.tokensValidAfter).not.toBeNull();
+    expect(await prisma.propertyAccess.count({ where: { userId: staffId } })).toBe(1);
+  });
+
+  it('a rolled-back property-access change leaves both the grants and the watermark untouched', async () => {
+    const { owner, staffId } = await seedStaff('RPA Access Rollback Org');
+    const propertyId = await createProperty(owner.token);
+    failNextAuditWrite();
+
+    const res = await request(app)
+      .put(`/api/v1/staff/${staffId}/property-access`)
+      .set(...authHeader(owner.token))
+      .send({ propertyIds: [propertyId] });
+
+    expect(res.status).toBe(500);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: staffId } });
+    expect(after.tokensValidAfter).toBeNull();
+    expect(await prisma.propertyAccess.count({ where: { userId: staffId } })).toBe(0);
+  });
+
+  it('a cross-tenant attempt changes nothing and bumps nothing', async () => {
+    const orgA = await seedStaff('RPA Iso A');
+    const orgB = await loginAsNewOwner('RPA Iso B');
+
+    const roleAttempt = await request(app)
+      .patch(`/api/v1/staff/${orgA.staffId}`)
+      .set(...authHeader(orgB.token))
+      .send({ role: 'MANAGER' });
+    expect(roleAttempt.status).toBe(404);
+
+    const accessAttempt = await request(app)
+      .put(`/api/v1/staff/${orgA.staffId}/property-access`)
+      .set(...authHeader(orgB.token))
+      .send({ propertyIds: [] });
+    expect(accessAttempt.status).toBe(404);
+
+    // Neither the role, the grants, nor the watermark moved — the refusal
+    // happens on a tenant-scoped read before any transaction opens.
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: orgA.staffId } });
+    expect(after.role).toBe('STAFF');
+    expect(after.tokensValidAfter).toBeNull();
+  });
+});
