@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom';
 
 import App from './App';
 import { RequireAuth } from './auth/RequireAuth';
+import { AuditPage } from './features/audit/AuditPage';
 import { PropertiesPage } from './features/properties/PropertiesPage';
 import { RoomsPage } from './features/rooms/RoomsPage';
 import { StaffPage } from './features/staff/StaffPage';
@@ -28,6 +29,7 @@ export function AppRouter() {
         <Route path="properties" element={<PropertiesPage />} />
         <Route path="properties/:propertyId/rooms" element={<RoomsPage />} />
         <Route path="staff" element={<StaffPage />} />
+        <Route path="audit" element={<AuditPage />} />
       </Route>
     </Routes>
   );

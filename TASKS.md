@@ -471,12 +471,29 @@ organizations specifically). See DECISIONS.md for detail.
   assumed. Backend 150/150 (9 new, including forced-audit-failure
   rollback proofs for every service). See DECISIONS.md.
 
-- [ ] **Audit trail UI**
-  Presentation only; contract is `GET /api/v1/audit-logs` →
-  `{ auditLogs: [{ id, action, entityType, entityId, actorType,
-  actorUserId, actorEmail, actor: { id, firstName, lastName, email } |
-  null, metadata, createdAt }], page }`. Needs `audit:read` gating and
-  reuses `DataTable`/`Pagination`.
+- [x] **Audit trail UI** (2026-08-21)
+  New `/app/audit` route ("Activity"), nav-gated on `audit:read`.
+  Presentation only — **no backend file was touched**; the existing
+  contract was sufficient.
+
+  Renders human summaries rather than raw JSON ("Deleted Mountain Lodge,
+  removing 3 rooms"), with a read-only detail dialog showing a from → to
+  table for update diffs. Filters on action and record type use the API's
+  own enums; drilling into a row filters by the real `actorUserId` /
+  `entityId` params, surfaced as removable chips because raw UUID inputs
+  would be unusable.
+
+  `metadata` is `unknown` by contract, so every read of it is guarded —
+  four tests cover an unknown action, null metadata, malformed metadata
+  and a deleted actor. The audit log is the screen someone opens *because*
+  something unexpected happened; it must not be the thing that breaks.
+
+  Verified: typecheck/lint/build pass; frontend 99/99 (was 79, +20);
+  backend 150/150 unchanged. A live 42-assertion contract check confirmed
+  every action and entity type the dropdowns offer is accepted, both
+  drill-down params narrow correctly, and a second organization filtering
+  by our real `entityId` *and* our real `actorUserId` gets zero rows and
+  zero totals.
 
 - [ ] **JSON 404 for unmatched routes**
   An unknown path returns Express's default HTML page instead of the

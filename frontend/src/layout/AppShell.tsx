@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../auth/useAuth';
+import { hasPermission } from '../auth/session';
 import { canReadStaff } from '../features/staff/permissions';
 import { ApiError, apiFetch } from '../lib/api';
 import './shell.css';
@@ -52,6 +53,13 @@ export function AppShell() {
           {canReadStaff(session) && (
             <NavLink to="/app/staff" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
               Team
+            </NavLink>
+          )}
+          {/* Same presentation-only gating as Team: the route and the API
+              both enforce `audit:read` independently. */}
+          {hasPermission(session, 'audit:read') && (
+            <NavLink to="/app/audit" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
+              Activity
             </NavLink>
           )}
         </nav>
