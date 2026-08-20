@@ -355,7 +355,13 @@ export function StaffPage() {
       />
 
       {pageMeta && (
-        <Pagination page={pageMeta} onPageChange={setPage} itemLabel="people" busy={refreshing} />
+        <Pagination
+          page={pageMeta}
+          onPageChange={setPage}
+          itemLabel="people"
+          itemLabelSingular="person"
+          busy={refreshing}
+        />
       )}
 
       {dialogOpen && (

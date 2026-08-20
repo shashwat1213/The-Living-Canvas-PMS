@@ -1357,3 +1357,199 @@ the trail unchanged.
 Pre-existing (there is no catch-all handler in `app.ts`) and unrelated to
 this task, so it is recorded in TASKS.md rather than fixed in an audit
 commit.
+
+---
+
+## 2026-08-21 — Properties/Rooms hardened onto the shared foundations
+
+**Context.** Properties and Rooms predated the pagination contract, the
+audit table and the shared UI primitives. This slice brings them onto all
+three. Choosing an existing module over a new domain was the point: if any
+of those three foundations needed adjusting, finding out on code that
+already works is far cheaper than discovering it three modules deep.
+
+### Decision 1 — the PropertyAccess filter moves into the query
+
+`listProperties` fetched every property the tenant owned and then filtered
+by the caller's grants in application code. Correct while the endpoint
+returned everything; **silently wrong the moment it paginated** — the
+database slices a page first, then the filter removes rows from that page,
+so a MANAGER granted one of four properties gets a page of 25 containing
+one row and a `totalItems` of 4. Both errors point the wrong way: a short
+page looks like missing data, and the count discloses how many properties
+exist that the caller may not see.
+
+The grant is now a `where` condition, so the count runs against the same
+restriction as the rows. Two tests pin it: the total must equal the grant,
+not the organization.
+
+This is worth remembering as a general rule for this codebase — **any
+authorization filter applied after a query is a latent pagination bug**.
+
+### Decision 2 — rooms sort by name, properties by creation
+
+Rooms sort `name asc`; "101, 102, 201" is how a property is walked. That
+ordering existed before but was invisible in an unbounded list, and
+pagination makes ordering a user-facing decision rather than an
+implementation detail. Both carry an `id` tiebreaker so rows can't
+straddle pages.
+
+### Decision 3 — update audits diff the persisted rows
+
+`property.updated` and `room.updated` compare the row before and after
+rather than recording the request body. Re-submitting a field with the
+value it already had is not a change, and an audit trail that says
+otherwise trains people to ignore it. Verified by a test that resubmits an
+unchanged `city` alongside a changed `name` and asserts only `name`
+appears.
+
+The diff type is JSON scalars, not `unknown`, so an unserializable value
+fails at compile time rather than at the database.
+
+### Decision 4 — property deletion records the cascade count, not N room events
+
+Deleting a property cascades its rooms. Emitting a `room.deleted` entry
+per room would bury the action that actually happened under its
+consequences — someone reading the trail wants "who deleted Mountain
+Lodge", not fifteen room entries they have to correlate. The
+`property.deleted` entry carries `cascadedRooms` instead. Asserted both
+ways: the count is right, and no `room.deleted` is emitted.
+
+### Decision 5 — audit writes stay post-hoc for these modules
+
+Properties and rooms mutate through `scopedPrisma` in their repositories
+and are not wrapped in a transaction, and the audit recorder needs the
+unscoped client. Rather than restructure two working repositories, the
+entry is written after the mutation succeeds — the same ordering already
+accepted for staff deactivation, and the same tradeoff: the trail can have
+a gap after a crash, but can never claim something happened that didn't.
+
+**Superseded 2026-08-21** — see "Audit writes made transactional" below.
+All three now commit the mutation and its audit entry together.
+
+### Decision 6 — `features/properties/` and `features/rooms/` as siblings
+
+Rooms are reached through a property, but they are a distinct entity with
+their own endpoints and their own future (housekeeping, turnover status).
+Nesting them inside the properties feature would have made the eventual
+split a refactor. `RoomsPage` importing `getProperty` from the properties
+feature is a deliberate, one-way dependency: rooms need to name their
+parent, properties know nothing about rooms.
+
+### Two pre-existing bugs found while migrating
+
+**Shared CSS held by accident.** `.page-error`, `.page-success` and
+`.empty-state` were defined only in `pages/resource-pages.css`, imported
+only by the two pages this task replaces — while `DataTable`, `StaffPage`,
+`StaffDialog` and `DashboardPage` all used them. They rendered correctly
+purely because Vite bundles all imported CSS globally and those two pages
+were always in the graph. Deleting the old pages would have broken the
+staff UI with no test catching it. Moved to `components/ui.css`, next to
+the primitives that reference them.
+
+**`Pagination` singularized naively.** `itemLabel.replace(/s$/, '')`
+turned "properties" into "1 propertie". Now an optional explicit singular
+with a rule that handles the regular cases; staff passes "person" for the
+irregular one. Caught by writing the assertion and disbelieving the
+output.
+
+### Verification
+
+typecheck / lint / build pass; `prisma migrate status` reports no drift
+(no schema change in this slice). Backend 141/141 (was 115), frontend
+79/79 (was 47 — 4 tests removed with the page they covered, 36 added).
+
+Live run against the running server, 41 assertions: paging with no row
+dropped or duplicated, multi-term search, every filter, validation
+boundaries, audit entries with real diffs for both modules, the cascade
+count on delete, the manager-with-one-grant paging case, and cross-tenant
+probes returning zero rows and zero totals for properties, rooms and the
+audit trail.
+
+**Deferred:** no bulk operations; no dedicated property detail route (the
+dialog carries the full record, and a route is a product-design question
+for the dashboard pass); no room-level cascade entries, per decision 4.
+
+
+---
+
+## 2026-08-21 — Audit writes made transactional across all three services
+
+**Context.** Three services wrote their audit entry *after* the mutation
+(staff deactivation, properties, rooms), because their write paths use
+`scopedPrisma` and the recorder was typed for the unscoped client. The
+trail could therefore lose an entry to a crash. This closes that.
+
+### The blocker was a type, not an architecture
+
+The recorder took `PrismaClient | Prisma.TransactionClient`. A client
+extension rewrites the generated delegate signatures, so the scoped
+client is a *different* type — neither `Pick<PrismaClient, …>` nor a
+union accepts both. Solved by declaring `AuditDb` **structurally**: an
+interface naming only the two calls the recorder makes
+(`user.findFirst`, `auditLog.create`). Base client, base transaction,
+scoped client and scoped transaction all satisfy it, so every caller can
+pass whatever transaction it is already inside.
+
+`findUnique` also became `findFirst` for the actor lookup, so the same
+code works whether or not the extension is injecting `organizationId`
+into the where-clause.
+
+### Verified, not assumed: the extension propagates into `$transaction`
+
+The whole fix rests on the tenancy extension still applying inside a
+transaction opened from `scopedPrisma`. Confirmed against the real
+database (a scoped `property.count()` inside a transaction returned 1 for
+a fresh organization while the unscoped count was 785) and then **pinned
+by a regression test** in `test/audit-transactional.test.ts`, covering
+both a read and a write. This is the highest-consequence silent
+assumption in the codebase: if a Prisma upgrade changed it, every
+transactional mutation would go cross-tenant with no other test failing.
+
+### What each service now does
+
+- **Properties, Rooms** — `scopedPrisma.$transaction`; repositories take
+  an optional client (`PropertiesDb`/`RoomsDb`, a `Pick` of the models
+  they touch) so the write joins the caller's transaction while keeping
+  tenancy injected.
+- **Staff** — base `prisma.$transaction`, deliberately: these paths write
+  `user`, `session`, `userRoleAssignment` and `propertyAccess`, and
+  `assignSystemRole` is typed for the base transaction client. Tenancy is
+  not weakened, because every one of them resolves its target through a
+  *scoped* read (`requireStaff`, `assertPropertiesInOrganization`) before
+  the transaction opens, and `organizationId` always comes from the
+  signed token.
+- **`deactivateUser`** now accepts a transaction client, so the user
+  update, the session revocation and the audit entry are one atomic act.
+  Its cache eviction stays outside the transaction on purpose — an
+  in-memory eviction cannot be rolled back, and doing it inside a
+  transaction that later aborts would leave the process enforcing a
+  revocation that never committed. Evicting after the writes means a
+  rolled-back deactivation leaves at worst a cold cache entry.
+
+### A doc correction
+
+An earlier note in `scoped-prisma.ts` claimed Prisma *rejects* a
+non-unique field in a `findUnique` where-clause. Probing showed it does
+not. The note was wrong and is corrected; `findFirst` remains the
+convention because it states the intent and works uniformly.
+
+### Verification
+
+typecheck / lint / build pass; `prisma migrate diff` reports no
+difference between the schema file and the live database. Backend
+**150/150** (was 141 — 9 new), frontend 79/79 unchanged.
+
+The new tests prove rollback where it matters rather than asserting
+structure: with the audit write forced to fail, a property create leaves
+no property, an update leaves the original values, a delete leaves the
+row in place, a room create leaves no room, and — the case this fix
+exists for — a staff deactivation leaves the account active, its sessions
+unrevoked, `tokensValidAfter` null, and the person still able to sign in.
+
+A separate live run made 28 assertions confirming the trail still records
+the right actor, tenant, action, target, timestamp and before/after
+state, including that the actor on a staff role change is the ADMIN who
+acted rather than the target, that a resubmitted unchanged field produces
+no diff entry, that no credential appears anywhere, and that a second
+organization sees nothing.

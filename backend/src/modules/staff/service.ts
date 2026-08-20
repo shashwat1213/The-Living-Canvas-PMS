@@ -271,19 +271,23 @@ export async function updateStaff(userId: string, input: UpdateStaffInput): Prom
     await bumpTokensValidAfter(userId);
   }
   if (input.isActive === false) {
-    // `deactivateUser` composes several writes plus a cache eviction of
-    // its own, outside this service's transaction, so its audit entry is
-    // written after it succeeds rather than alongside it. That ordering
-    // is chosen deliberately: recording first would risk an entry for a
-    // deactivation that then failed, and an audit trail that lies is
-    // worse than one with a gap. The residual window — a crash between
-    // the two — is recorded as a known limitation in DECISIONS.md.
-    await deactivateUser(userId);
-    await recordAuditEvent({
-      action: AUDIT_ACTIONS.STAFF_DEACTIVATED,
-      entityType: AUDIT_ENTITY_TYPES.STAFF,
-      entityId: userId,
-      metadata: { email: target.email },
+    // Deactivation and its audit entry commit together. `deactivateUser`
+    // takes the transaction client so its user-update and session-revoke
+    // join it too — the whole offboarding is one atomic act, and there is
+    // no window in which someone is locked out with no record of who did
+    // it. (Its cache eviction stays outside the transaction by design;
+    // see `platform/auth/revocation.ts`.)
+    await prisma.$transaction(async (tx) => {
+      await deactivateUser(userId, tx);
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.STAFF_DEACTIVATED,
+          entityType: AUDIT_ENTITY_TYPES.STAFF,
+          entityId: userId,
+          metadata: { email: target.email },
+        },
+        tx,
+      );
     });
   }
 

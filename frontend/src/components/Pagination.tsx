@@ -6,6 +6,13 @@ interface PaginationProps {
   onPageChange: (page: number) => void;
   /** Plural noun for the total, e.g. "people" / "properties". */
   itemLabel?: string;
+  /**
+   * Singular form, for a total of exactly one. Defaults to a rule that
+   * handles the regular cases ("properties" → "property", "rooms" →
+   * "room"); irregular plurals ("people" → "person") pass it explicitly.
+   * Naive `s`-stripping produced "1 propertie", which is why this exists.
+   */
+  itemLabelSingular?: string;
   /** Disables the controls while a page is being fetched. */
   busy?: boolean;
 }
@@ -21,7 +28,19 @@ interface PaginationProps {
  * page 47 yet. The readout is a live region so the position is announced
  * after a page change instead of only being visible.
  */
-export function Pagination({ page, onPageChange, itemLabel = 'items', busy = false }: PaginationProps) {
+function defaultSingular(plural: string): string {
+  if (plural.endsWith('ies')) return `${plural.slice(0, -3)}y`;
+  return plural.endsWith('s') ? plural.slice(0, -1) : plural;
+}
+
+export function Pagination({
+  page,
+  onPageChange,
+  itemLabel = 'items',
+  itemLabelSingular,
+  busy = false,
+}: PaginationProps) {
+  const singular = itemLabelSingular ?? defaultSingular(itemLabel);
   // One page of results needs no controls, but the total is still worth
   // showing — it answers "how many are there" without arithmetic.
   const showControls = page.totalPages > 1;
@@ -36,7 +55,7 @@ export function Pagination({ page, onPageChange, itemLabel = 'items', busy = fal
           ? `No ${itemLabel}`
           : showControls
             ? `${first}–${last} of ${page.totalItems} ${itemLabel}`
-            : `${page.totalItems} ${page.totalItems === 1 ? itemLabel.replace(/s$/, '') : itemLabel}`}
+            : `${page.totalItems} ${page.totalItems === 1 ? singular : itemLabel}`}
       </p>
 
       {showControls && (

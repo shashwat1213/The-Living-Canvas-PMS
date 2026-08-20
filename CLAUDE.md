@@ -27,7 +27,9 @@ today:
 - **Modules**: `organizations` (public signup + `/organizations/me`),
   `properties`, `rooms`, `staff` (staff administration, role assignment,
   property-access grants, deactivation), `audit` (read-only trail).
-  `GET /health` is unversioned.
+  `GET /health` is unversioned. Every mutating module records audit
+  events; a service that changes state without one is the gap to look
+  for.
 - **Audit trail**: `platform/audit/` records consequential actions from
   *inside* the service performing them, taking actor and organization
   from the request context rather than parameters. Adding an auditable
@@ -101,7 +103,9 @@ not just validated against the schema file — see
   connections) — this is the only data-access layer; don't instantiate
   `PrismaClient` elsewhere.
 - **Frontend**: Vite + React SPA with `react-router-dom`; `AuthContext` is
-  the only app-wide state (no state library). Talks to the backend only
+  the only app-wide state (no state library). Feature modules live in
+  `src/features/<name>/` (`staff`, `properties`, `rooms`); `src/pages/`
+  holds only the pre-feature screens (dashboard, login, signup). Talks to the backend only
   through `VITE_API_URL` (defaults to `http://localhost:4000`) — never
   hardcode the backend origin, and never call `fetch` outside
   `lib/api.ts`. New features go in `src/features/<name>/` with their
@@ -131,9 +135,11 @@ not just validated against the schema file — see
 - **List endpoints are paginated**: `backend/src/lib/pagination.ts` owns
   the shared `page`/`pageSize` contract and the `{ items, page }`
   envelope; each module extends `paginationQuerySchema` with its own
-  filters. New list endpoints follow this rather than returning every
-  row. (`GET /properties` and the rooms list predate it and are still
-  unbounded — see TASKS.md.)
+  filters. Every list endpoint follows this — staff, properties and
+  rooms. An authorization filter applied *after* the query is a latent
+  pagination bug (it produces short pages and a count that includes rows
+  the caller can't see); put the restriction in the `where` so the count
+  runs against it too.
 - **Schema source of truth**: `backend/prisma/schema.prisma`.
   [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) is a human-readable mirror of
   it — if they disagree, the schema wins and the doc must be updated to

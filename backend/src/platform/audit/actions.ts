@@ -20,6 +20,17 @@ export const AUDIT_ACTIONS = {
   STAFF_DEACTIVATED: 'staff.deactivated',
   STAFF_REACTIVATED: 'staff.reactivated',
   STAFF_PROPERTY_ACCESS_CHANGED: 'staff.property_access_changed',
+
+  PROPERTY_CREATED: 'property.created',
+  PROPERTY_UPDATED: 'property.updated',
+  PROPERTY_DELETED: 'property.deleted',
+
+  // Rooms are audited alongside properties rather than left as a gap:
+  // deleting a room destroys operational history, and "who took 204 out
+  // of service" is the same question as "who deleted the property".
+  ROOM_CREATED: 'room.created',
+  ROOM_UPDATED: 'room.updated',
+  ROOM_DELETED: 'room.deleted',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -32,6 +43,8 @@ export const AUDIT_ACTION_VALUES: AuditAction[] = Object.values(AUDIT_ACTIONS);
  */
 export const AUDIT_ENTITY_TYPES = {
   STAFF: 'staff',
+  PROPERTY: 'property',
+  ROOM: 'room',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

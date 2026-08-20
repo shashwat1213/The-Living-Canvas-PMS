@@ -2,6 +2,9 @@ import { prisma } from '../../lib/prisma.js';
 import { invalidateCachedTokensValidAfter } from './revocation-cache.js';
 import { revokeAllSessionsForUser } from './session-service.js';
 
+/** The models `deactivateUser` writes — satisfied by the base client or a transaction of it. */
+type RevocationDb = Pick<typeof prisma, 'user' | 'session'>;
+
 /**
  * Invalidates every access token issued before now for this user —
  * `authenticate` (`tenancy/middleware.ts`) rejects any token whose `iat`
@@ -23,16 +26,26 @@ export async function bumpTokensValidAfter(userId: string): Promise<void> {
 }
 
 /**
- * The one sanctioned way to deactivate a user. Composes `isActive: false`
+ * The one sanctioned way to deactivate a user. Accepts a transaction
+ * client so a caller can commit the deactivation together with its audit
+ * entry. Composes `isActive: false`
  * with the revocation watermark in a single write, then revokes every
  * outstanding session — so a deactivated user's already-issued access
  * token AND their refresh cookie both stop working, not just one or the
  * other. Centralizing this is what stops a future endpoint from setting
  * `isActive: false` by hand and forgetting the rest.
  */
-export async function deactivateUser(userId: string): Promise<void> {
+export async function deactivateUser(userId: string, client: RevocationDb = prisma): Promise<void> {
   const now = new Date();
-  await prisma.user.update({ where: { id: userId }, data: { isActive: false, tokensValidAfter: now } });
+  await client.user.update({ where: { id: userId }, data: { isActive: false, tokensValidAfter: now } });
+  await revokeAllSessionsForUser(userId, client);
+
+  // Cache eviction happens last and is deliberately *not* part of the
+  // caller's transaction — it can't be rolled back. Evicting after the
+  // writes means a rolled-back deactivation leaves at worst a cold cache
+  // entry, which simply re-reads the (unchanged) row. Evicting first
+  // would be equally safe but pointlessly earlier; doing it inside a
+  // transaction that later aborts would leave the process enforcing a
+  // revocation that never committed.
   invalidateCachedTokensValidAfter(userId);
-  await revokeAllSessionsForUser(userId);
 }

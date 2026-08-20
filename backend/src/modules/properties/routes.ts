@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { createPropertySchema, updatePropertySchema } from './schemas.js';
+import { createPropertySchema, listPropertiesQuerySchema, updatePropertySchema } from './schemas.js';
 import * as propertiesService from './service.js';
 
 export const propertiesRouter = Router();
@@ -13,9 +13,10 @@ propertiesRouter.use(authenticate);
 propertiesRouter.get(
   '/properties',
   requirePermission('properties:read'),
-  asyncHandler(async (_req, res) => {
-    const properties = await propertiesService.listProperties();
-    res.json({ properties });
+  asyncHandler(async (req, res) => {
+    const query = listPropertiesQuerySchema.parse(req.query);
+    const { items, page } = await propertiesService.listProperties(query);
+    res.json({ properties: items, page });
   }),
 );
 

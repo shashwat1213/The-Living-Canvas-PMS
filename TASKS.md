@@ -341,16 +341,7 @@ organizations specifically). See DECISIONS.md for detail.
   builds, including that another organization searching for a known name
   gets zero rows and a zero total.
 
-- [ ] **Frontend — apply the shared primitives to Properties/Rooms**
-  `PropertiesPage`/`RoomsPage` still use native `confirm()` and bespoke
-  list markup. They work and were deliberately left alone here; migrating
-  them to `DataTable`/`ConfirmDialog` is a separate, self-contained task.
-
-- [ ] **Paginate the remaining list endpoints**
-  `GET /properties` and `GET /properties/:id/rooms` still return every
-  row. The shared contract now exists, so this is mechanical — but it is
-  a response-shape change for two endpoints with live frontend consumers,
-  so it belongs in its own task rather than bundled into an unrelated one.
+- [x] **Properties vertical slice** (2026-08-21) — see the Phase 2 entry below.
 
 - [x] **Audit trail** (2026-08-21)
   New `AuditLog` model + `20260820201210_audit_log` migration, generated
@@ -401,6 +392,84 @@ organizations specifically). See DECISIONS.md for detail.
   between the two leaves an unrecorded deactivation. Recording first was
   rejected because a trail that lies is worse than one with a gap. See
   DECISIONS.md.
+
+## Phase 2 — Properties vertical slice (2026-08-21)
+
+- [x] **Properties & Rooms: server-side lists, audit coverage, UI migration** (2026-08-21)
+  No schema change — this hardened two modules that already existed onto
+  the three foundations established by the staff slice, which was the
+  point: proving the pagination contract, the audit table and the UI
+  primitives generalize *before* committing to them for domains that
+  don't exist yet.
+
+  **Backend.** `GET /properties` and `GET /properties/:id/rooms` now use
+  the shared pagination contract. Properties filter on `search`
+  (name/slug/city) and `status`; rooms on `search` (name/type/floor) and
+  the full `RoomStatus` enum. Rooms sort by name rather than creation
+  date — "101, 102, 201" is the order a property is actually walked, and
+  pagination made that ordering visible in a way an unbounded list didn't.
+
+  **A real correctness fix came with it.** `listProperties` filtered by
+  PropertyAccess grants *after* fetching rows. Once paginated that
+  silently breaks: the database slices a page, then the filter removes
+  rows from it, producing short pages and a `totalItems` counting
+  properties the caller cannot see. The grant is now a query condition,
+  so the count is correct too. Regression-tested directly.
+
+  **Audit.** `property.created/updated/deleted` and
+  `room.created/updated/deleted`, reusing `platform/audit` — no second
+  mechanism. Updates record a real before/after field diff computed from
+  the persisted rows, so re-submitting an unchanged value produces no
+  entry. Deletion captures the name and slug before the row is gone, plus
+  the number of rooms that cascaded with it.
+
+  **Frontend.** `pages/PropertiesPage.tsx` and `pages/RoomsPage.tsx` are
+  replaced by `features/properties/` and `features/rooms/`, following the
+  feature-module convention: endpoints named in one `api.ts`, typed
+  models, dialogs for create/edit, `DataTable` + `Pagination` +
+  `ConfirmDialog` instead of bespoke list markup and native `confirm()`.
+  Debounced server-side search, filters that reset to page 1, and
+  permission-gated controls (presentation only). Room status stays
+  editable inline — it is the field changed most often, and a one-field
+  edit shouldn't need a dialog.
+
+  Verified: typecheck/lint/build pass, `prisma migrate status` clean.
+  Backend 141/141 (was 115 — 26 new: pagination, search semantics, each
+  filter, grant-filter paging correctness, audit entries for every
+  mutation, and that a refused mutation writes nothing). Frontend 79/79
+  (was 47; 4 old tests removed with the page they covered, 36 added). A
+  live run made 41 assertions against the running server, including the
+  manager-with-one-grant paging case and cross-tenant probes.
+
+  **Two bugs found and fixed en route, neither introduced by this task:**
+  `.page-error`/`.page-success`/`.empty-state` were defined only in
+  `pages/resource-pages.css`, imported only by the two pages being
+  replaced — `DataTable`, `StaffPage`, `StaffDialog` and `DashboardPage`
+  all used them and worked purely by accident of global CSS bundling.
+  Moved to `components/ui.css`. And `Pagination` singularized by stripping
+  a trailing "s", rendering "1 propertie"; it now takes an optional
+  explicit singular.
+
+  **Deferred deliberately:** no room-level audit for the cascade when a
+  property is deleted (the property entry records the count instead —
+  emitting N room-deleted entries for one action would bury the action
+  that caused them). No bulk operations. No property detail route; the
+  dialog carries the full record, and a dedicated route is a
+  product-design question for the dashboard pass.
+
+- [x] **Transactional audit writes** (2026-08-21)
+  All three services (staff deactivation, properties, rooms) now commit
+  the mutation and its audit entry in one transaction. The blocker was a
+  type, not an architecture: the recorder now declares its client
+  structurally, so base/scoped clients and their transactions all satisfy
+  it. `deactivateUser` accepts a transaction so the user update, session
+  revocation and audit entry are atomic; its cache eviction deliberately
+  stays outside (an in-memory eviction can't roll back).
+
+  The tenancy extension propagating into `$transaction` — which the whole
+  fix depends on — is now pinned by a regression test rather than
+  assumed. Backend 150/150 (9 new, including forced-audit-failure
+  rollback proofs for every service). See DECISIONS.md.
 
 - [ ] **Audit trail UI**
   Presentation only; contract is `GET /api/v1/audit-logs` →

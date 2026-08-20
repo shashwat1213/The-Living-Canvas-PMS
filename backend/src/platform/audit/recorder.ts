@@ -1,10 +1,33 @@
-import type { Prisma, PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 
 import { prisma } from '../../lib/prisma.js';
 import { getRequestContext } from '../tenancy/context.js';
 import type { AuditAction, AuditEntityType } from './actions.js';
 
-type Db = PrismaClient | Prisma.TransactionClient;
+/**
+ * The two calls this makes, and nothing else.
+ *
+ * Declared structurally rather than as a concrete Prisma client on
+ * purpose: the tenant-scoped client is a *different* generated type from
+ * the base one (client extensions rewrite the delegate signatures), so
+ * neither `PrismaClient` nor `Prisma.TransactionClient` can stand in for
+ * both. Describing only the surface actually used lets every caller pass
+ * whatever transaction it is already inside — base client, base
+ * transaction, scoped client, or scoped transaction — which is what
+ * allows the audit write to join the mutation it describes instead of
+ * trailing behind it.
+ */
+export interface AuditDb {
+  user: {
+    findFirst(args: {
+      where: { id: string };
+      select: { email: true };
+    }): PromiseLike<{ email: string } | null>;
+  };
+  auditLog: {
+    create(args: { data: Prisma.AuditLogUncheckedCreateInput }): PromiseLike<unknown>;
+  };
+}
 
 /**
  * Keys that must never reach the audit table. An audit row is long-lived,
@@ -68,12 +91,18 @@ export interface AuditEvent {
  * system that may be sold to businesses with compliance obligations, an
  * unrecorded privileged action is a worse outcome than a failed one.
  */
-export async function recordAuditEvent(event: AuditEvent, client: Db = prisma): Promise<void> {
+export async function recordAuditEvent(event: AuditEvent, client: AuditDb = prisma): Promise<void> {
   const ctx = getRequestContext();
 
   // Captured at write time so the row stays meaningful even if the account
   // is later removed (the FK is SetNull for exactly that reason).
-  const actor = await client.user.findUnique({
+  //
+  // `findFirst`, not `findUnique`: when the caller passes a tenant-scoped
+  // client the extension adds `organizationId` to the where-clause, and
+  // `findFirst` accepts that without caring whether the combination is a
+  // declared unique. It also means the lookup is tenant-checked when it
+  // can be, and identical otherwise.
+  const actor = await client.user.findFirst({
     where: { id: ctx.userId },
     select: { email: true },
   });

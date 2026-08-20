@@ -370,3 +370,48 @@
   color: var(--text);
   white-space: nowrap;
 }
+
+/* ---------- Page-level status blocks ---------- */
+/*
+ * Used by every feature (DataTable's empty state, the staff and property
+ * pages, the dashboard). These lived in pages/resource-pages.css, which
+ * only the properties and rooms pages imported — everything else relied
+ * on that file happening to be in the bundle. Defining them here, next to
+ * the primitives that reference them, removes that accident.
+ */
+
+.page-error {
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 0.85rem;
+}
+
+.page-success {
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 0.85rem;
+}
+
+.empty-state {
+  color: var(--text);
+  padding: 1.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .page-error {
+    background: rgba(153, 27, 27, 0.25);
+    color: #fca5a5;
+  }
+
+  .page-success {
+    background: rgba(6, 95, 70, 0.25);
+    color: #6ee7b7;
+  }
+}

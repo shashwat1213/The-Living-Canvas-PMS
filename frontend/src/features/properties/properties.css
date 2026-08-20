@@ -1,0 +1,98 @@
+/*
+ * Properties layout. Shared primitives (table, modal, badge, buttons,
+ * fields, pagination) live in components/ui.css; only what's specific to
+ * this feature belongs here.
+ */
+
+.properties-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.properties-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.properties-header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.8px;
+}
+
+@media (max-width: 1024px) {
+  .properties-header h1 {
+    font-size: 26px;
+  }
+}
+
+.properties-subtitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.properties-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.properties-filters .field {
+  min-width: 150px;
+}
+
+.properties-search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.properties-clear-filters {
+  margin-top: 0.75rem;
+}
+
+.property-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.property-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.property-slug,
+.property-muted {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.property-danger-text {
+  color: #b91c1c;
+}
+
+.property-danger-text:hover:not(:disabled) {
+  border-color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .property-danger-text {
+    color: #fca5a5;
+  }
+  .property-danger-text:hover:not(:disabled) {
+    border-color: #fca5a5;
+  }
+}
+
+.property-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}

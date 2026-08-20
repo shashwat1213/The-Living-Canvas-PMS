@@ -89,10 +89,20 @@ function scopeByOrganizationColumn() {
  * and `property` entries above. That is the same pattern `Room`'s
  * `create` relies on, spelled out in the room block below.
  *
- * NOTE: because this injects `organizationId` into `where`, scoped models
- * must be read with `findFirst`, not `findUnique` — Prisma rejects a
- * non-unique field in a `findUnique` where-clause. Every repository here
- * already follows that rule.
+ * NOTE: this extension applies inside `$transaction` as well — a
+ * transaction client opened from `scopedPrisma` still has the
+ * organization filter injected on every statement. That is what lets a
+ * service commit a mutation and its audit entry together without leaving
+ * the tenant boundary (see `modules/properties/service.ts`), and it is
+ * pinned by a regression test in `test/audit-transactional.test.ts`
+ * rather than assumed: if a Prisma upgrade ever changed it, every
+ * transactional mutation would silently go cross-tenant.
+ *
+ * Convention: read scoped models with `findFirst`, not `findUnique`.
+ * (Prisma does tolerate the injected `organizationId` in a `findUnique`
+ * where-clause — an earlier note here claimed otherwise and was wrong —
+ * but `findFirst` states the intent, works uniformly, and is what every
+ * repository here uses.)
  */
 export const scopedPrisma = prisma.$extends({
   name: 'tenant-scoping',
