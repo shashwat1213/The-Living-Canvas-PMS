@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { paginationQuerySchema } from '../../lib/pagination.js';
 import { SYSTEM_ROLE_NAMES } from '../../platform/rbac/permissions.js';
 
 /**
@@ -50,6 +51,25 @@ export const updateStaffSchema = z
   });
 
 export type UpdateStaffInput = z.infer<typeof updateStaffSchema>;
+
+/**
+ * Query parameters for `GET /staff`: the shared pagination contract plus
+ * this module's own filters.
+ *
+ * All three filters are optional and combine with AND — "active managers
+ * matching 'mary'" is one request, not a client-side intersection of
+ * three. Filtering server-side is what keeps the endpoint honest at
+ * scale: the alternative returns every row and lets the browser hide
+ * some, which stops working long before it stops appearing to work.
+ */
+export const listStaffQuerySchema = paginationQuerySchema.extend({
+  /** Free text matched against first name, last name and email. */
+  search: z.string().trim().max(120).optional(),
+  role: z.enum(SYSTEM_ROLE_NAMES).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+
+export type ListStaffQuery = z.infer<typeof listStaffQuerySchema>;
 
 /** Full replacement of a staff member's property grants — the request
  * body is the complete resulting set, not a delta. */

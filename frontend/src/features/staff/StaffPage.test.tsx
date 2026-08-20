@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthContext, type AuthContextValue } from '../../auth/AuthContext';
 import { readSessionClaims } from '../../auth/session';
+import type { PageMeta } from '../../lib/pagination';
 import { StaffPage } from './StaffPage';
 import type { StaffMember, SystemRoleName } from './types';
 
@@ -70,12 +71,26 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
   return { ok, status, json: () => Promise.resolve(body) } as Response;
 }
 
-/** Routes stubbed `fetch` calls by URL and method, like the real API. */
+/** Mirrors the API's paginated envelope: `{ staff, page }`. */
+function staffPage(rows: StaffMember[], overrides: Partial<PageMeta> = {}) {
+  return {
+    staff: rows,
+    page: { page: 1, pageSize: 25, totalItems: rows.length, totalPages: 1, ...overrides },
+  };
+}
+
+/**
+ * Routes stubbed `fetch` calls by URL and method, like the real API.
+ * Records every staff-list URL so tests can assert that search and filter
+ * state is sent to the server rather than applied client-side.
+ */
 function stubApi(options: {
   staff?: StaffMember[];
+  pageOverrides?: Partial<PageMeta>;
   staffError?: { status: number; message: string };
   properties?: { id: string; name: string }[];
   onMutate?: (url: string, init?: RequestInit) => void;
+  onList?: (url: string) => void;
 }) {
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
@@ -88,6 +103,7 @@ function stubApi(options: {
       return Promise.resolve(jsonResponse({ properties: options.properties ?? [] }));
     }
     if (url.includes('/api/v1/staff')) {
+      options.onList?.(url);
       if (options.staffError) {
         return Promise.resolve(
           jsonResponse(
@@ -97,7 +113,7 @@ function stubApi(options: {
           ),
         );
       }
-      return Promise.resolve(jsonResponse({ staff: options.staff ?? [] }));
+      return Promise.resolve(jsonResponse(staffPage(options.staff ?? [], options.pageOverrides)));
     }
     return Promise.resolve(jsonResponse({}));
   });
@@ -163,59 +179,157 @@ describe('StaffPage — loading, empty and error states', () => {
   });
 });
 
-describe('StaffPage — search and filters', () => {
+describe('StaffPage — search and filters are sent to the server', () => {
   const roster = [
     ownerRow,
     member({ id: 'u2', firstName: 'Mary', lastName: 'Manager', email: 'mary@example.com', role: 'MANAGER', roleNames: ['MANAGER'] }),
     member({ id: 'u3', firstName: 'Sam', lastName: 'Staffer', email: 'sam@example.com' }),
   ];
 
-  it('filters by name or email as you type', async () => {
-    stubApi({ staff: roster });
+  /**
+   * These assert the *request*, not a filtered DOM. Filtering moved to
+   * the API, so the meaningful behaviour is which query the page asks
+   * for — a test that checked rows were hidden would pass even if the
+   * page had silently gone back to filtering a full local list.
+   */
+  function lastListUrl(urls: string[]): string {
+    return urls[urls.length - 1] ?? '';
+  }
+
+  it('debounces the search box into a single request', async () => {
+    const urls: string[] = [];
+    stubApi({ staff: roster, onList: (url) => urls.push(url) });
     renderPage(ownerSession());
     await screen.findByText('Mary Manager');
+    const initialCount = urls.length;
 
-    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'mary' } });
+    const box = screen.getByLabelText('Search');
+    fireEvent.change(box, { target: { value: 'm' } });
+    fireEvent.change(box, { target: { value: 'ma' } });
+    fireEvent.change(box, { target: { value: 'mary' } });
 
-    expect(screen.getByText('Mary Manager')).toBeInTheDocument();
-    expect(screen.queryByText('Olive Owner')).not.toBeInTheDocument();
-    expect(screen.getByText('1 of 3 shown')).toBeInTheDocument();
+    // Nothing fired yet: the debounce is still pending.
+    expect(urls.length).toBe(initialCount);
+
+    await waitFor(() => expect(decodeURIComponent(lastListUrl(urls))).toContain('search=mary'));
+    // One request for three keystrokes, not three.
+    expect(urls.length).toBe(initialCount + 1);
   });
 
-  it('filters by role', async () => {
-    stubApi({ staff: roster });
+  it('sends the role filter as a query parameter', async () => {
+    const urls: string[] = [];
+    stubApi({ staff: roster, onList: (url) => urls.push(url) });
     renderPage(ownerSession());
     await screen.findByText('Mary Manager');
 
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'MANAGER' } });
 
-    expect(screen.getByText('Mary Manager')).toBeInTheDocument();
-    expect(screen.queryByText('Sam Staffer')).not.toBeInTheDocument();
+    await waitFor(() => expect(lastListUrl(urls)).toContain('role=MANAGER'));
   });
 
-  it('filters by status', async () => {
-    stubApi({ staff: [ownerRow, member({ id: 'u4', firstName: 'Dee', lastName: 'Parted', isActive: false })] });
-    renderPage(ownerSession());
-    await screen.findByText('Dee Parted');
-
-    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'INACTIVE' } });
-
-    expect(screen.getByText('Dee Parted')).toBeInTheDocument();
-    expect(screen.queryByText('Olive Owner')).not.toBeInTheDocument();
-  });
-
-  it('offers a way back when filters match nobody', async () => {
-    stubApi({ staff: roster });
+  it('sends the status filter as a query parameter', async () => {
+    const urls: string[] = [];
+    stubApi({ staff: roster, onList: (url) => urls.push(url) });
     renderPage(ownerSession());
     await screen.findByText('Mary Manager');
 
-    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'nobody-by-that-name' } });
-    expect(screen.getByText('No one matches those filters.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'INACTIVE' } });
 
+    await waitFor(() => expect(lastListUrl(urls)).toContain('status=INACTIVE'));
+  });
+
+  it('omits filters that are not set rather than sending empty values', async () => {
+    const urls: string[] = [];
+    stubApi({ staff: roster, onList: (url) => urls.push(url) });
+    renderPage(ownerSession());
+    await screen.findByText('Mary Manager');
+
+    const url = lastListUrl(urls);
+    expect(url).not.toContain('search=');
+    expect(url).not.toContain('role=');
+    expect(url).not.toContain('status=');
+  });
+
+  it('renders the server’s empty result and offers a way back', async () => {
+    stubApi({ staff: [] });
+    renderPage(ownerSession());
+    await screen.findByText('No staff yet — add your first team member above.');
+
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'nobody-by-that-name' } });
+
+    // With a filter applied, the empty state changes and offers a reset.
+    expect(await screen.findByText('No one matches those filters.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(screen.getByText('Mary Manager')).toBeInTheDocument();
+    expect(await screen.findByText('No staff yet — add your first team member above.')).toBeInTheDocument();
   });
 });
+
+describe('StaffPage — pagination', () => {
+  const twoPages = [ownerRow, member()];
+
+  it('shows the position and total from the server', async () => {
+    stubApi({ staff: twoPages, pageOverrides: { pageSize: 2, totalItems: 5, totalPages: 3 } });
+    renderPage(ownerSession());
+
+    expect(await screen.findByText('1–2 of 5 people')).toBeInTheDocument();
+    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
+  });
+
+  it('requests the next page and disables Previous on the first page', async () => {
+    const urls: string[] = [];
+    stubApi({
+      staff: twoPages,
+      pageOverrides: { pageSize: 2, totalItems: 5, totalPages: 3 },
+      onList: (url) => urls.push(url),
+    });
+    renderPage(ownerSession());
+    await screen.findByText('Page 1 of 3');
+
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => expect(lastUrl(urls)).toContain('page=2'));
+  });
+
+  it('hides the controls when everything fits on one page', async () => {
+    stubApi({ staff: twoPages });
+    renderPage(ownerSession());
+
+    await screen.findByText('Sam Staffer');
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+    // The total is still reported.
+    expect(screen.getByText('2 people')).toBeInTheDocument();
+  });
+
+  it('returns to page 1 when a filter changes', async () => {
+    const urls: string[] = [];
+    stubApi({
+      staff: twoPages,
+      pageOverrides: { pageSize: 2, totalItems: 5, totalPages: 3 },
+      onList: (url) => urls.push(url),
+    });
+    renderPage(ownerSession());
+    await screen.findByText('Page 1 of 3');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(lastUrl(urls)).toContain('page=2'));
+
+    // Changing a filter while on page 2 must not leave the user stranded
+    // on a page the new result set may not have.
+    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'MANAGER' } });
+
+    await waitFor(() => {
+      const url = lastUrl(urls);
+      expect(url).toContain('role=MANAGER');
+      expect(url).toContain('page=1');
+    });
+  });
+});
+
+function lastUrl(urls: string[]): string {
+  return urls[urls.length - 1] ?? '';
+}
 
 describe('StaffPage — permission gating (presentation only)', () => {
   it('explains the page instead of loading it without staff:read', async () => {

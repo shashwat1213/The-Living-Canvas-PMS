@@ -10,7 +10,8 @@ import { assignSystemRole } from '../../platform/rbac/provisioning.js';
 import { getRequestContext } from '../../platform/tenancy/context.js';
 import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
 import { staffRepository, type StaffMember } from './repository.js';
-import type { CreateStaffInput, UpdateStaffInput } from './schemas.js';
+import type { PageMeta } from '../../lib/pagination.js';
+import type { CreateStaffInput, ListStaffQuery, UpdateStaffInput } from './schemas.js';
 
 /**
  * The caller's own authority level, read from the signed access token's
@@ -85,8 +86,8 @@ async function assertPropertiesInOrganization(propertyIds: string[]): Promise<vo
   }
 }
 
-export async function listStaff(): Promise<StaffMember[]> {
-  return staffRepository.list();
+export async function listStaff(query: ListStaffQuery): Promise<{ items: StaffMember[]; page: PageMeta }> {
+  return staffRepository.list(query);
 }
 
 export async function getStaff(userId: string): Promise<StaffMember> {

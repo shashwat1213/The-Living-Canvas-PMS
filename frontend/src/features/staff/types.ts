@@ -43,6 +43,15 @@ export interface StaffMember {
   propertyIds: string[];
 }
 
+/** Server-side filters accepted by `GET /api/v1/staff`. */
+export interface StaffListParams {
+  search?: string;
+  role?: SystemRoleName;
+  status?: 'ACTIVE' | 'INACTIVE';
+  page?: number;
+  pageSize?: number;
+}
+
 export interface CreateStaffInput {
   email: string;
   password: string;

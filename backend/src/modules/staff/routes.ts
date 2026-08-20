@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { createStaffSchema, setPropertyAccessSchema, updateStaffSchema } from './schemas.js';
+import { createStaffSchema, listStaffQuerySchema, setPropertyAccessSchema, updateStaffSchema } from './schemas.js';
 import * as staffService from './service.js';
 
 /**
@@ -25,9 +25,13 @@ staffRouter.use(authenticate);
 staffRouter.get(
   '/staff',
   requirePermission('staff:read'),
-  asyncHandler(async (_req, res) => {
-    const staff = await staffService.listStaff();
-    res.json({ staff });
+  asyncHandler(async (req, res) => {
+    // Query parameters are validated exactly like a request body — an
+    // out-of-range pageSize or an unknown role is a 400 with the same
+    // error shape, not a silently-substituted default.
+    const query = listStaffQuerySchema.parse(req.query);
+    const { items, page } = await staffService.listStaff(query);
+    res.json({ staff: items, page });
   }),
 );
 

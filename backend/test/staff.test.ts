@@ -505,6 +505,18 @@ describe('validation and lookup', () => {
     expect(res.status).toBe(400);
   });
 
+  it('returns pagination metadata alongside the rows', async () => {
+    const owner = await loginAsNewOwner('Envelope Org');
+
+    const list = await request(app)
+      .get('/api/v1/staff')
+      .set(...authHeader(owner.token));
+
+    expect(list.status).toBe(200);
+    expect(list.body.staff).toHaveLength(1);
+    expect(list.body.page).toEqual({ page: 1, pageSize: 25, totalItems: 1, totalPages: 1 });
+  });
+
   it('lists the owner plus every staff member created in the organization', async () => {
     const owner = await loginAsNewOwner('Listing Org');
     await createStaff(owner.token, staffPayload('MANAGER'));
@@ -521,5 +533,191 @@ describe('validation and lookup', () => {
       'OWNER',
       'STAFF',
     ]);
+  });
+});
+
+describe('staff listing: pagination, search and filters', () => {
+  /**
+   * Builds a known roster in one fresh organization. Every assertion in
+   * this block is scoped to that organization by the tenant layer, so the
+   * counts are exact regardless of what other tests have created.
+   */
+  async function seedRoster() {
+    const owner = await loginAsNewOwner('Roster Org');
+    const people = [
+      { first: 'Mary', last: 'Manager', role: 'MANAGER' as const },
+      { first: 'Marcus', last: 'Porter', role: 'STAFF' as const },
+      { first: 'Nina', last: 'Keeper', role: 'STAFF' as const },
+      { first: 'Omar', last: 'Nightly', role: 'STAFF' as const },
+    ];
+    const created = [];
+    for (const person of people) {
+      const payload = staffPayload(person.role, { firstName: person.first, lastName: person.last });
+      const res = await createStaff(owner.token, payload);
+      if (res.status !== 201) throw new Error(`seed failed: ${res.status} ${JSON.stringify(res.body)}`);
+      created.push({ ...person, id: res.body.staff.id as string, email: payload.email });
+    }
+    // 5 total: the owner plus the four above.
+    return { owner, created };
+  }
+
+  function get(token: string, query: string) {
+    return request(app)
+      .get(`/api/v1/staff${query}`)
+      .set(...authHeader(token));
+  }
+
+  it('splits results across pages and reports accurate totals', async () => {
+    const { owner } = await seedRoster();
+
+    const first = await get(owner.token, '?page=1&pageSize=2');
+    expect(first.status).toBe(200);
+    expect(first.body.staff).toHaveLength(2);
+    expect(first.body.page).toEqual({ page: 1, pageSize: 2, totalItems: 5, totalPages: 3 });
+
+    const last = await get(owner.token, '?page=3&pageSize=2');
+    expect(last.body.staff).toHaveLength(1);
+    expect(last.body.page.totalItems).toBe(5);
+
+    // No row appears on two pages, and every row appears exactly once —
+    // the property that a non-deterministic sort would silently break.
+    const second = await get(owner.token, '?page=2&pageSize=2');
+    const ids = [...first.body.staff, ...second.body.staff, ...last.body.staff].map(
+      (member: { id: string }) => member.id,
+    );
+    expect(new Set(ids).size).toBe(5);
+  });
+
+  it('returns an empty page rather than clamping when the page is past the end', async () => {
+    const { owner } = await seedRoster();
+
+    const res = await get(owner.token, '?page=9&pageSize=2');
+
+    expect(res.status).toBe(200);
+    expect(res.body.staff).toHaveLength(0);
+    // The request is echoed truthfully instead of quietly serving page 3.
+    expect(res.body.page.page).toBe(9);
+    expect(res.body.page.totalItems).toBe(5);
+  });
+
+  it('searches across first name, last name and email', async () => {
+    const { owner, created } = await seedRoster();
+
+    const byFirst = await get(owner.token, '?search=nina');
+    expect(byFirst.body.staff.map((m: { firstName: string }) => m.firstName)).toEqual(['Nina']);
+
+    const byLast = await get(owner.token, '?search=porter');
+    expect(byLast.body.staff.map((m: { lastName: string }) => m.lastName)).toEqual(['Porter']);
+
+    const target = created[0] as { email: string };
+    const byEmail = await get(owner.token, `?search=${encodeURIComponent(target.email)}`);
+    expect(byEmail.body.staff).toHaveLength(1);
+    expect(byEmail.body.staff[0].email).toBe(target.email);
+  });
+
+  it('is case-insensitive and matches anywhere in the value, not just the start', async () => {
+    const { owner } = await seedRoster();
+
+    const res = await get(owner.token, '?search=MAR');
+
+    // Substring semantics, deliberately: an uppercase query matches
+    // lowercase data, and "Omar" matches because the term appears inside
+    // it. Prefix-only matching would make searching a partial surname
+    // fail, which is the more common need in a staff directory.
+    const names = res.body.staff.map((m: { firstName: string }) => m.firstName).sort();
+    expect(names).toEqual(['Marcus', 'Mary', 'Omar']);
+    expect(res.body.page.totalItems).toBe(3);
+  });
+
+  it('requires every search term to match, so a full name finds one person', async () => {
+    const { owner } = await seedRoster();
+
+    // Name is split across two columns; a single OR over the raw string
+    // would find nobody, and an ANY-term match would return both Mars.
+    const res = await get(owner.token, '?search=mary%20manager');
+
+    expect(res.body.staff).toHaveLength(1);
+    expect(res.body.staff[0].firstName).toBe('Mary');
+  });
+
+  it('filters by role using the real assignment', async () => {
+    const { owner } = await seedRoster();
+
+    const managers = await get(owner.token, '?role=MANAGER');
+    expect(managers.body.staff).toHaveLength(1);
+    expect(managers.body.staff[0].roleNames).toEqual(['MANAGER']);
+
+    const owners = await get(owner.token, '?role=OWNER');
+    expect(owners.body.staff).toHaveLength(1);
+    expect(owners.body.page.totalItems).toBe(1);
+  });
+
+  it('filters by active status', async () => {
+    const { owner, created } = await seedRoster();
+    const victim = created[1] as { id: string };
+    await request(app)
+      .patch(`/api/v1/staff/${victim.id}`)
+      .set(...authHeader(owner.token))
+      .send({ isActive: false });
+
+    const inactive = await get(owner.token, '?status=INACTIVE');
+    expect(inactive.body.staff).toHaveLength(1);
+    expect(inactive.body.staff[0].id).toBe(victim.id);
+
+    const active = await get(owner.token, '?status=ACTIVE');
+    expect(active.body.page.totalItems).toBe(4);
+  });
+
+  it('combines search, role and status with AND', async () => {
+    const { owner } = await seedRoster();
+
+    // "marcus" alone would already isolate one row; the point here is
+    // that adding role and status narrows rather than widens. Mary also
+    // matches "mar" but is a MANAGER, so the role filter must exclude her.
+    const res = await get(owner.token, '?search=marcus&role=STAFF&status=ACTIVE');
+    expect(res.body.staff).toHaveLength(1);
+    expect(res.body.staff[0].firstName).toBe('Marcus');
+
+    // Same search, but a role nobody in the result set holds: the filters
+    // intersect, so this is empty rather than falling back to the search.
+    const mismatched = await get(owner.token, '?search=marcus&role=MANAGER');
+    expect(mismatched.body.staff).toHaveLength(0);
+    expect(mismatched.body.page.totalItems).toBe(0);
+    expect(mismatched.body.page.totalPages).toBe(1);
+  });
+
+  it('reports a filtered total, not the unfiltered one', async () => {
+    const { owner } = await seedRoster();
+
+    const res = await get(owner.token, '?search=nina&pageSize=2');
+
+    expect(res.body.page.totalItems).toBe(1);
+    expect(res.body.page.totalPages).toBe(1);
+  });
+
+  it('rejects invalid pagination and filter values with 400', async () => {
+    const { owner } = await seedRoster();
+
+    // Over the ceiling: refused, rather than silently truncated, so a
+    // client can never believe it received everything.
+    expect((await get(owner.token, '?pageSize=101')).status).toBe(400);
+    expect((await get(owner.token, '?pageSize=0')).status).toBe(400);
+    expect((await get(owner.token, '?page=0')).status).toBe(400);
+    expect((await get(owner.token, '?page=notanumber')).status).toBe(400);
+    expect((await get(owner.token, '?role=SUPERUSER')).status).toBe(400);
+    expect((await get(owner.token, '?status=MAYBE')).status).toBe(400);
+
+    const invalid = await get(owner.token, '?pageSize=101');
+    expect(invalid.body.error.code).toBe('validation_error');
+    expect(Array.isArray(invalid.body.error.issues)).toBe(true);
+  });
+
+  it('accepts the boundary page size', async () => {
+    const { owner } = await seedRoster();
+
+    const res = await get(owner.token, '?pageSize=100');
+
+    expect(res.status).toBe(200);
+    expect(res.body.page.pageSize).toBe(100);
   });
 });

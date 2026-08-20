@@ -114,6 +114,12 @@ not just validated against the schema file — see
   administration additionally applies a role-rank rule (`ROLE_RANK`),
   because a permission says what a caller may do, not who they may do it
   to. Frontend checks are UX only; the backend is the security boundary.
+- **List endpoints are paginated**: `backend/src/lib/pagination.ts` owns
+  the shared `page`/`pageSize` contract and the `{ items, page }`
+  envelope; each module extends `paginationQuerySchema` with its own
+  filters. New list endpoints follow this rather than returning every
+  row. (`GET /properties` and the rooms list predate it and are still
+  unbounded — see TASKS.md.)
 - **Schema source of truth**: `backend/prisma/schema.prisma`.
   [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) is a human-readable mirror of
   it — if they disagree, the schema wins and the doc must be updated to

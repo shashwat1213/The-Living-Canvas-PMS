@@ -1,5 +1,6 @@
 import { apiFetch } from '../../lib/api';
-import type { CreateStaffInput, StaffMember, UpdateStaffInput } from './types';
+import { toQueryString, type PageMeta } from '../../lib/pagination';
+import type { CreateStaffInput, StaffListParams, StaffMember, UpdateStaffInput } from './types';
 
 /**
  * The only place staff endpoints are named. Components call these
@@ -16,8 +17,19 @@ import type { CreateStaffInput, StaffMember, UpdateStaffInput } from './types';
 
 const BASE = '/api/v1/staff';
 
-export function listStaff(): Promise<StaffMember[]> {
-  return apiFetch<{ staff: StaffMember[] }>(BASE).then((res) => res.staff);
+export interface StaffListResult {
+  staff: StaffMember[];
+  page: PageMeta;
+}
+
+/**
+ * One page of staff. Searching and filtering happen on the server, so the
+ * client never holds — or has to hide — rows the user didn't ask for.
+ * Omitted params fall back to the API's own defaults rather than being
+ * duplicated here.
+ */
+export function listStaff(params: StaffListParams = {}): Promise<StaffListResult> {
+  return apiFetch<StaffListResult>(`${BASE}${toQueryString({ ...params })}`);
 }
 
 export function getStaffMember(userId: string): Promise<StaffMember> {

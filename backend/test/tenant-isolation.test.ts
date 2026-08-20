@@ -153,6 +153,57 @@ describe('cross-organization isolation: staff', () => {
     expect(list.body.staff[0].role).toBe('OWNER');
   });
 
+  it("search and filters cannot be used to probe another organization's staff", async () => {
+    const orgA = await loginAsNewOwner('Staff Probe A');
+    const orgB = await loginAsNewOwner('Staff Probe B');
+
+    // A distinctive name that exists only in org A.
+    const suffix = randomUUID().slice(0, 8);
+    const secretName = `Zaphod${suffix}`;
+    await request(app)
+      .post('/api/v1/staff')
+      .set(...authHeader(orgA.token))
+      .send({
+        email: `probe-${suffix}@example.com`,
+        password: 'correct-horse-battery-staple',
+        firstName: secretName,
+        lastName: 'Beeblebrox',
+        role: 'STAFF',
+      });
+
+    // Org B searching for the exact name, the exact email, and by role
+    // must all come back empty — the tenant filter is ANDed in by the
+    // scoping extension, so a filter can only ever narrow within the
+    // caller's own organization, never reach outside it.
+    for (const query of [
+      `?search=${secretName}`,
+      `?search=probe-${suffix}%40example.com`,
+      '?role=STAFF',
+      '?status=ACTIVE&pageSize=100',
+    ]) {
+      const res = await request(app)
+        .get(`/api/v1/staff${query}`)
+        .set(...authHeader(orgB.token));
+
+      expect(res.status).toBe(200);
+      expect(JSON.stringify(res.body)).not.toContain(secretName);
+      expect(res.body.staff.every((m: { email: string }) => !m.email.includes(suffix))).toBe(true);
+    }
+
+    // The totals must be org-scoped too — a count that leaked the real
+    // number would disclose another tenant's size even with rows hidden.
+    const all = await request(app)
+      .get('/api/v1/staff?pageSize=100')
+      .set(...authHeader(orgB.token));
+    expect(all.body.page.totalItems).toBe(1); // org B's owner, and nobody else
+
+    // Org A still sees their own person, so the filter works at all.
+    const ownerView = await request(app)
+      .get(`/api/v1/staff?search=${secretName}`)
+      .set(...authHeader(orgA.token));
+    expect(ownerView.body.staff).toHaveLength(1);
+  });
+
   it("a staff member in org A is invisible to org B: get, update, property-access", async () => {
     const orgA = await loginAsNewOwner('Staff Iso A2');
     const orgB = await loginAsNewOwner('Staff Iso B2');

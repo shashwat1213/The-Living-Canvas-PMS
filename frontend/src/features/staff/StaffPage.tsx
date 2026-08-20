@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '../../auth/useAuth';
 import { Badge } from '../../components/Badge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { DataTable, type Column } from '../../components/DataTable';
+import { Pagination } from '../../components/Pagination';
 import { ApiError, apiFetch } from '../../lib/api';
+import type { PageMeta } from '../../lib/pagination';
 import { listStaff, updateStaffMember } from './api';
 import { canManageMember, canManageStaff, canReadStaff, manageBlockedReason, MANAGE_BLOCKED_LABEL } from './permissions';
 import { StaffDialog } from './StaffDialog';
@@ -33,13 +35,20 @@ export function StaffPage() {
   const { session } = useAuth();
 
   const [staff, setStaff] = useState<StaffMember[] | null>(null);
+  const [pageMeta, setPageMeta] = useState<PageMeta | null>(null);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  /** True while refetching an already-loaded list, so the table can stay
+   * on screen instead of collapsing back to a loading placeholder. */
+  const [refreshing, setRefreshing] = useState(false);
 
   const [search, setSearch] = useState('');
+  /** The term actually sent to the server — see the debounce effect below. */
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [page, setPage] = useState(1);
 
   const [dialogMember, setDialogMember] = useState<StaffMember | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -56,21 +65,49 @@ export function StaffPage() {
     setTimeout(() => setSuccess(null), 3500);
   }
 
-  async function load() {
+  const load = useCallback(async () => {
+    setRefreshing(true);
     try {
-      const members = await listStaff();
-      setStaff(members);
+      const result = await listStaff({
+        search: appliedSearch || undefined,
+        role: roleFilter === 'ALL' ? undefined : roleFilter,
+        status: statusFilter === 'ALL' ? undefined : statusFilter,
+        page,
+      });
+      setStaff(result.staff);
+      setPageMeta(result.page);
       setError(null);
     } catch (err) {
       setStaff([]);
+      setPageMeta(null);
       setError(err instanceof ApiError ? err.message : 'Could not load your team.');
+    } finally {
+      setRefreshing(false);
     }
-  }
+  }, [appliedSearch, roleFilter, statusFilter, page]);
+
+  // Debounce the search box so typing produces one request when the user
+  // pauses, not one per keystroke. Filters and paging aren't debounced —
+  // they're discrete choices, and delaying them would just feel laggy.
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Any change to what's being asked for resets to the first page —
+  // staying on page 4 of a result set that now has one page would show an
+  // empty table for a filter that actually matched something.
+  useEffect(() => {
+    setPage(1);
+  }, [appliedSearch, roleFilter, statusFilter]);
 
   useEffect(() => {
     if (!mayRead) return;
     void load();
+  }, [mayRead, load]);
 
+  useEffect(() => {
+    if (!mayRead) return;
     // The property list only drives the access picker, so a failure here
     // must not take the staff table down with it — the picker degrades to
     // "no properties" and everything else still works.
@@ -78,21 +115,6 @@ export function StaffPage() {
       .then((res) => setProperties(res.properties))
       .catch(() => setProperties([]));
   }, [mayRead]);
-
-  const visibleStaff = useMemo(() => {
-    if (staff === null) return null;
-    const term = search.trim().toLowerCase();
-    return staff.filter((member) => {
-      const matchesTerm =
-        term === '' ||
-        fullName(member).toLowerCase().includes(term) ||
-        member.email.toLowerCase().includes(term);
-      const matchesRole = roleFilter === 'ALL' || effectiveRole(member) === roleFilter;
-      const matchesStatus =
-        statusFilter === 'ALL' || (statusFilter === 'ACTIVE' ? member.isActive : !member.isActive);
-      return matchesTerm && matchesRole && matchesStatus;
-    });
-  }, [staff, search, roleFilter, statusFilter]);
 
   function openCreate() {
     setDialogMember(null);
@@ -300,17 +322,9 @@ export function StaffPage() {
         </div>
       </div>
 
-      {visibleStaff !== null && staff !== null && (
-        <p className="staff-count" role="status">
-          {visibleStaff.length === staff.length
-            ? `${staff.length} ${staff.length === 1 ? 'person' : 'people'}`
-            : `${visibleStaff.length} of ${staff.length} shown`}
-        </p>
-      )}
-
       <DataTable
         columns={columns}
-        rows={visibleStaff}
+        rows={staff}
         rowKey={(member) => member.id}
         caption="Staff members in your organization"
         highlightRow={(member) => member.id === session?.userId}
@@ -339,6 +353,10 @@ export function StaffPage() {
           )
         }
       />
+
+      {pageMeta && (
+        <Pagination page={pageMeta} onPageChange={setPage} itemLabel="people" busy={refreshing} />
+      )}
 
       {dialogOpen && (
         <StaffDialog

@@ -342,3 +342,31 @@
     color: #6ee7b7;
   }
 }
+
+/* ---------- Pagination ---------- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+}
+
+.pagination-status {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pagination-position {
+  font-size: 0.8rem;
+  color: var(--text);
+  white-space: nowrap;
+}

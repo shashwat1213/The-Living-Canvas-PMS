@@ -306,10 +306,57 @@ organizations specifically). See DECISIONS.md for detail.
   92 checks, all passing, including that no `passwordHash` is ever
   returned and that the server still refuses an action the UI hides.
 
+- [x] **Server-side list contract: pagination, search, filters** (2026-08-21)
+  Closes the client-side-filtering limitation recorded above. `GET
+  /api/v1/staff` now accepts `page`, `pageSize`, `search`, `role` and
+  `status`, and returns `{ staff, page: { page, pageSize, totalItems,
+  totalPages } }`.
+
+  The reusable half lives in `backend/src/lib/pagination.ts` (query-schema
+  fragment, `toSkipTake`, `buildPageMeta`, `MAX_PAGE_SIZE`) and
+  `frontend/src/lib/pagination.ts` (`PageMeta`, `toQueryString`), plus a
+  domain-free `components/Pagination.tsx`. **This is the pattern every
+  future module's list endpoint inherits** — properties, units, leases,
+  maintenance — rather than each inventing its own page shape.
+
+  Filtering/sorting stay with each module (they differ per domain); only
+  the page contract is shared. Search requires every whitespace-separated
+  term to match first name, last name or email, so a full name finds one
+  person even though the name spans two columns. Count and page are read
+  in one transaction, and ordering carries an `id` tiebreaker so rows
+  can't straddle or fall between pages. Over-large `pageSize` is a 400
+  rather than a silent truncation.
+
+  Frontend: search is debounced (300ms → one request per pause), filters
+  and paging are not; any filter change resets to page 1; the table stays
+  on screen while refetching instead of collapsing to a placeholder.
+
+  Verified: typecheck/lint/build pass. Backend 91/91 (was 78 — 13 new
+  covering paging, search semantics, each filter, AND-combination,
+  filtered totals, validation boundaries, and a cross-tenant probe).
+  Frontend 47/47 (was 42 — 5 new asserting the *request* rather than a
+  filtered DOM, since a DOM assertion would still pass if filtering had
+  silently reverted to the client). A live check against the running
+  backend ran 40 assertions using the exact query strings the frontend
+  builds, including that another organization searching for a known name
+  gets zero rows and a zero total.
+
 - [ ] **Frontend — apply the shared primitives to Properties/Rooms**
   `PropertiesPage`/`RoomsPage` still use native `confirm()` and bespoke
   list markup. They work and were deliberately left alone here; migrating
   them to `DataTable`/`ConfirmDialog` is a separate, self-contained task.
+
+- [ ] **Paginate the remaining list endpoints**
+  `GET /properties` and `GET /properties/:id/rooms` still return every
+  row. The shared contract now exists, so this is mechanical — but it is
+  a response-shape change for two endpoints with live frontend consumers,
+  so it belongs in its own task rather than bundled into an unrelated one.
+
+- [ ] **Audit trail for staff changes**
+  Nothing records who changed a role or deactivated an account. For a PMS
+  sold to other businesses this is a compliance question, not a nicety.
+  Needs a new model and a Prisma migration; the service layer is already
+  the right place to hook it, since every mutation goes through it.
 
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

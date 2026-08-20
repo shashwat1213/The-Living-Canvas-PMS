@@ -1106,3 +1106,107 @@ native `confirm()` and their existing markup — they work, and migrating
 them is a separate task now queued in TASKS.md. No AI-agent integration
 points were added; the module boundary is the preparation for that, and
 building more would have been speculation.
+
+---
+
+## 2026-08-21 — Paginated list contract, established on staff
+
+**Context.** `GET /staff` returned every row in the organization and the
+UI filtered in the browser. That works at demo scale and fails quietly at
+real scale — and by the time it fails, the response shape is already
+public and every other module has copied it. This establishes the shape
+now, on the one module that has a consumer, rather than retrofitting it
+across five later.
+
+### Decision 1 — every list endpoint is paginated, no opt-out
+
+The alternative considered was "paginate only when `page` is supplied",
+which would have been perfectly backwards compatible. Rejected: it leaves
+the unbounded default in place, so the liability survives and only
+disappears for callers who already knew to ask. A default `pageSize` of
+25 with a hard `MAX_PAGE_SIZE` of 100 means no request can ever ask the
+database for everything.
+
+A `pageSize` over the ceiling is a **400, not a silent truncation** — a
+client that receives 100 of 500 rows while believing it asked for all of
+them is a bug that surfaces as missing data much later.
+
+### Decision 2 — the shared half is only the page contract
+
+`lib/pagination.ts` (both sides) owns `page`/`pageSize`, `toSkipTake`,
+`buildPageMeta`, and the envelope. It deliberately does **not** own
+filtering or sorting: those depend on columns only the module knows, and
+a generic filter builder would either be too weak to use or so general it
+becomes a query language. Each module extends `paginationQuerySchema`
+with its own filters. That is the extension point future modules plug
+into.
+
+### Decision 3 — an out-of-range page returns empty, not clamped
+
+Asking for page 9 of a 3-page result gets an empty page 9 with honest
+metadata, not a silently-served page 3. Clamping would tell the client it
+received what it asked for when it didn't; returning the truth lets the
+client decide. `totalPages` is floored at 1 so a client never renders
+"page 1 of 0".
+
+### Decision 4 — count and rows in one transaction, ordering with a tiebreaker
+
+The count and the page are read in a single `$transaction`, so the total
+can't come from a different instant than the rows — otherwise a
+concurrent signup produces a page that contradicts its own "of N" label.
+
+Ordering is `createdAt asc, id asc`. `createdAt` alone is not unique, and
+under a non-deterministic tiebreak two rows sharing a timestamp can
+appear on two pages or on neither. A test walks every page and asserts
+the union is exactly the full set, which is what makes that a guarantee
+rather than an intention.
+
+### Decision 5 — search requires every term to match
+
+`"mary manager"` is split on whitespace and each term must match first
+name, last name **or** email. A single OR over the raw string finds
+nobody (the name spans two columns); an ANY-term match returns everyone
+called Mary and everyone called Manager. Matching is `contains`,
+case-insensitive — substring, not prefix, because searching a partial
+surname is the more common need. One consequence worth knowing: `"mar"`
+also matches `"Omar"`. That is correct for a contains-search and is
+asserted explicitly, so it can't be mistaken for a bug later.
+
+### Tenant isolation
+
+`buildWhere` contains no mention of `organizationId`. The scoping
+extension ANDs the tenant filter in, so a user-supplied filter can only
+ever narrow *within* the caller's organization — it has no way to widen
+it. The count goes through the same scoped client, so totals can't
+disclose another tenant's size even with rows hidden. Both are tested:
+another organization searching for a name it doesn't own gets zero rows
+**and** a zero total.
+
+### Frontend
+
+Search is debounced at 300ms so a burst of keystrokes is one request;
+filters and paging are not debounced, because they are discrete choices
+and delaying them only feels laggy. Any filter change resets to page 1 —
+staying on page 4 of a result set that now has one page would show an
+empty table for a filter that actually matched. The table stays on screen
+while refetching (`refreshing`) instead of collapsing to a loading
+placeholder, which would make every keystroke flash the layout.
+
+The new frontend tests assert **the request, not a filtered DOM**. A DOM
+assertion would still pass if the page silently went back to filtering a
+full local list, which is precisely the regression worth catching.
+
+### Verification
+
+typecheck / lint / build pass. Backend 91/91 (was 78), frontend 47/47
+(was 42). A live run against the running backend made 40 assertions using
+the exact query strings `frontend/src/lib/pagination.ts` builds — paging
+across three pages with no row duplicated or dropped, multi-term search,
+each filter, AND-combination, filtered totals, every validation boundary,
+and the cross-tenant probe above.
+
+**Deferred, and recorded in TASKS.md:** `GET /properties` and the rooms
+list are still unbounded. The contract now exists, so converting them is
+mechanical — but it changes the response shape for two endpoints with
+live consumers, which deserves its own task rather than riding along
+here.

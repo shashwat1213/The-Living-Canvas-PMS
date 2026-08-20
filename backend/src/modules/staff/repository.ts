@@ -1,7 +1,10 @@
 import type { Prisma } from '@prisma/client';
 
+import { toSkipTake, type PageMeta } from '../../lib/pagination.js';
+import { buildPageMeta } from '../../lib/pagination.js';
 import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
 import type { SystemRoleName } from '../../platform/rbac/permissions.js';
+import type { ListStaffQuery } from './schemas.js';
 
 /**
  * The exact columns a staff record may leave the backend with.
@@ -76,13 +79,74 @@ function toStaffMember(row: StaffRow): StaffMember {
  * rejects inside a `findUnique`. Same rule the properties and rooms
  * repositories follow.
  */
+/**
+ * Translates the validated query into a Prisma filter.
+ *
+ * Note what is absent: any mention of `organizationId`. The tenant filter
+ * is injected by the scoping extension and ANDed with whatever is
+ * returned here, so a filter can never widen the caller's visibility —
+ * only narrow it further within their own organization.
+ */
+function buildWhere(query: ListStaffQuery): Prisma.UserWhereInput {
+  const conditions: Prisma.UserWhereInput[] = [];
+
+  if (query.role) {
+    // Matched against the actual role assignment rather than the `role`
+    // label, so the filter agrees with what really governs access.
+    conditions.push({ roleAssignments: { some: { role: { name: query.role } } } });
+  }
+
+  if (query.status) {
+    conditions.push({ isActive: query.status === 'ACTIVE' });
+  }
+
+  if (query.search) {
+    // Each whitespace-separated term must match at least one field, so
+    // "mary manager" finds Mary Manager even though the name is split
+    // across two columns — a single OR over the raw string would not.
+    for (const term of query.search.split(/\s+/).filter(Boolean)) {
+      conditions.push({
+        OR: [
+          { firstName: { contains: term, mode: 'insensitive' } },
+          { lastName: { contains: term, mode: 'insensitive' } },
+          { email: { contains: term, mode: 'insensitive' } },
+        ],
+      });
+    }
+  }
+
+  return conditions.length > 0 ? { AND: conditions } : {};
+}
+
 export const staffRepository = {
-  async list(): Promise<StaffMember[]> {
-    const rows = await scopedPrisma.user.findMany({
-      select: staffSelect,
-      orderBy: { createdAt: 'asc' },
-    });
-    return rows.map(toStaffMember);
+  /**
+   * One page of staff, plus the metadata needed to render pagination.
+   *
+   * The count and the page are issued in a single transaction so the
+   * total can't be taken from a different instant than the rows — a
+   * concurrent signup would otherwise produce a page that disagrees with
+   * its own "of N" label.
+   *
+   * Ordering includes `id` as a tiebreaker: `createdAt` alone is not
+   * unique, and two rows sharing a timestamp could otherwise appear on
+   * two different pages, or on neither.
+   */
+  async list(query: ListStaffQuery): Promise<{ items: StaffMember[]; page: PageMeta }> {
+    const where = buildWhere(query);
+    const { skip, take } = toSkipTake(query);
+
+    const [totalItems, rows] = await scopedPrisma.$transaction([
+      scopedPrisma.user.count({ where }),
+      scopedPrisma.user.findMany({
+        where,
+        select: staffSelect,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        skip,
+        take,
+      }),
+    ]);
+
+    return { items: rows.map(toStaffMember), page: buildPageMeta(query, totalItems) };
   },
 
   async findById(id: string): Promise<StaffMember | null> {
