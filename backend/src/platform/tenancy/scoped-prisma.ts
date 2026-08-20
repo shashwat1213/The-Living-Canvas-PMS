@@ -72,9 +72,9 @@ function scopeByOrganizationColumn() {
  * request-scoped context — a repository function cannot forget it,
  * because it never writes the filter itself.
  *
- * `Property` and `User` carry `organizationId` directly; `Room` doesn't
- * (only `propertyId`), so its scope is enforced through the `property`
- * relation instead. Extend this file the same way — one entry per model
+ * `Property`, `User` and `AuditLog` carry `organizationId` directly;
+ * `Room` doesn't (only `propertyId`), so its scope is enforced through
+ * the `property` relation instead. Extend this file the same way — one entry per model
  * — when a new tenant-scoped model is added; a model not listed here is
  * NOT scoped by this extension (raw `prisma` from `lib/prisma.ts` stays
  * unscoped, for the platform-level code — auth, org creation — that
@@ -99,6 +99,7 @@ export const scopedPrisma = prisma.$extends({
   query: {
     property: scopeByOrganizationColumn(),
     user: scopeByOrganizationColumn(),
+    auditLog: scopeByOrganizationColumn(),
     room: {
       async $allOperations({ operation, args, query }) {
         const ctx = getRequestContext();

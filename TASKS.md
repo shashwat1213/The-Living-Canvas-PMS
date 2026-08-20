@@ -352,11 +352,68 @@ organizations specifically). See DECISIONS.md for detail.
   a response-shape change for two endpoints with live frontend consumers,
   so it belongs in its own task rather than bundled into an unrelated one.
 
-- [ ] **Audit trail for staff changes**
-  Nothing records who changed a role or deactivated an account. For a PMS
-  sold to other businesses this is a compliance question, not a nicety.
-  Needs a new model and a Prisma migration; the service layer is already
-  the right place to hook it, since every mutation goes through it.
+- [x] **Audit trail** (2026-08-21)
+  New `AuditLog` model + `20260820201210_audit_log` migration, generated
+  and applied with `prisma migrate dev` against a **real PostgreSQL
+  16.15** (`postgres:16-alpine`).
+
+  Deliberately generic rather than staff-specific: `entityType` +
+  `entityId` name the target polymorphically and `action` is a namespaced
+  string (`"staff.role_changed"`) rather than a database enum, so
+  properties, units, leases, maintenance, payments and agent actions
+  reuse the table without a schema change — adding an action costs a
+  constant in `platform/audit/actions.ts`. `AuditActorType`
+  (`USER | SYSTEM | AGENT`) is in place from the start so an AI agent's
+  actions are attributable without a later migration.
+
+  Writes happen in `platform/audit/recorder.ts`, called from inside the
+  staff service's existing transactions, so an entry commits or rolls
+  back with the change it describes. Actor and organization come from
+  `getRequestContext()` and are not parameters — a caller cannot
+  attribute an action to someone else or file it under another tenant,
+  and a future AI agent running inside `runWithRequestContext(...)` is
+  audited automatically with no opt-out.
+
+  Covered: create, rename, role change, deactivate, reactivate, and
+  property-access change. Read API is `GET /api/v1/audit-logs`
+  (paginated, filterable by action/entity/actor, newest-first) behind a
+  new `audit:read` permission held by OWNER/ADMIN only — the trail
+  records administrative actions taken *on* MANAGER/STAFF, so they are
+  deliberately excluded. There is no write, update or delete endpoint.
+
+  Verified: typecheck/lint/build pass. Backend 115/115 (was 91 — 24 new,
+  covering authorized/unauthorized/forbidden/wrong-tenant, each mutation
+  type, entry shape, credential redaction, and that a *refused* action
+  leaves no entry). Frontend 47/47 unchanged. `npm run db:seed`
+  backfilled `audit:read` onto 2856 role-permission mappings for existing
+  organizations. A live run made 38 assertions against the running
+  server, including cross-tenant probing by real entity ID returning
+  nothing.
+
+  **UI deliberately deferred** — the write path and read API are done and
+  documented, but where an audit view belongs (per-staff timeline vs.
+  global activity log) is a product-design question, and the dashboard
+  pass is scheduled after the core domain modules. Contract is fixed, so
+  the UI task is presentation only.
+
+  **Known limitation:** `deactivateUser` runs outside the service
+  transaction, so its audit entry is written after it succeeds — a crash
+  between the two leaves an unrecorded deactivation. Recording first was
+  rejected because a trail that lies is worse than one with a gap. See
+  DECISIONS.md.
+
+- [ ] **Audit trail UI**
+  Presentation only; contract is `GET /api/v1/audit-logs` →
+  `{ auditLogs: [{ id, action, entityType, entityId, actorType,
+  actorUserId, actorEmail, actor: { id, firstName, lastName, email } |
+  null, metadata, createdAt }], page }`. Needs `audit:read` gating and
+  reuses `DataTable`/`Pagination`.
+
+- [ ] **JSON 404 for unmatched routes**
+  An unknown path returns Express's default HTML page instead of the
+  app's `{ error: { code, message } }` shape. Pre-existing (no catch-all
+  handler in `app.ts`), found while verifying the audit endpoints. Small,
+  but it is an API-consistency bug a client sees on any typo'd URL.
 
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

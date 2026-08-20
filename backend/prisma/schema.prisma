@@ -26,6 +26,7 @@ model Organization {
   users      User[]
   properties Property[]
   roles      Role[]
+  auditLogs  AuditLog[]
 
   @@map("organizations")
 }
@@ -66,6 +67,7 @@ model User {
   sessions        Session[]
   roleAssignments UserRoleAssignment[]
   propertyAccess  PropertyAccess[]
+  auditEvents     AuditLog[]
 
   @@index([organizationId])
   @@map("users")
@@ -184,6 +186,66 @@ model PropertyAccess {
   @@unique([userId, propertyId])
   @@index([propertyId])
   @@map("property_access")
+}
+
+/// Who performed an audited action. `USER` is a signed-in staff member.
+/// `SYSTEM` is the platform acting on its own (scheduled jobs, automated
+/// offboarding). `AGENT` is an AI agent acting through the application's
+/// own services — present from the start so adding one later is a value
+/// on an existing column rather than a migration on a live audit table.
+enum AuditActorType {
+  USER
+  SYSTEM
+  AGENT
+}
+
+/// Immutable record of a consequential action taken within an
+/// Organization. Written by `src/platform/audit/recorder.ts` from inside
+/// the service that performed the action, never by a route or a client.
+///
+/// Deliberately generic rather than staff-specific: `entityType` +
+/// `entityId` name the target polymorphically and `action` is a
+/// namespaced string ("staff.role_changed"), NOT a database enum — so
+/// properties, units, leases, maintenance, payments and agent actions all
+/// reuse this table without a schema change. The catalog of valid actions
+/// lives in `src/platform/audit/actions.ts`, where adding one costs a
+/// constant instead of a migration on a table that only grows.
+///
+/// Rows are append-only by convention: there is no update or delete path
+/// in application code. The only deletion is the Organization cascade,
+/// which is tenant offboarding — retaining a deleted tenant's audit trail
+/// would be the leak, not the safeguard.
+model AuditLog {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  actorType      AuditActorType @default(USER) @map("actor_type")
+  /// Null once the acting user is gone (`SetNull`, not cascade — an audit
+  /// trail that disappears with its subject is not an audit trail).
+  actorUserId    String?        @map("actor_user_id")
+  /// The actor's email captured at write time. Denormalized on purpose:
+  /// an audit record has to stay meaningful on its own, including after
+  /// the account it refers to no longer exists.
+  actorEmail     String?        @map("actor_email")
+  /// Namespaced "<module>.<event>" — see `platform/audit/actions.ts`.
+  action         String
+  /// The kind of thing acted on ("staff", later "property", "lease", …).
+  entityType     String         @map("entity_type")
+  entityId       String         @map("entity_id")
+  /// Structured, action-specific detail (e.g. `{ from, to }` for a role
+  /// change). Never contains credentials — see the recorder.
+  metadata       Json?
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorUser    User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  /// Every index leads with `organizationId`: no query reaches this table
+  /// without a tenant filter, so a tenant-first index is the one that
+  /// actually gets used.
+  @@index([organizationId, createdAt])
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, actorUserId])
+  @@map("audit_logs")
 }
 
 /// A single physical venue (hotel, guesthouse, etc.) belonging to an Organization.

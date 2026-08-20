@@ -4,6 +4,7 @@ import express, { type Express } from 'express';
 
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { auditRouter } from './modules/audit/routes.js';
 import { authRouter } from './modules/auth/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { propertiesRouter } from './modules/properties/routes.js';
@@ -27,6 +28,7 @@ export function createApp(): Express {
   v1.use(authRouter);
   v1.use(organizationsRouter);
   v1.use(staffRouter);
+  v1.use(auditRouter);
   v1.use(propertiesRouter);
   v1.use('/properties/:propertyId/rooms', roomsRouter);
   app.use('/api/v1', v1);

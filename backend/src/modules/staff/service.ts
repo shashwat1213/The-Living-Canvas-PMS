@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../lib/http-errors.js';
 import { withUniqueConstraintGuard } from '../../lib/prisma-errors.js';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../../platform/audit/actions.js';
+import { recordAuditEvent } from '../../platform/audit/recorder.js';
 import { hashPassword } from '../../platform/auth/password.js';
 import { bumpTokensValidAfter, deactivateUser } from '../../platform/auth/revocation.js';
 import { ROLE_RANK, highestRoleRank, type SystemRoleName } from '../../platform/rbac/permissions.js';
@@ -12,6 +14,16 @@ import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
 import { staffRepository, type StaffMember } from './repository.js';
 import type { PageMeta } from '../../lib/pagination.js';
 import type { CreateStaffInput, ListStaffQuery, UpdateStaffInput } from './schemas.js';
+
+/**
+ * The role that actually governs a member's access. `roleNames` is the
+ * real grant (via `UserRoleAssignment`); `User.role` is the display
+ * label. They are kept in sync, but the grant is the one an audit entry
+ * should report as the "before" value of a role change.
+ */
+function effectiveRoleOf(member: StaffMember): SystemRoleName {
+  return (member.roleNames[0] ?? member.role) as SystemRoleName;
+}
 
 /**
  * The caller's own authority level, read from the signed access token's
@@ -140,6 +152,21 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
             data: propertyIds.map((propertyId) => ({ userId: user.id, propertyId })),
           });
         }
+
+        // Inside the transaction: the audit entry and the account it
+        // describes commit together, so there is no window in which one
+        // exists without the other. Note the absence of `input.password` —
+        // the recorder also strips credential-shaped keys as a backstop.
+        await recordAuditEvent(
+          {
+            action: AUDIT_ACTIONS.STAFF_CREATED,
+            entityType: AUDIT_ENTITY_TYPES.STAFF,
+            entityId: user.id,
+            metadata: { email: input.email, role: input.role, propertyIds },
+          },
+          tx,
+        );
+
         return user.id;
       }),
     'That email is already in use.',
@@ -155,6 +182,8 @@ export async function updateStaff(userId: string, input: UpdateStaffInput): Prom
   if (input.role !== undefined) {
     assertCanAssignRole(input.role);
   }
+
+  const previousRole = effectiveRoleOf(target);
 
   await prisma.$transaction(async (tx) => {
     const data: Prisma.UserUpdateInput = {};
@@ -181,6 +210,54 @@ export async function updateStaff(userId: string, input: UpdateStaffInput): Prom
       await tx.userRoleAssignment.deleteMany({ where: { userId } });
       await assignSystemRole(tx, { userId, organizationId: ctx.organizationId, roleName: input.role });
     }
+
+    // One request can legitimately be several audited events (a rename
+    // and a role change arrive together), so each is recorded separately
+    // rather than collapsed into one vague "updated" entry.
+    if (input.firstName !== undefined || input.lastName !== undefined) {
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.STAFF_UPDATED,
+          entityType: AUDIT_ENTITY_TYPES.STAFF,
+          entityId: userId,
+          metadata: {
+            from: { firstName: target.firstName, lastName: target.lastName },
+            to: {
+              firstName: input.firstName ?? target.firstName,
+              lastName: input.lastName ?? target.lastName,
+            },
+          },
+        },
+        tx,
+      );
+    }
+
+    if (input.role !== undefined && input.role !== previousRole) {
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.STAFF_ROLE_CHANGED,
+          entityType: AUDIT_ENTITY_TYPES.STAFF,
+          entityId: userId,
+          metadata: { from: previousRole, to: input.role },
+        },
+        tx,
+      );
+    }
+
+    // Reactivation is a plain write inside this transaction, so its audit
+    // entry belongs here too. Deactivation is recorded after the fact —
+    // see below.
+    if (input.isActive === true && !target.isActive) {
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.STAFF_REACTIVATED,
+          entityType: AUDIT_ENTITY_TYPES.STAFF,
+          entityId: userId,
+          metadata: { email: target.email },
+        },
+        tx,
+      );
+    }
   });
 
   // A role change rewrites what the user may do, but their already-issued
@@ -194,7 +271,20 @@ export async function updateStaff(userId: string, input: UpdateStaffInput): Prom
     await bumpTokensValidAfter(userId);
   }
   if (input.isActive === false) {
+    // `deactivateUser` composes several writes plus a cache eviction of
+    // its own, outside this service's transaction, so its audit entry is
+    // written after it succeeds rather than alongside it. That ordering
+    // is chosen deliberately: recording first would risk an entry for a
+    // deactivation that then failed, and an audit trail that lies is
+    // worse than one with a gap. The residual window — a crash between
+    // the two — is recorded as a known limitation in DECISIONS.md.
     await deactivateUser(userId);
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.STAFF_DEACTIVATED,
+      entityType: AUDIT_ENTITY_TYPES.STAFF,
+      entityId: userId,
+      metadata: { email: target.email },
+    });
   }
 
   return requireStaff(userId);
@@ -215,12 +305,31 @@ export async function setPropertyAccess(userId: string, requestedPropertyIds: st
   const propertyIds = [...new Set(requestedPropertyIds)];
   await assertPropertiesInOrganization(propertyIds);
 
+  const previousPropertyIds = target.propertyIds;
+  const added = propertyIds.filter((id) => !previousPropertyIds.includes(id));
+  const removed = previousPropertyIds.filter((id) => !propertyIds.includes(id));
+
   await prisma.$transaction(async (tx) => {
     await tx.propertyAccess.deleteMany({ where: { userId } });
     if (propertyIds.length > 0) {
       await tx.propertyAccess.createMany({
         data: propertyIds.map((propertyId) => ({ userId, propertyId })),
       });
+    }
+
+    // Only when the grant set actually moved: this endpoint is a
+    // whole-set write, so a client re-sending the current set is a no-op
+    // and does not deserve an audit entry.
+    if (added.length > 0 || removed.length > 0) {
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.STAFF_PROPERTY_ACCESS_CHANGED,
+          entityType: AUDIT_ENTITY_TYPES.STAFF,
+          entityId: userId,
+          metadata: { added, removed, resulting: propertyIds },
+        },
+        tx,
+      );
     }
   });
 

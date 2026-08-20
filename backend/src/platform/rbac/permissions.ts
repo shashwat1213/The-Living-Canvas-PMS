@@ -32,6 +32,10 @@ export const ALL_PERMISSIONS = [
     key: 'staff:manage',
     description: 'Create staff, change their role, manage their property access, and deactivate them.',
   },
+  {
+    key: 'audit:read',
+    description: "Read the organization's audit trail.",
+  },
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number]['key'];
@@ -65,6 +69,11 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
     // second, independent limit on top of this one.
     'staff:read',
+    // `audit:read` is deliberately absent here and for STAFF: the audit
+    // trail records administrative actions taken *on* people, including
+    // by the roles above this one. Restricting it to OWNER/ADMIN (who
+    // receive it via the PERMISSION_KEYS spread) is the intended scope,
+    // not an oversight.
   ],
   STAFF: ['organizations:read', 'properties:read', 'rooms:read', 'rooms:update'],
 };

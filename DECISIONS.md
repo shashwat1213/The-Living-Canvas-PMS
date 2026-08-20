@@ -1210,3 +1210,150 @@ list are still unbounded. The contract now exists, so converting them is
 mechanical — but it changes the response shape for two endpoints with
 live consumers, which deserves its own task rather than riding along
 here.
+
+---
+
+## 2026-08-21 — Audit trail: one generic table, written from inside the services
+
+**Context.** Nothing recorded who changed a role or deactivated an
+account. For a platform sold to property-management businesses that is a
+compliance question, not a nicety — and the staff module is exactly where
+the consequential, hard-to-reverse actions live.
+
+### Decision 1 — one generic `AuditLog`, not a per-module table
+
+`entityType` + `entityId` name the target polymorphically, so properties,
+units, leases, maintenance, payments and agent actions reuse the same
+table. A `staff_audit_log` would have meant a new table, new indexes, new
+queries and a new read endpoint per module, and no way to answer "what
+happened in this organization today" without unioning all of them.
+
+The cost of the generic shape is the lack of a foreign key on
+`entityId` — the database cannot enforce that it points at a real row.
+Accepted deliberately: a polymorphic FK isn't expressible in Postgres
+without a column per target type, which is the per-module design again by
+another name. `entityType` is validated against a catalog in application
+code, and the trail is append-only evidence rather than an operational
+join target.
+
+### Decision 2 — `action` is a namespaced string, not a database enum
+
+`"staff.role_changed"`, not an enum value. An enum would mean a migration
+against an ever-growing table every time a module adds an event, which is
+the kind of friction that ends with people not adding events. Type safety
+is recovered in application code: `recordAuditEvent` only accepts the
+`AuditAction` union from `platform/audit/actions.ts`, so nothing can
+record an action that isn't in the catalog, and the read endpoint
+validates the filter against the same list (an unknown action is a 400,
+not an empty page that reads as "nothing happened").
+
+The `<module>.<event>` convention keeps the namespace usable once many
+modules share the table, and makes "everything from module X" a prefix
+match.
+
+### Decision 3 — `AuditActorType` exists now, with `AGENT` already in it
+
+`USER | SYSTEM | AGENT`. Nothing writes `SYSTEM` or `AGENT` yet. It is
+here because adding an enum value to a live audit table later is a
+migration, and because it forces the question now rather than when the
+first agent ships: an AI agent's actions must be attributable and
+distinguishable from a human's. This is one column value, not
+speculative machinery.
+
+### Decision 4 — the recorder reads actor and tenant from request context
+
+`recordAuditEvent` takes no actor or organization parameter. Both come
+from `getRequestContext()`. A caller therefore cannot attribute an action
+to someone else or file it under another tenant — it has no way to say
+who it is, because the signed access token already decided.
+
+This is also what makes the trail work for future AI agents with no extra
+wiring: an agent invoking a service inside `runWithRequestContext(...)`
+is audited under the identity and tenant it was given, and has no opt-out.
+The corollary is the rule that matters going forward — **agents must go
+through services, never Prisma directly**, or they leave no trace.
+
+### Decision 5 — audit writes join the caller's transaction
+
+`recordAuditEvent(event, tx)` takes an optional client, the same
+convention as `platform/rbac/provisioning.ts`. Inside the staff service's
+existing transactions the entry commits or rolls back with the change it
+describes: no entry for a change that didn't happen, no change without an
+entry. Proven by the duplicate-email test, where the rejected create
+leaves no orphan entry behind.
+
+Failures are not swallowed. Inside a transaction that means an audit
+failure rolls the action back — the intended posture, since an
+unrecorded privileged action is a worse outcome than a failed one.
+
+**One deliberate exception.** `deactivateUser` composes several writes
+plus a cache eviction outside this service's transaction, so its audit
+entry is written *after* it succeeds. Recording first would risk an entry
+for a deactivation that then failed, and a trail that lies is worse than
+one with a gap. **Residual risk:** a process crash between the
+deactivation and its audit write leaves an unrecorded deactivation. Not
+closed here — closing it means moving `deactivateUser` inside the
+transaction, which is a change to the revocation path and belongs in a
+task where that path is under review.
+
+### Decision 6 — metadata is redacted centrally, not carefully
+
+`REDACTED_KEYS` strips `password`, `passwordHash`, `token`, `secret` and
+friends inside the recorder. Call sites already avoid passing them, but a
+future service that spreads an input object into `metadata` should
+produce a redacted entry rather than a leak. Typed as
+`Record<string, Prisma.InputJsonValue>` so unserializable values fail at
+compile time instead of at the database.
+
+### Decision 7 — read-only API, `audit:read` for OWNER/ADMIN only
+
+`GET /api/v1/audit-logs`, reusing the pagination contract, newest-first
+(an audit trail is read backwards, unlike the chronological list
+endpoints). No POST, PATCH or DELETE: an endpoint that let a client
+author entries would let it fabricate history, and one that let it delete
+them would let it erase history. Tested by asserting those verbs 404.
+
+MANAGER and STAFF are excluded on purpose — the trail records
+administrative actions taken *on* those roles, so it is not appropriate
+reading for them. The exclusion is commented in `permissions.ts` so it
+isn't later "fixed" as an oversight.
+
+### Tenant isolation
+
+`AuditLog` is registered in the tenant-scoping extension, and
+`buildWhere` never mentions `organizationId`. Reads, counts and filters
+are all scoped by the extension, so a filter can only narrow within the
+caller's organization. Verified live: a second organization filtering by
+the first's real `entityId` gets zero rows **and** a zero total.
+
+### Frontend — deliberately deferred
+
+No UI. The write path is complete and the read API is documented and
+tested, but where an audit view belongs (a per-staff-member timeline, a
+global activity log, or both) is a product-design question, and the
+dashboard/product-design pass is explicitly scheduled after the core
+domain modules are stable. Building a screen now would mean designing
+that surface twice. The contract is fixed and recorded in TASKS.md so the
+UI task is presentation work only.
+
+### Verification
+
+typecheck / lint / build pass. Backend 115/115 (was 91 — 24 new), frontend
+47/47 unchanged. The migration was generated and applied with
+`prisma migrate dev` against a real PostgreSQL 16.15 (`postgres:16-alpine`),
+not a WASM stand-in. `npm run db:seed` backfilled `audit:read` onto 2856
+role-permission mappings for existing organizations — the mechanism added
+in the previous task, doing its job for its first new permission key.
+
+A live run against the running server made 38 assertions: a full staff
+lifecycle producing all six event types in order, entry shape and actor
+attribution, no credential in any form reaching the trail, filters,
+403/401 for the wrong roles, POST/DELETE returning 404, cross-tenant
+probing by real entity ID returning nothing, and a refused action leaving
+the trail unchanged.
+
+**Finding, not fixed here:** an unmatched route returns Express's default
+**HTML** 404 rather than the app's `{ error: { code, message } }` shape.
+Pre-existing (there is no catch-all handler in `app.ts`) and unrelated to
+this task, so it is recorded in TASKS.md rather than fixed in an audit
+commit.

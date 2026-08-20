@@ -26,7 +26,15 @@ today:
   Extension, `requirePermission` / `requirePropertyAccess` guards.
 - **Modules**: `organizations` (public signup + `/organizations/me`),
   `properties`, `rooms`, `staff` (staff administration, role assignment,
-  property-access grants, deactivation). `GET /health` is unversioned.
+  property-access grants, deactivation), `audit` (read-only trail).
+  `GET /health` is unversioned.
+- **Audit trail**: `platform/audit/` records consequential actions from
+  *inside* the service performing them, taking actor and organization
+  from the request context rather than parameters. Adding an auditable
+  action means adding a constant to `platform/audit/actions.ts` — the
+  table is generic (`entityType`/`entityId`, string `action`), so new
+  modules reuse it without a migration. A service that mutates state
+  without recording an entry is the gap to look for.
 - **Frontend**: `react-router-dom`, `auth/AuthContext`, login/signup,
   a protected `/app/*` shell, dashboard, Properties/Rooms screens, and a
   Team (staff management) module at `/app/staff`.
@@ -99,6 +107,12 @@ not just validated against the schema file — see
   `lib/api.ts`. New features go in `src/features/<name>/` with their
   endpoints named in one `api.ts`; genuinely reusable, domain-free
   components go in `src/components/`.
+- **AI-agent readiness**: `modules/*/service.ts` is the application-service
+  boundary agents should act through — services own the authorization and
+  audit rules, repositories own tenant scoping. An agent must run inside
+  `runWithRequestContext(...)` with a real user's resolved claims, which
+  is what makes it inherit the same RBAC, tenancy and audit trail as a
+  human. Reaching Prisma directly bypasses all three; don't.
 - **Multi-tenancy**: every domain row is scoped under `Organization`,
   either directly or transitively through `Property`. There is no
   cross-organization data access, and it is enforced at the query layer

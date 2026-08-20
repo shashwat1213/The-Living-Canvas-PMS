@@ -174,6 +174,44 @@ bookings module, not here.
 | created_at   | timestamp |                                                |
 | updated_at   | timestamp |                                                |
 
+### AuditLog
+
+Immutable record of a consequential action taken within an Organization.
+Written by `src/platform/audit/recorder.ts` from inside the service that
+performed the action — never by a route, a client, or a direct database
+write. There is no update or delete path in application code; the only
+deletion is the Organization cascade (tenant offboarding).
+
+Deliberately generic rather than staff-specific: `entity_type` +
+`entity_id` name the target polymorphically, so properties, units,
+leases, maintenance, payments and AI-agent actions all reuse this table
+without a schema change. `action` is a **namespaced string**
+(`"staff.role_changed"`), not a database enum, so adding an action costs
+a constant in `src/platform/audit/actions.ts` rather than a migration
+against a table that only grows.
+
+| Column          | Type      | Notes                                            |
+|-----------------|-----------|--------------------------------------------------|
+| id              | uuid      | PK                                               |
+| organization_id | uuid      | FK → organizations, cascade delete               |
+| actor_type      | enum      | USER \| SYSTEM \| AGENT (default USER)           |
+| actor_user_id   | uuid?     | FK → users, **SET NULL** on delete               |
+| actor_email     | text?     | captured at write time; survives account removal |
+| action          | text      | `"<module>.<event>"` — see `audit/actions.ts`    |
+| entity_type     | text      | `"staff"` today; other modules later             |
+| entity_id       | text      | primary key of the record acted on               |
+| metadata        | jsonb?    | action-specific detail; never credentials        |
+| created_at      | timestamp |                                                  |
+
+`actor_user_id` is `SET NULL` rather than cascade on purpose: an audit
+trail that disappears along with the account it describes is not an audit
+trail. `actor_email` is denormalized for the same reason — the row has to
+stay meaningful on its own.
+
+Indexes all lead with `organization_id` (`+ created_at`, `+ entity_type,
+entity_id`, `+ actor_user_id`): no query reaches this table without a
+tenant filter, so a tenant-first index is the one that gets used.
+
 ## Relationships
 
 ```
@@ -182,14 +220,19 @@ Organization 1──* Property 1──* Room
 Organization 1──* Property 1──* PropertyAccess *──1 User
 Organization 1──* Role *──* Permission   (through RolePermission)
 User *──* Role                            (through UserRoleAssignment)
+Organization 1──* AuditLog *──0..1 User   (actor; SET NULL, not cascade)
 ```
 
 All child rows cascade-delete with their parent (deleting an Organization
 removes its Users, Properties, Rooms, Roles, and — transitively — every
 Session/RolePermission/UserRoleAssignment/PropertyAccess row that hangs
-off them). `Permission` is the one model with no path back to
-`Organization` — see its entry above for why that's an intentional
-exception, not a tenancy gap.
+off them, plus its AuditLog rows). `Permission` is the one model with no
+path back to `Organization` — see its entry above for why that's an
+intentional exception, not a tenancy gap.
+
+`AuditLog.actor_user_id` is the one deliberate *non*-cascade: removing a
+user nulls the actor reference instead of deleting their audit history,
+which is why `actor_email` is captured on the row.
 
 ## Migrations
 
@@ -201,6 +244,11 @@ Migrations live in `backend/prisma/migrations/`:
   RolePermission, UserRoleAssignment, PropertyAccess.
 - `20260819182224_token_revocation_watermark` — adds `User.tokensValidAfter`
   (see the User table above).
+- `20260820201210_audit_log` — adds the `AuditActorType` enum and the
+  `audit_logs` table with its three tenant-first indexes. Generated and
+  applied with `prisma migrate dev` against a real PostgreSQL 16.15
+  (`postgres:16-alpine`), then exercised by the audit test suite against
+  that same database.
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against
