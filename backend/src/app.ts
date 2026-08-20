@@ -8,6 +8,7 @@ import { authRouter } from './modules/auth/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { propertiesRouter } from './modules/properties/routes.js';
 import { roomsRouter } from './modules/rooms/routes.js';
+import { staffRouter } from './modules/staff/routes.js';
 import { healthRouter } from './routes/health.js';
 
 export function createApp(): Express {
@@ -25,6 +26,7 @@ export function createApp(): Express {
   const v1 = express.Router();
   v1.use(authRouter);
   v1.use(organizationsRouter);
+  v1.use(staffRouter);
   v1.use(propertiesRouter);
   v1.use('/properties/:propertyId/rooms', roomsRouter);
   app.use('/api/v1', v1);

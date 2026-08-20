@@ -5,11 +5,16 @@
  * integrity and future admin-UI listing, seeded from `ALL_PERMISSIONS`
  * below (see `platform/rbac/seed.ts`).
  *
- * Scoped to exactly what Phase 1 needs (organizations/properties/rooms
- * CRUD, plus a `staff:manage` placeholder RolePermission mappings can
- * reference later). Extend this list when a module that needs new
- * permissions actually lands — don't pre-populate permissions for
- * features that don't exist yet.
+ * Scoped to exactly what the implemented modules need
+ * (organizations/properties/rooms CRUD, plus staff management). Extend
+ * this list when a module that needs new permissions actually lands —
+ * don't pre-populate permissions for features that don't exist yet.
+ *
+ * Adding a key here is not self-applying to organizations that already
+ * exist: `seedSystemRoles` only runs once, at organization-creation time.
+ * Run `npm run db:seed -w backend` after adding one — it calls
+ * `syncSystemRolePermissions` (see `provisioning.ts`), which backfills the
+ * new mapping onto every existing organization's system roles.
  */
 export const ALL_PERMISSIONS = [
   { key: 'organizations:read', description: "Read the caller's own organization." },
@@ -22,6 +27,11 @@ export const ALL_PERMISSIONS = [
   { key: 'rooms:read', description: 'Read rooms.' },
   { key: 'rooms:update', description: 'Update a room.' },
   { key: 'rooms:delete', description: 'Delete a room.' },
+  { key: 'staff:read', description: "Read the organization's staff members." },
+  {
+    key: 'staff:manage',
+    description: 'Create staff, change their role, manage their property access, and deactivate them.',
+  },
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number]['key'];
@@ -50,9 +60,51 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     'rooms:read',
     'rooms:update',
     'rooms:delete',
+    // Read-only: a manager can see who works in the organization, but
+    // `staff:manage` (create / role-change / deactivate) stays with
+    // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
+    // second, independent limit on top of this one.
+    'staff:read',
   ],
   STAFF: ['organizations:read', 'properties:read', 'rooms:read', 'rooms:update'],
 };
 
 /** Organization-wide roles bypass PropertyAccess grants entirely. */
 export const ORG_WIDE_ROLES: ReadonlySet<SystemRoleName> = new Set(['OWNER', 'ADMIN']);
+
+/**
+ * Relative authority of the built-in roles. Used only by staff management
+ * (`modules/staff/service.ts`) to answer two questions a permission check
+ * alone cannot: "may this caller hand out that role?" and "may this
+ * caller act on that particular staff member?".
+ *
+ * Without a rank, `staff:manage` would be a flat privilege — any ADMIN
+ * could mint an OWNER, demote a peer, or lock out the account above
+ * theirs, all while passing the permission guard. Rank is deliberately
+ * kept separate from `SYSTEM_ROLE_PERMISSIONS`: permissions say what
+ * actions exist, rank says who may be on the receiving end of one.
+ */
+export const ROLE_RANK: Record<SystemRoleName, number> = {
+  OWNER: 3,
+  ADMIN: 2,
+  MANAGER: 1,
+  STAFF: 0,
+};
+
+/**
+ * The highest rank among the roles a user actually holds. Returns -1 for
+ * a user holding no recognized system role — "outranked by everyone",
+ * the safe direction: such a user can never manage anybody, and every
+ * rank comparison against them is decided by a real role rather than by a
+ * default that happens to tie.
+ */
+export function highestRoleRank(roleNames: Iterable<SystemRoleName>): number {
+  let highest = -1;
+  for (const name of roleNames) {
+    const rank = ROLE_RANK[name];
+    if (rank !== undefined && rank > highest) {
+      highest = rank;
+    }
+  }
+  return highest;
+}

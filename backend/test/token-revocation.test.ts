@@ -6,12 +6,14 @@
  * expired, is now rejected by `authenticate` too — bounded by the
  * revocation-cache TTL rather than the access token's own (longer) TTL.
  */
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { env } from '../src/config/env.js';
 import { prisma } from '../src/lib/prisma.js';
 import { bumpTokensValidAfter, deactivateUser } from '../src/platform/auth/revocation.js';
+import { resolveAuthContext } from '../src/platform/auth/session-service.js';
 import { app, authHeader, signupOrganization } from './helpers.js';
 
 const PROTECTED_ROUTE = '/api/v1/organizations/me';
@@ -42,28 +44,79 @@ describe('token-revocation watermark', () => {
     expect(after.status).toBe(401);
   });
 
-  it('accepts a token minted after the bump (does not lock the user out forever)', async () => {
+  it('accepts a token minted after the bump, even within the same wall-clock second', async () => {
     const { ownerEmail, ownerPassword } = await signupOrganization();
     const { user } = await loginAndGetUser(ownerEmail, ownerPassword);
 
     await bumpTokensValidAfter(user.id);
 
-    // JWT `iat` has one-second granularity (documented, accepted
-    // imprecision — see DECISIONS.md: it can only cause spurious
-    // *rejection*, never spurious acceptance). A fresh login within the
-    // same wall-clock second as the bump could legitimately land on an
-    // `iat` that truncates to a value before the bump's millisecond
-    // timestamp. Waiting past the second boundary here tests the
-    // intended steady-state behavior rather than that documented edge.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-
-    // A fresh login after the bump mints a token with a later `iat`.
+    // No wait. This used to need one: the watermark is a millisecond
+    // timestamp but JWT's `iat` is whole seconds, so a login landing in
+    // the same second as the bump truncated to an `iat` that looked
+    // earlier than the bump and was spuriously rejected. `signAccessToken`
+    // now records `iatMs` at the watermark's own precision, so a token
+    // minted after a revocation is accepted immediately — which is what
+    // makes a role or property-access change (which bumps the watermark)
+    // usable rather than briefly locking the user out.
     const { accessToken: freshToken } = await loginAndGetUser(ownerEmail, ownerPassword);
 
     const res = await request(app)
       .get(PROTECTED_ROUTE)
       .set(...authHeader(freshToken));
     expect(res.status).toBe(200);
+  });
+
+  it('still rejects a token minted just BEFORE the bump in that same second (precision cuts only one way)', async () => {
+    const { ownerEmail, ownerPassword } = await signupOrganization();
+    const { accessToken, user } = await loginAndGetUser(ownerEmail, ownerPassword);
+
+    // The token above and this bump land in the same wall-clock second,
+    // so under the old second-granular comparison both sides truncated to
+    // the same value. This is the case that must NOT have been traded
+    // away to fix the spurious-rejection one above: an
+    // issued-before-revocation token stays rejected regardless of how
+    // close the two events are.
+    await bumpTokensValidAfter(user.id);
+
+    const res = await request(app)
+      .get(PROTECTED_ROUTE)
+      .set(...authHeader(accessToken));
+    expect(res.status).toBe(401);
+  });
+
+  it('falls back to second-granular `iat` for a token with no `iatMs` claim (pre-deploy tokens fail closed)', async () => {
+    const { ownerEmail, ownerPassword } = await signupOrganization();
+    const { user } = await loginAndGetUser(ownerEmail, ownerPassword);
+    const ctx = await resolveAuthContext(user.id);
+
+    // A token shaped like one issued by the previous deployment: signed
+    // by hand without the `iatMs` claim, with an `iat` a minute in the
+    // past so the fallback path has something unambiguous to compare.
+    const legacyToken = jwt.sign(
+      {
+        sub: ctx.userId,
+        organizationId: ctx.organizationId,
+        permissions: ctx.permissions,
+        roleNames: ctx.roleNames,
+        grantedPropertyIds: ctx.grantedPropertyIds,
+        iat: Math.floor(Date.now() / 1000) - 60,
+      },
+      env.auth.jwtSecret,
+      { expiresIn: '15m' },
+    );
+
+    // Still valid before any revocation.
+    const before = await request(app)
+      .get(PROTECTED_ROUTE)
+      .set(...authHeader(legacyToken));
+    expect(before.status).toBe(200);
+
+    await bumpTokensValidAfter(user.id);
+
+    const after = await request(app)
+      .get(PROTECTED_ROUTE)
+      .set(...authHeader(legacyToken));
+    expect(after.status).toBe(401);
   });
 
   it('deactivateUser() closes both gaps at once: the existing access token AND the refresh session', async () => {

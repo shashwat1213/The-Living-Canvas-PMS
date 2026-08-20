@@ -18,6 +18,53 @@ const WHERE_OPERATIONS = new Set([
 ]);
 
 /**
+ * Scoping logic for a model that carries `organizationId` as a real
+ * column of its own (`Property`, `User`).
+ *
+ * Factored into one function rather than copy-pasted per model on
+ * purpose: branch-review finding #4 was exactly a drifted copy of this
+ * block — the `upsert` branch existed in one place and was missing from
+ * another — and every additional hand-written copy is another chance to
+ * reintroduce that class of bug. One definition means a model is either
+ * fully scoped or not registered at all, with no partially-scoped
+ * in-between state to get wrong.
+ */
+function scopeByOrganizationColumn() {
+  return {
+    async $allOperations({
+      operation,
+      args,
+      query,
+    }: {
+      operation: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      args: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (args: any) => Promise<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }): Promise<any> {
+      const ctx = getRequestContext();
+      const a = args;
+      if (WHERE_OPERATIONS.has(operation)) {
+        a.where = { ...a.where, organizationId: ctx.organizationId };
+      }
+      if (operation === 'create') {
+        a.data = { ...a.data, organizationId: ctx.organizationId };
+      }
+      if (operation === 'upsert') {
+        // upsert's create payload lives at `create`, not `data` — a
+        // separate branch from plain `create` above. Its `where` is
+        // already scoped by the WHERE_OPERATIONS block, but without
+        // this the *created* row (on no match) would land with no
+        // organizationId enforced by this mechanism.
+        a.create = { ...a.create, organizationId: ctx.organizationId };
+      }
+      return query(a);
+    },
+  };
+}
+
+/**
  * The multi-tenancy enforcement mechanism (Phase 1 decision, see
  * ARCHITECTURE.md "Multi-tenancy enforcement"). Every query issued
  * through `scopedPrisma` for a tenant-scoped model gets its
@@ -25,39 +72,33 @@ const WHERE_OPERATIONS = new Set([
  * request-scoped context — a repository function cannot forget it,
  * because it never writes the filter itself.
  *
- * `Property` carries `organizationId` directly; `Room` doesn't (only
- * `propertyId`), so its scope is enforced through the `property`
- * relation instead. Extend this file the same way — one block per model
+ * `Property` and `User` carry `organizationId` directly; `Room` doesn't
+ * (only `propertyId`), so its scope is enforced through the `property`
+ * relation instead. Extend this file the same way — one entry per model
  * — when a new tenant-scoped model is added; a model not listed here is
  * NOT scoped by this extension (raw `prisma` from `lib/prisma.ts` stays
  * unscoped, for the platform-level code — auth, org creation — that
  * runs before tenant context exists).
+ *
+ * `Session`, `UserRoleAssignment` and `PropertyAccess` are deliberately
+ * absent. Nothing reaches them with a client-supplied ID directly: the
+ * auth platform reads them through the unscoped client *before* a tenant
+ * context exists (which is why they can't be scoped here — see
+ * `session-service.ts`), and staff management only ever writes them for a
+ * `userId`/`propertyId` it has already resolved through the scoped `user`
+ * and `property` entries above. That is the same pattern `Room`'s
+ * `create` relies on, spelled out in the room block below.
+ *
+ * NOTE: because this injects `organizationId` into `where`, scoped models
+ * must be read with `findFirst`, not `findUnique` — Prisma rejects a
+ * non-unique field in a `findUnique` where-clause. Every repository here
+ * already follows that rule.
  */
 export const scopedPrisma = prisma.$extends({
   name: 'tenant-scoping',
   query: {
-    property: {
-      async $allOperations({ operation, args, query }) {
-        const ctx = getRequestContext();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const a = args as any;
-        if (WHERE_OPERATIONS.has(operation)) {
-          a.where = { ...a.where, organizationId: ctx.organizationId };
-        }
-        if (operation === 'create') {
-          a.data = { ...a.data, organizationId: ctx.organizationId };
-        }
-        if (operation === 'upsert') {
-          // upsert's create payload lives at `create`, not `data` — a
-          // separate branch from plain `create` above. Its `where` is
-          // already scoped by the WHERE_OPERATIONS block, but without
-          // this the *created* row (on no match) would land with no
-          // organizationId enforced by this mechanism.
-          a.create = { ...a.create, organizationId: ctx.organizationId };
-        }
-        return query(a);
-      },
-    },
+    property: scopeByOrganizationColumn(),
+    user: scopeByOrganizationColumn(),
     room: {
       async $allOperations({ operation, args, query }) {
         const ctx = getRequestContext();

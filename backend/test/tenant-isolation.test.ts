@@ -120,12 +120,129 @@ describe('cross-organization isolation', () => {
   });
 });
 
+describe('cross-organization isolation: staff', () => {
+  async function createStaffMember(token: string, role = 'STAFF') {
+    const suffix = randomUUID().slice(0, 8);
+    const res = await request(app)
+      .post('/api/v1/staff')
+      .set(...authHeader(token))
+      .send({
+        email: `isolation-${suffix}@example.com`,
+        password: 'correct-horse-battery-staple',
+        firstName: 'Iso',
+        lastName: 'Lated',
+        role,
+      });
+    if (res.status !== 201) {
+      throw new Error(`staff creation failed: ${res.status} ${JSON.stringify(res.body)}`);
+    }
+    return res.body.staff.id as string;
+  }
+
+  it("org B's staff list contains only its own owner, never org A's people", async () => {
+    const orgA = await loginAsNewOwner('Staff Iso A');
+    const orgB = await loginAsNewOwner('Staff Iso B');
+    await createStaffMember(orgA.token);
+
+    const list = await request(app)
+      .get('/api/v1/staff')
+      .set(...authHeader(orgB.token));
+
+    expect(list.status).toBe(200);
+    expect(list.body.staff).toHaveLength(1);
+    expect(list.body.staff[0].role).toBe('OWNER');
+  });
+
+  it("a staff member in org A is invisible to org B: get, update, property-access", async () => {
+    const orgA = await loginAsNewOwner('Staff Iso A2');
+    const orgB = await loginAsNewOwner('Staff Iso B2');
+    const staffId = await createStaffMember(orgA.token);
+
+    const get = await request(app)
+      .get(`/api/v1/staff/${staffId}`)
+      .set(...authHeader(orgB.token));
+    expect(get.status).toBe(404);
+
+    const update = await request(app)
+      .patch(`/api/v1/staff/${staffId}`)
+      .set(...authHeader(orgB.token))
+      .send({ role: 'OWNER' });
+    expect(update.status).toBe(404);
+
+    const deactivate = await request(app)
+      .patch(`/api/v1/staff/${staffId}`)
+      .set(...authHeader(orgB.token))
+      .send({ isActive: false });
+    expect(deactivate.status).toBe(404);
+
+    const access = await request(app)
+      .put(`/api/v1/staff/${staffId}/property-access`)
+      .set(...authHeader(orgB.token))
+      .send({ propertyIds: [] });
+    expect(access.status).toBe(404);
+
+    // None of org B's attempts took effect.
+    const stillIntact = await request(app)
+      .get(`/api/v1/staff/${staffId}`)
+      .set(...authHeader(orgA.token));
+    expect(stillIntact.status).toBe(200);
+    expect(stillIntact.body.staff.roleNames).toEqual(['STAFF']);
+    expect(stillIntact.body.staff.isActive).toBe(true);
+  });
+
+  it("org A cannot grant its own staff access to org B's property", async () => {
+    const orgA = await loginAsNewOwner('Staff Iso A3');
+    const orgB = await loginAsNewOwner('Staff Iso B3');
+    const foreignPropertyId = await createProperty(orgB.token, 'Org B House', 'org-b-house');
+    const staffId = await createStaffMember(orgA.token, 'MANAGER');
+
+    const grant = await request(app)
+      .put(`/api/v1/staff/${staffId}/property-access`)
+      .set(...authHeader(orgA.token))
+      .send({ propertyIds: [foreignPropertyId] });
+
+    // The foreign property is invisible through the scoped client, so the
+    // grant resolves to "no such property" rather than being written.
+    expect(grant.status).toBe(404);
+    const granted = await prisma.propertyAccess.count({ where: { userId: staffId } });
+    expect(granted).toBe(0);
+  });
+
+  it("org A cannot create staff onto org B by any request field", async () => {
+    const orgA = await loginAsNewOwner('Staff Iso A4');
+    const orgB = await loginAsNewOwner('Staff Iso B4');
+    const suffix = randomUUID().slice(0, 8);
+
+    // organizationId is not an accepted input — it comes from the signed
+    // token — so smuggling it in the body must not move the new user.
+    const created = await request(app)
+      .post('/api/v1/staff')
+      .set(...authHeader(orgA.token))
+      .send({
+        email: `smuggle-${suffix}@example.com`,
+        password: 'correct-horse-battery-staple',
+        firstName: 'Smug',
+        lastName: 'Gler',
+        role: 'STAFF',
+        organizationId: orgB.organizationId,
+      });
+
+    expect(created.status).toBe(201);
+    const row = await prisma.user.findUniqueOrThrow({ where: { email: `smuggle-${suffix}@example.com` } });
+    expect(row.organizationId).toBe(orgA.organizationId);
+    expect(row.organizationId).not.toBe(orgB.organizationId);
+  });
+});
+
 describe('property-level access (PropertyAccess grants)', () => {
   /**
-   * There's no staff-invite endpoint in Phase 1 scope (see TASKS.md), so
-   * this test provisions a MANAGER user directly against the database —
-   * exactly the scenario the schema (UserRoleAssignment, PropertyAccess)
-   * exists to support once that endpoint lands.
+   * Provisions a MANAGER directly against the database rather than
+   * through `POST /api/v1/staff`. That endpoint now exists (and is
+   * covered in `staff.test.ts` and in the staff isolation block above),
+   * but these cases predate it and are deliberately left going straight
+   * to the data layer: they assert that the *guards* hold for a user
+   * however they came to exist, not that one particular endpoint
+   * provisions them correctly.
    */
   async function createManagerToken(organizationId: string, grantedPropertyId?: string) {
     const user = await prisma.user.create({

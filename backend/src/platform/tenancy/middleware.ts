@@ -36,13 +36,21 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   }
 
   // Token-revocation watermark (see DECISIONS.md): rejects an
-  // already-issued access token whose `iat` predates the user's
+  // already-issued access token issued before the user's
   // `tokensValidAfter`, even though its signature and expiry are still
   // fine. Fails closed — a database error here (or the user no longer
   // existing) is treated the same as "revoked" rather than let through.
+  //
+  // `iatMs` is the millisecond issue time `signAccessToken` records, which
+  // matches the watermark's own precision exactly. The `iat * 1000`
+  // fallback covers a token minted by a previous deployment that predates
+  // that claim: it truncates to the second and so can only ever reject
+  // such a token too eagerly, never too late — the safe direction, and
+  // self-clearing within one access-token lifetime after a deploy.
   try {
     const tokensValidAfter = await getTokensValidAfter(payload.sub);
-    if (tokensValidAfter && payload.iat * 1000 < tokensValidAfter.getTime()) {
+    const issuedAtMs = payload.iatMs ?? payload.iat * 1000;
+    if (tokensValidAfter && issuedAtMs < tokensValidAfter.getTime()) {
       next(new UnauthorizedError(INVALID_TOKEN_MESSAGE));
       return;
     }

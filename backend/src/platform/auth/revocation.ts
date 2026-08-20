@@ -11,10 +11,11 @@ import { revokeAllSessionsForUser } from './session-service.js';
  * refresh sessions — pair with `revokeAllSessionsForUser` (see
  * `deactivateUser` below) when both need to die together.
  *
- * Deliberately not wired to any route yet — Phase 1 has no staff
- * deactivation endpoint (see TASKS.md). This exists as the seam a future
- * task calls into, so that work doesn't have to reinvent it or forget to
- * bump the watermark while it's at it.
+ * Called by `modules/staff/service.ts` whenever a role or property-access
+ * change lands: the access token embeds `permissions` and
+ * `grantedPropertyIds`, so without this bump a demotion wouldn't take
+ * effect until the token expired on its own, and the user would keep
+ * operating on authority they had just lost.
  */
 export async function bumpTokensValidAfter(userId: string): Promise<void> {
   await prisma.user.update({ where: { id: userId }, data: { tokensValidAfter: new Date() } });
