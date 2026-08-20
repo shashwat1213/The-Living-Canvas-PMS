@@ -234,6 +234,83 @@ suite 19/19 (6 files, 5 new); backend fully re-verified unaffected
 (47/47 full suite; 34/34 auth/tenant-isolation/token-revocation/
 organizations specifically). See DECISIONS.md for detail.
 
+## Phase 1 completion — staff management (2026-08-20)
+
+- [x] **Backend — staff management API** (2026-08-20)
+  Closes the gap that made Phase 1's RBAC unreachable: an organization
+  could only ever have the single OWNER created at signup, so
+  `MANAGER`/`STAFF` presets could never be assigned, `PropertyAccess`
+  could never be granted, and `platform/auth/revocation.ts` stayed
+  unwired. Three separate code comments pointed at this missing endpoint
+  (`permissions.ts`, `revocation.ts`, and both test files that provisioned
+  users directly through Prisma to work around it).
+
+  `GET/POST /api/v1/staff`, `GET/PATCH /api/v1/staff/:userId`, and
+  `PUT /api/v1/staff/:userId/property-access`. New `staff:read` /
+  `staff:manage` permissions. Privilege escalation is blocked by a role
+  rank rule (`ROLE_RANK`) layered on top of the permission guard — a
+  permission says what you may do, not who you may do it to. Role and
+  property-access changes bump the revocation watermark so a demotion
+  takes effect on the user's next request instead of up to 15 minutes
+  later. Deactivation goes through `deactivateUser`; there is no hard
+  delete. **No schema change was required** — every table already existed.
+
+  Also fixed, surfaced by wiring the watermark to role changes: the
+  watermark comparison mixed a millisecond timestamp with JWT's
+  second-granular `iat`, spuriously rejecting a token minted in the same
+  second as a bump. `signAccessToken` now records `iatMs`. This removed
+  the 1100ms sleep that `token-revocation.test.ts` had been using to work
+  around it. See DECISIONS.md.
+
+  Verified: `npm run typecheck && npm run lint && npm run build && npm run
+  test` all pass. Backend 78/78 across 9 files (was 47/47 across 8);
+  frontend 19/19 untouched. `npm run db:seed -w backend` run for real
+  (backfilled 3295 role-permission mappings onto existing organizations,
+  then reported 0 on a second run). Full flow — including the
+  escalation attempts that pass the permission guard and rely solely on
+  the rank rule — exercised over real HTTP against the built artifact.
+
+  **Awaiting Security sign-off before merge:** touches token issuance and
+  the revocation check, which `AGENTS.md` marks as mandatory-review areas
+  regardless of diff size.
+
+- [x] **Frontend — staff management screens** (2026-08-21)
+  The UI half of the above, sequenced after it per `AGENTS.md`'s
+  schema → API → UI split. New `/app/staff` route ("Team"), reached from a
+  nav link that only appears with `staff:read`.
+
+  Introduces the app's first **feature module** (`frontend/src/features/staff/`:
+  `types` / `api` / `permissions` / `StaffPage` / `StaffDialog`) and its
+  first **shared UI primitives** (`frontend/src/components/`: `Modal`,
+  `ConfirmDialog`, `DataTable`, `Badge`) — both boundaries chosen so the
+  next module doesn't have to reinvent them. All staff endpoints are named
+  in exactly one file (`features/staff/api.ts`).
+
+  Table with search + role/status filters (client-side — the API has no
+  query or pagination parameters, and inventing them was not an option),
+  create/edit dialog, property-access picker, and a real focus-trapped
+  confirmation dialog for deactivate/reactivate, replacing native
+  `confirm()` for this feature.
+
+  `AuthContext` now exposes display-only `session` claims decoded from the
+  access token (`auth/session.ts`), so the UI can avoid rendering controls
+  that would only earn a 403. **This is presentation, not access control**
+  — see DECISIONS.md. `lib/api.ts` gained `PUT` and a token-change
+  subscription so those claims can't go stale after a silent refresh.
+
+  Verified: frontend typecheck/lint/build pass; frontend suite 42/42
+  across 7 files (was 19/42 across 6 — 23 new). Backend re-run unaffected
+  at 78/78. Beyond the mocked unit tests, a live contract check against
+  the running backend exercised every request the frontend actually makes
+  and asserted every field the frontend's `StaffMember` type declares —
+  92 checks, all passing, including that no `passwordHash` is ever
+  returned and that the server still refuses an action the UI hides.
+
+- [ ] **Frontend — apply the shared primitives to Properties/Rooms**
+  `PropertiesPage`/`RoomsPage` still use native `confirm()` and bespoke
+  list markup. They work and were deliberately left alone here; migrating
+  them to `DataTable`/`ConfirmDialog` is a separate, self-contained task.
+
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the

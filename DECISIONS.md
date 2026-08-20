@@ -769,3 +769,340 @@ regression suites specifically (34/34) to confirm zero impact, as
 required before this phase could be considered done.
 
 
+
+---
+
+## 2026-08-20 — Staff management API: making the RBAC that already existed reachable
+
+**Context.** Phase 1 shipped a full permission-based RBAC system —
+`Role`, `RolePermission`, `UserRoleAssignment`, `PropertyAccess`, four
+seeded role presets, a property-access guard — and then shipped no way to
+create a second user. Every organization was permanently a single OWNER
+account. The consequence was that most of that machinery was unreachable
+from the API: `MANAGER`/`STAFF` presets could never be assigned,
+`PropertyAccess` could never be granted, and `platform/auth/revocation.ts`
+(`deactivateUser`, `bumpTokensValidAfter`) sat unwired, its own header
+noting it was "the seam a future task calls into." Two test files worked
+around the gap by provisioning users directly through Prisma, each with a
+comment pointing at the missing endpoint. This task is that endpoint.
+
+**Scope.** Backend + tests only. No schema change was needed — every
+table this uses already existed, which is the main reason this was the
+safe next step rather than a risky one.
+
+### Decision 1 — `staff:read` + `staff:manage`, not CRUD-granular keys
+
+The existing catalog is granular (`properties:create/read/update/delete`).
+Staff deliberately isn't: creating a staff member, changing their role,
+moving their property access and deactivating them are one administrative
+capability, and an organization that grants "create staff" but withholds
+"deactivate staff" has expressed a policy nobody asked for. This also
+matches the `staff:manage` placeholder `permissions.ts` had described in
+prose since Phase 1 (while, in fact, never defining the key — the comment
+was aspirational, and is now accurate).
+
+`MANAGER` gets `staff:read` only. `STAFF` gets neither.
+
+### Decision 2 — role rank, because a permission can't express "to whom"
+
+`staff:manage` is flat: any holder can call any staff mutation. Without a
+second rule, an ADMIN could mint an OWNER and act through it, demote a
+peer ADMIN, or deactivate the OWNER above them — all while passing the
+permission guard legitimately. `ROLE_RANK` (OWNER 3 > ADMIN 2 > MANAGER 1
+> STAFF 0) supplies the missing dimension, enforced in
+`modules/staff/service.ts` as two rules:
+
+- **Assign:** you may not grant a role above your own rank.
+- **Target:** you may only act on a staff member *strictly below* your own
+  rank.
+
+The strictness of the second rule is doing three jobs at once, on purpose:
+it blocks acting on a superior, on a peer, and on yourself (your own rank
+is never strictly below itself). That last case is why **an organization
+can never be left with zero OWNERs** — nothing outranks OWNER, so no
+request can remove the last one. There is no separate "don't lock yourself
+out" special case to forget; it falls out of the rank rule. The self case
+is still checked explicitly first, but only to return an accurate message.
+
+Rank is kept deliberately separate from `SYSTEM_ROLE_PERMISSIONS`:
+permissions say which actions exist, rank says who may be on the receiving
+end of one. Collapsing them would mean re-deriving authority from a
+permission set, which is exactly the "raw role-string check" the Phase 1
+RBAC decision rejected.
+
+### Decision 3 — the admin sets an initial password; no invite-token flow
+
+There is no email delivery anywhere in this system, so an invite-token
+flow would mint a token with no way to deliver it. The creating admin sets
+an initial password (same 8-character floor as signup). This is a real,
+working path rather than a half-built one; a proper invite/reset flow is
+future work, consistent with the Phase 1 boundary already recorded for
+"no password reset."
+
+**Accepted tradeoff:** `User.email` is globally unique rather than unique
+per organization, so the duplicate-email check necessarily spans tenants
+and an admin can learn that an address is registered *somewhere*. This is
+pre-existing (the public signup endpoint has the identical property) and
+the message is deliberately the same one signup returns. Changing it would
+mean a schema change to per-organization email uniqueness — a Database-owned
+decision with real consequences for login, which resolves users by email
+alone. Not made unilaterally here.
+
+### Decision 4 — `User` added to the tenant-scoping extension
+
+`scoped-prisma.ts` scoped `Property` and `Room` only; `User` was unscoped,
+because until now nothing served user rows to a client. The documented way
+to add a tenant-scoped model is to register it there, so that's what was
+done rather than hand-filtering `organizationId` in the new repository —
+a hand-written filter is exactly what that extension exists to make
+impossible to forget.
+
+The three org-column blocks (`Property`, `User`) now share one
+`scopeByOrganizationColumn()` factory instead of being copy-pasted.
+Branch-review finding #4 was precisely a drifted copy of that block (its
+`upsert` branch missing in one of two places); one definition means a
+model is either fully scoped or not registered at all, with no
+partially-scoped state available to get wrong.
+
+`Session`, `UserRoleAssignment` and `PropertyAccess` are deliberately
+**not** registered. They can't be: the auth platform reads them before a
+tenant context exists. They don't need to be either — staff management
+only ever writes them for a `userId`/`propertyId` it has already resolved
+through the scoped `user`/`property` entries, which is the same
+enforcement shape `Room`'s create has always relied on.
+
+### Decision 5 — no `DELETE /staff/:id`
+
+Offboarding is `PATCH { isActive: false }`, routed through
+`deactivateUser` so the account, its already-issued access token and every
+refresh session die together. A hard delete would cascade sessions and
+grants away and destroy the record of who did what. Reactivation
+(`isActive: true`) is a plain write; only deactivation needs the composed
+path.
+
+### Decision 6 — role and access changes bump the revocation watermark
+
+The access token embeds `permissions` and `grantedPropertyIds`. Without a
+bump, a demotion or an access revocation would not take effect for up to
+15 minutes — the user would keep operating on the authority they just
+lost, which makes the revocation cosmetic. Both paths therefore call
+`bumpTokensValidAfter`, the function Phase 1 built and left unwired. A
+*promotion* costs the user one extra silent refresh; a *demotion* takes
+effect on their very next request.
+
+### Fix, surfaced by the above — millisecond precision for the watermark
+
+Wiring the watermark to role/access changes exposed a latent defect in it.
+`User.tokensValidAfter` is a millisecond timestamp; JWT's `iat` is whole
+seconds. A token minted a fraction of a second *after* a bump truncated to
+an `iat` that compared as earlier, so it was rejected even though it was
+issued after the revocation. Previously harmless — the only caller was
+deactivation, where the user is never coming back — and it was known:
+`token-revocation.test.ts` carried a 1100ms sleep and a comment calling it
+"documented, accepted imprecision." Once a role change has to leave the
+user working, spurious rejection stops being acceptable.
+
+`signAccessToken` now also records `iatMs` (millisecond issue time), and
+`authenticate` compares that against the watermark. This removes the
+ambiguity outright rather than trading a false rejection for a false
+acceptance — the alternative fixes (truncating or rounding the watermark
+to the second) each buy one error by taking on the other, and taking on
+false *acceptance* in a revocation check would have been weakening the
+security property to fix a usability bug.
+
+Backwards compatible: a token minted by a previous deployment has no
+`iatMs`, so the check falls back to `iat * 1000`, which can only reject
+such a token too eagerly, never too late. The fallback self-clears within
+one access-token lifetime after a deploy.
+
+The 1100ms sleep is gone, replaced by three assertions: a token minted
+after a bump is accepted with no wait; a token minted just *before* a bump
+in the same second is still rejected (proving no false acceptance was
+introduced); and a hand-signed `iatMs`-less token still fails closed.
+
+**This touches token issuance and the revocation check — an area
+`AGENTS.md` marks as requiring mandatory Security sign-off regardless of
+diff size. Flagged for that review; not self-approved.**
+
+### Decision 7 — `syncSystemRolePermissions` for existing organizations
+
+`seedSystemRoles` runs once per organization, at creation. Adding
+`staff:read`/`staff:manage` to the catalog would therefore have reached
+only organizations created *after* the deploy — the same OWNER would have
+different powers depending on the month they signed up, silently. The seed
+script now also backfills missing role→permission mappings onto existing
+organizations.
+
+Deliberately **additive only**: it grants what's missing and never
+revokes. A destructive reconcile could delete grants a future custom-role
+builder had added to a role, which is not a call a seed step should make.
+
+**Verified for real, not just typechecked** (`prisma/seed.ts` is outside
+`tsconfig.typecheck.json`'s include list — the lesson from finding #7):
+`npm run db:seed -w backend` backfilled 3295 mappings across the dev
+database's accumulated organizations, and a second run reported zero,
+confirming idempotency.
+
+### Verification
+
+`npm run typecheck && npm run lint && npm run build && npm run test` all
+pass. Backend 78/78 across 9 files (was 47/47 across 8) — 25 new in
+`staff.test.ts`, 4 new cross-organization cases in
+`tenant-isolation.test.ts` per that suite's standing contract, and 2 new
+watermark-precision cases. Frontend 19/19, untouched and unaffected.
+
+Beyond the suite, the whole flow was exercised over real HTTP against the
+built artifact (`node dist/index.js`) with the frontend's `Origin`:
+signup → create property → create a MANAGER with a property grant →
+that manager logging in and reading the granted property; then, as an
+ADMIN who genuinely holds `staff:manage` so the permission guard passes
+and only the rank rule stands in the way — creating an OWNER (403),
+self-promoting to OWNER (403), creating a MANAGER below them (201), and
+finally deactivation killing a live token (401) and re-login (401).
+
+**Known limitation, unchanged from Phase 1:** the revocation cache is
+per-process, so with more than one API process a revocation is enforced in
+other processes only once their own cache entry expires (30s default).
+Same shared-store caveat already recorded for the rate limiter.
+
+**Not built, deliberately:** no staff UI (Frontend-owned, sequenced next
+per `AGENTS.md`'s schema → API → UI split), no invite/password-reset flow,
+no custom-role builder, no per-property role assignment.
+
+---
+
+## 2026-08-21 — Staff management UI: the app's first feature module
+
+**Context.** The staff API shipped with no consumer. This is the UI half,
+and it's also the first time the frontend has needed more structure than
+"a page per screen" — so the shape chosen here is the one the next module
+inherits.
+
+### Decision 1 — `features/<name>/` as the module boundary
+
+Everything staff-specific lives in `frontend/src/features/staff/`:
+`types.ts` (the domain shapes), `api.ts` (data access), `permissions.ts`
+(what to render), `StaffPage.tsx`, `StaffDialog.tsx`, `staff.css`. The
+existing flat `pages/` directory stays as-is for the older screens rather
+than being retrofitted — moving working code to prove a point is churn,
+and the two conventions coexist without conflict.
+
+The rule that makes it a boundary rather than a folder: **staff endpoints
+are named in exactly one file.** No component builds a `/api/v1/staff/...`
+path. If the contract changes, `features/staff/api.ts` changes and nothing
+else has to.
+
+`PropertyOption` (`{id, name}`) is defined inside the staff feature rather
+than imported from a properties module. Staff management depends on the
+*idea* of a property — enough to label a checkbox — not on how some other
+feature models one. That keeps the two independent.
+
+### Decision 2 — shared primitives in `components/`, deliberately domain-free
+
+`Modal`, `ConfirmDialog`, `DataTable`, `Badge`. The test for whether these
+belong in `components/` rather than in the feature: none of them mention
+staff, and `DataTable` takes columns and rows and owns only its loading
+placeholder, empty state and markup — no fetching, no sorting policy, no
+domain columns. Filtering and loading stay with the feature that owns the
+data, which is what keeps the table reusable by the next module instead of
+by staff alone.
+
+`DataTable` distinguishes `rows === null` (loading) from `[]` (loaded,
+nothing to show), which is what stops an empty state flashing before the
+first response lands.
+
+No component library was added. What was actually needed was a focus trap
+and an aria contract, not a design system — and the app has no component
+library to be consistent with. `Modal` is labelled by its own title,
+closes on Escape and backdrop click, moves focus in on open, wraps Tab at
+both ends, and restores focus to the trigger on close.
+
+### Decision 3 — session claims decoded from the access token, for rendering only
+
+The UI needs to know who the user is and what they may do, to avoid
+rendering buttons that only ever produce a 403. `AuthContext` previously
+discarded the user entirely, and `POST /auth/refresh` returns only an
+access token, so after a page reload there was no identity at all.
+
+**No backend change was made to solve this**, and none was needed: the
+access token already carries `sub`, `organizationId`, `permissions`,
+`roleNames` and `grantedPropertyIds`. `auth/session.ts` decodes that
+payload — **without verifying its signature**, which the browser has no
+key for and which would prove nothing anyway, since anything running in
+the page could skip it. Adding a `GET /auth/me` round-trip to re-fetch
+data the client already holds would have been worse, and
+`docs/agents/frontend.md` forbids the Frontend role from touching the API
+regardless.
+
+The contract is stated at the top of that file and repeated in
+`features/staff/permissions.ts`: **these claims decide visibility, never
+permission.** Every action is still sent to the server and its answer is
+displayed honestly, 403s included. A live check confirmed the server
+refuses an action the UI hides.
+
+`lib/api.ts` gained an `onAccessTokenChange` subscription because it
+silently refreshes on a 401 without going through `AuthContext`. Without
+it, a staff member whose role changed mid-session would keep the old
+permissions in the UI until a full reload.
+
+### Decision 4 — the rank rules are mirrored client-side, and why that's acceptable
+
+`features/staff/permissions.ts` re-implements `ROLE_RANK` and the two
+rules from `backend/src/modules/staff/service.ts`. Duplicating server
+logic in a client is normally a mistake; the exception is deciding what to
+*render*, and there is no way to know which rows can't be acted on without
+knowing the rule.
+
+Three things keep it honest: it lives in one small file rather than spread
+through components, so drift has a single place to be found; it returns
+*why* an action is unavailable (`'self'` / `'outranked'`) so the UI can say
+"Your account" or "Restricted" instead of silently omitting a control; and
+if it ever drifts, the consequence is a button that shouldn't have been
+there — never an action that shouldn't have been allowed.
+
+### Decision 5 — edit sends only what changed
+
+Role and property access are two different endpoints (`PATCH` and `PUT`),
+and both bump the member's token-revocation watermark server-side. Sending
+an unchanged role would therefore interrupt that person's session for no
+reason. `StaffDialog` diffs against the loaded member and calls only the
+endpoints whose values actually moved; if nothing changed it just closes.
+
+Email and password are create-only fields, because the API supports
+changing neither. The dialog says so ("Share it with them directly — there
+is no invite email yet") rather than offering a control that does nothing.
+
+### Decision 6 — filtering is client-side, and that's a real limitation
+
+Search and the role/status filters run over the already-loaded list,
+because `GET /api/v1/staff` takes no query parameters and returns the
+whole organization. Inventing `?search=` would have meant coding against a
+contract that doesn't exist. This is correct at current scale and will
+need a backend task (query params + pagination) before an organization
+with hundreds of staff.
+
+### Verification
+
+`npm run typecheck && npm run lint && npm run build && npm run test` all
+pass. Frontend 42/42 across 7 files (was 19/19 across 6 — 23 new tests
+covering loading/empty/error states, search and each filter, permission
+gating for three different role levels, the deactivate confirm-and-cancel
+flows, create validation, the exact create/edit request bodies, role-picker
+narrowing, a server-rejected create, read-only mode, and Escape-to-close
+with focus restoration). Backend re-run unaffected at 78/78.
+
+Because those tests mock `fetch`, they cannot prove the frontend and
+backend agree. A separate live contract check against the running backend
+issued every request `features/staff/api.ts` actually makes, with the
+exact bodies `StaffDialog` builds, and asserted every field the frontend's
+`StaffMember` interface declares — 92 checks, all passing. It also
+confirmed no `passwordHash`/`tokensValidAfter` ever reaches the client,
+that 400s carry the `{path, message}` issues the dialog maps to fields,
+and that a token without `staff:manage` is refused with 403 on the very
+action the UI hides from it.
+
+**Not done, deliberately:** `PropertiesPage`/`RoomsPage` were left on
+native `confirm()` and their existing markup — they work, and migrating
+them is a separate task now queued in TASKS.md. No AI-agent integration
+points were added; the module boundary is the preparation for that, and
+building more would have been speculation.

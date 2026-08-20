@@ -8,8 +8,34 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
  */
 let accessToken: string | null = null;
 
+/**
+ * Notified whenever the access token changes — including the silent
+ * refresh this module performs internally on a 401, which no caller
+ * initiates. `AuthContext` subscribes so the session claims it derives
+ * from the token (see `auth/session.ts`) can't go stale: if a staff
+ * member's role is changed while they're using the app, the backend
+ * revokes their current token, the retry below mints a new one with the
+ * new permissions, and the UI needs to follow.
+ */
+const tokenListeners = new Set<(token: string | null) => void>();
+
+export function onAccessTokenChange(listener: (token: string | null) => void): () => void {
+  tokenListeners.add(listener);
+  return () => tokenListeners.delete(listener);
+}
+
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  for (const listener of tokenListeners) listener(token);
+}
+
+/**
+ * The current access token, for deriving display-only session claims.
+ * Deliberately not exported anywhere near a security decision — the
+ * backend is the only authority on what the caller may do.
+ */
+export function getAccessToken(): string | null {
+  return accessToken;
 }
 
 export class ApiError extends Error {
@@ -31,7 +57,7 @@ interface ApiErrorBody {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   /** Skip the automatic refresh-and-retry on a 401 — used by the auth
    * endpoints themselves to avoid a refresh loop. */

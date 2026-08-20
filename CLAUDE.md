@@ -10,13 +10,32 @@ leasing). It's a monorepo: `backend/` (Node + Express + TypeScript +
 Prisma/PostgreSQL) and `frontend/` (React 19 + TypeScript + Vite), wired
 together with npm workspaces.
 
-The project is still at its foundation stage: `Organization` → `User`
-(staff) → `Property` → `Room` schema exists, `GET /health` is the only
-backend route, and the frontend is a shell that checks API connectivity.
-No authentication yet. Do not build ahead of what
-[TASKS.md](TASKS.md) currently calls for — bookings, OTA integrations,
-reviews, payments, and marketing are explicitly out of scope until a task
-calls for them.
+Phase 1 (auth, RBAC, tenancy enforcement) is complete and merged. The
+core domain is `Organization` → `User` (staff) → `Property` → `Room`,
+plus the auth/authorization tables (`Session`, `Permission`, `Role`,
+`RolePermission`, `UserRoleAssignment`, `PropertyAccess`). Implemented
+today:
+
+- **Auth**: `POST /api/v1/auth/{login,refresh,logout}` — argon2id
+  hashing, JWT access token + DB-backed rotating refresh session in an
+  httpOnly cookie, replay detection, login rate limiting, and a two-layer
+  revocation model (session revocation + a per-user `tokensValidAfter`
+  watermark that kills already-issued access tokens).
+- **Tenancy/RBAC platform**: `backend/src/platform/{auth,rbac,tenancy}/**`
+  — `AsyncLocalStorage` request context, a tenant-scoping Prisma Client
+  Extension, `requirePermission` / `requirePropertyAccess` guards.
+- **Modules**: `organizations` (public signup + `/organizations/me`),
+  `properties`, `rooms`, `staff` (staff administration, role assignment,
+  property-access grants, deactivation). `GET /health` is unversioned.
+- **Frontend**: `react-router-dom`, `auth/AuthContext`, login/signup,
+  a protected `/app/*` shell, dashboard, Properties/Rooms screens, and a
+  Team (staff management) module at `/app/staff`.
+
+Do not build ahead of what [TASKS.md](TASKS.md) currently calls for —
+bookings, OTA integrations, reviews, payments, and marketing are
+explicitly out of scope until a task calls for them. `TASKS.md` and
+`DECISIONS.md` are the accurate record of what is built and why; prefer
+them over this summary if they ever disagree.
 
 ## Commands
 
@@ -73,13 +92,28 @@ not just validated against the schema file — see
   (reused across dev hot-reloads to avoid exhausting Postgres
   connections) — this is the only data-access layer; don't instantiate
   `PrismaClient` elsewhere.
-- **Frontend**: plain Vite + React SPA, no router or state library yet.
-  Talks to the backend only through `VITE_API_URL` (defaults to
-  `http://localhost:4000`) — never hardcode the backend origin.
+- **Frontend**: Vite + React SPA with `react-router-dom`; `AuthContext` is
+  the only app-wide state (no state library). Talks to the backend only
+  through `VITE_API_URL` (defaults to `http://localhost:4000`) — never
+  hardcode the backend origin, and never call `fetch` outside
+  `lib/api.ts`. New features go in `src/features/<name>/` with their
+  endpoints named in one `api.ts`; genuinely reusable, domain-free
+  components go in `src/components/`.
 - **Multi-tenancy**: every domain row is scoped under `Organization`,
   either directly or transitively through `Property`. There is no
-  cross-organization data access; this must be enforced at the query
-  layer as real endpoints get added beyond `/health`.
+  cross-organization data access, and it is enforced at the query layer
+  by a Prisma Client Extension
+  (`backend/src/platform/tenancy/scoped-prisma.ts`) that injects the
+  caller's `organizationId` into every query — repositories import
+  `scopedPrisma`, never the base client, so the filter can't be
+  forgotten. Adding a tenant-scoped model means registering it there.
+  `backend/test/tenant-isolation.test.ts` is a standing regression suite;
+  every new tenant-scoped route gets a cross-org case in it.
+- **Authorization**: permission-based, never a raw role-string check —
+  routes declare what they need via `requirePermission`. Staff
+  administration additionally applies a role-rank rule (`ROLE_RANK`),
+  because a permission says what a caller may do, not who they may do it
+  to. Frontend checks are UX only; the backend is the security boundary.
 - **Schema source of truth**: `backend/prisma/schema.prisma`.
   [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) is a human-readable mirror of
   it — if they disagree, the schema wins and the doc must be updated to

@@ -61,7 +61,7 @@ The-Living-Canvas-PMS/
 - **Prisma** is the single data-access layer. `src/lib/prisma.ts` exports
   one shared, *unscoped* `PrismaClient` instance (used by the platform
   code that runs before tenant context exists — auth, signup). Every
-  tenant-scoped module (`properties`, `rooms`) instead imports
+  tenant-scoped module (`properties`, `rooms`, `staff`) instead imports
   `scopedPrisma` from `platform/tenancy/scoped-prisma.ts` — see
   "Multi-tenancy model" below.
 - **Authentication is implemented** (Phase 1, 2026-08-19): JWT access
@@ -83,6 +83,13 @@ The-Living-Canvas-PMS/
   additionally sit behind `requirePropertyAccess`. See
   [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) for the underlying
   `Role`/`Permission`/`PropertyAccess` schema.
+- **Staff administration adds a third check on top of permissions**
+  (2026-08-20): a permission answers "may this caller do X", but not "may
+  they do it *to that person*". `platform/rbac/permissions.ts`'s
+  `ROLE_RANK` supplies the missing half — `modules/staff` refuses to
+  assign a role above the caller's own or to act on a staff member at or
+  above their level, which is what stops a flat `staff:manage` permission
+  from becoming an escalation path. See DECISIONS.md.
 - Routes live under `/api/v1/...`, one Express router per module.
   `GET /health` (unversioned, no module) remains for connectivity checks.
 
@@ -101,6 +108,22 @@ The-Living-Canvas-PMS/
   it attaches the `Authorization` header, retries once on a 401 after a
   single-flight refresh, and throws a typed `ApiError`. Components never
   call `fetch` directly.
+- **Feature modules** (added 2026-08-21, first used by staff management):
+  `src/features/<name>/` holds a feature's types, data access, render-time
+  permission rules, and components together. The boundary rule is that a
+  feature's endpoints are named in exactly one file (`features/<name>/api.ts`),
+  so a contract change has one point of contact. `src/pages/**` remains as
+  the older flat convention for the screens that predate this; both
+  coexist.
+- **Shared UI primitives** live in `src/components/` (`Modal`,
+  `ConfirmDialog`, `DataTable`, `Badge`) and are deliberately domain-free
+  — no fetching and no feature-specific columns, so the next module can
+  use them unchanged.
+- `auth/session.ts` decodes display-only claims (user id, permissions,
+  roles) from the access token so the UI can avoid rendering controls that
+  would only earn a 403. **Presentation only — never an access-control
+  decision;** the signature is not verified client-side and the backend
+  re-derives everything per request. See DECISIONS.md.
 - Talks to the backend only via `VITE_API_URL` (defaults to
   `http://localhost:4000`), never a hardcoded origin.
 
