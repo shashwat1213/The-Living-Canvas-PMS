@@ -54,6 +54,23 @@ export function hasPermission(permission: Permission): boolean {
 }
 
 /**
+ * True if the caller holds a role that reaches every property in their
+ * organization (OWNER/ADMIN).
+ *
+ * Extracted because this exact expression previously appeared in two
+ * places — the property-access guard here and the property list filter in
+ * `modules/properties/service.ts`. Those two answer the same question
+ * ("does this caller need a grant?") for one list and one single record,
+ * and if they ever disagreed a property would appear in a listing the
+ * caller is then refused on, or worse, the reverse. One definition means
+ * they cannot drift.
+ */
+export function isOrgWideCaller(): boolean {
+  const ctx = getRequestContext();
+  return [...ctx.roleNames].some((name) => ORG_WIDE_ROLES.has(name));
+}
+
+/**
  * True if the caller may act on the given property: an org-wide role
  * (OWNER/ADMIN), or an explicit PropertyAccess grant.
  *
@@ -71,7 +88,5 @@ export function hasPermission(permission: Permission): boolean {
  * other's job to stay correct.
  */
 export function canAccessProperty(propertyId: string): boolean {
-  const ctx = getRequestContext();
-  const isOrgWide = [...ctx.roleNames].some((name) => ORG_WIDE_ROLES.has(name));
-  return isOrgWide || ctx.grantedPropertyIds.has(propertyId);
+  return isOrgWideCaller() || getRequestContext().grantedPropertyIds.has(propertyId);
 }

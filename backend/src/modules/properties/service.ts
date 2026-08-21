@@ -5,9 +5,8 @@ import type { PageMeta } from '../../lib/pagination.js';
 import { withUniqueConstraintGuard } from '../../lib/prisma-errors.js';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../../platform/audit/actions.js';
 import { recordAuditEvent } from '../../platform/audit/recorder.js';
-import { getRequestContext } from '../../platform/tenancy/context.js';
+import { getRequestContext, isOrgWideCaller } from '../../platform/tenancy/context.js';
 import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
-import { ORG_WIDE_ROLES } from '../../platform/rbac/permissions.js';
 import { propertiesRepository } from './repository.js';
 import type { CreatePropertyInput, ListPropertiesQuery, UpdatePropertyInput } from './schemas.js';
 
@@ -29,9 +28,11 @@ import type { CreatePropertyInput, ListPropertiesQuery, UpdatePropertyInput } fr
  * the restriction has to be part of the query the count runs against.
  */
 export async function listProperties(query: ListPropertiesQuery): Promise<{ items: Property[]; page: PageMeta }> {
+  if (isOrgWideCaller()) {
+    return propertiesRepository.list(query);
+  }
   const ctx = getRequestContext();
-  const isOrgWide = [...ctx.roleNames].some((name) => ORG_WIDE_ROLES.has(name));
-  return propertiesRepository.list(query, isOrgWide ? undefined : { allowedIds: [...ctx.grantedPropertyIds] });
+  return propertiesRepository.list(query, { allowedIds: [...ctx.grantedPropertyIds] });
 }
 
 export async function getProperty(id: string): Promise<Property> {

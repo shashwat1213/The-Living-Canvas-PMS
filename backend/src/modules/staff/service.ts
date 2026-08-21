@@ -9,7 +9,7 @@ import { hashPassword } from '../../platform/auth/password.js';
 import { bumpTokensValidAfter, deactivateUser } from '../../platform/auth/revocation.js';
 import { ROLE_RANK, highestRoleRank, type SystemRoleName } from '../../platform/rbac/permissions.js';
 import { assignSystemRole } from '../../platform/rbac/provisioning.js';
-import { getRequestContext } from '../../platform/tenancy/context.js';
+import { canAccessProperty, getRequestContext } from '../../platform/tenancy/context.js';
 import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
 import { staffRepository, type StaffMember } from './repository.js';
 import type { PageMeta } from '../../lib/pagination.js';
@@ -81,20 +81,46 @@ async function requireStaff(userId: string): Promise<StaffMember> {
 }
 
 /**
- * Resolves the given property IDs through the *scoped* client, which is
- * what stops a grant from pointing at another organization's property: a
- * cross-tenant ID simply doesn't come back, and the count mismatch turns
- * into a 404 before any PropertyAccess row is written. Same enforcement
- * shape the rooms repository uses for its parent-property lookup.
+ * Validates property IDs supplied in a request *body* — the one place
+ * property IDs arrive outside a `requirePropertyAccess`-guarded URL
+ * parameter, and therefore the one place that guard cannot cover.
+ *
+ * Two independent checks:
+ *
+ * 1. **Organization.** Resolved through the *scoped* client, so a
+ *    cross-tenant ID simply doesn't come back and the count mismatch
+ *    becomes a 404 before any PropertyAccess row is written. Same shape
+ *    the rooms repository uses for its parent-property lookup.
+ *
+ * 2. **Caller access.** You cannot grant access to a property you cannot
+ *    reach yourself. For OWNER/ADMIN this is a no-op — they are org-wide,
+ *    so anything that passed check 1 passes this too, and no current
+ *    behaviour changes. It matters for what the permission model allows
+ *    *next*: `staff:manage` is a flat permission, so the day a
+ *    property-scoped role is given it (a "manager who can hire for their
+ *    own property" is an obvious future), the absence of this check would
+ *    let them hand out access to properties they don't control — and to
+ *    themselves. Enforcing the invariant here means that role can be
+ *    added without re-auditing this path.
  */
-async function assertPropertiesInOrganization(propertyIds: string[]): Promise<void> {
+async function assertPropertiesGrantable(propertyIds: string[]): Promise<void> {
   if (propertyIds.length === 0) return;
+
   const found = await scopedPrisma.property.findMany({
     where: { id: { in: propertyIds } },
     select: { id: true },
   });
   if (found.length !== propertyIds.length) {
     throw new NotFoundError('One or more of those properties were not found.');
+  }
+
+  // Deliberately a 403, not a 404: these properties provably exist inside
+  // the caller's own organization, so "you may not grant this" is both
+  // the accurate answer and safe to disclose — the same distinction
+  // `requirePropertyAccess` already draws for URL-supplied IDs.
+  const ungrantable = propertyIds.filter((propertyId) => !canAccessProperty(propertyId));
+  if (ungrantable.length > 0) {
+    throw new ForbiddenError("You can't grant access to a property you don't have access to yourself.");
   }
 }
 
@@ -111,7 +137,7 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
   assertCanAssignRole(input.role);
 
   const propertyIds = [...new Set(input.propertyIds ?? [])];
-  await assertPropertiesInOrganization(propertyIds);
+  await assertPropertiesGrantable(propertyIds);
 
   // `User.email` is globally unique, not unique-per-organization, so this
   // check necessarily spans tenants. It reports the same "already in use"
@@ -308,7 +334,7 @@ export async function setPropertyAccess(userId: string, requestedPropertyIds: st
   assertCanManage(target);
 
   const propertyIds = [...new Set(requestedPropertyIds)];
-  await assertPropertiesInOrganization(propertyIds);
+  await assertPropertiesGrantable(propertyIds);
 
   const previousPropertyIds = target.propertyIds;
   const added = propertyIds.filter((id) => !previousPropertyIds.includes(id));
