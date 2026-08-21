@@ -31,8 +31,21 @@ function buildWhere(propertyId: string, query: ListRoomsQuery): Prisma.RoomWhere
   return { AND: conditions };
 }
 
-/** Same contract as `PropertiesDb` — scoped client or a transaction of it. */
-export type RoomsDb = Pick<typeof scopedPrisma, 'room' | 'property'>;
+/**
+ * Same contract as `PropertiesDb` — scoped client or a transaction of it.
+ * `roomType` is included so a room's type link can be validated inside the
+ * same transaction that writes it (see `rooms/service.ts`).
+ */
+export type RoomsDb = Pick<typeof scopedPrisma, 'room' | 'property' | 'roomType'>;
+
+/**
+ * What a room is actually written with. `roomType` is optional on the
+ * request (a caller may send `roomTypeId` instead) but not on the row —
+ * the column is NOT NULL — so the service resolves one before reaching
+ * here, and this type is what makes that a compile-time obligation rather
+ * than a convention.
+ */
+export type CreateRoomData = CreateRoomInput & { roomType: string };
 
 export const roomsRepository = {
   /**
@@ -85,7 +98,7 @@ export const roomsRepository = {
    * cross-organization `propertyId` resolves to nothing here and throws
    * `NotFoundError` before any room row is ever written.
    */
-  async create(propertyId: string, data: CreateRoomInput, db: RoomsDb = scopedPrisma): Promise<Room> {
+  async create(propertyId: string, data: CreateRoomData, db: RoomsDb = scopedPrisma): Promise<Room> {
     const property = await db.property.findFirst({ where: { id: propertyId } });
     if (!property) {
       throw new NotFoundError('Property not found.');

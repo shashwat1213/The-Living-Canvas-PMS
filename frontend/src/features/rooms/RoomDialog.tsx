@@ -1,9 +1,14 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import { Modal } from '../../components/Modal';
 import { ApiError } from '../../lib/api';
+import { listRoomTypes } from '../room-types/api';
+import type { RoomType } from '../room-types/types';
 import { createRoom, updateRoom } from './api';
 import { ROOM_STATUSES, ROOM_STATUS_LABEL, type Room, type RoomStatus } from './types';
+
+/** Sentinel for "no structured type — I'll type the label myself". */
+const CUSTOM = '';
 
 interface RoomDialogProps {
   propertyId: string;
@@ -15,6 +20,7 @@ interface RoomDialogProps {
 
 interface FormState {
   name: string;
+  roomTypeId: string;
   roomType: string;
   floor: string;
   capacity: string;
@@ -25,6 +31,7 @@ interface FormState {
 function initialState(room: Room | null): FormState {
   return {
     name: room?.name ?? '',
+    roomTypeId: room?.roomTypeId ?? CUSTOM,
     roomType: room?.roomType ?? '',
     floor: room?.floor ?? '',
     // Kept as a string so the input can be cleared while typing; parsed on submit.
@@ -37,7 +44,8 @@ function initialState(room: Room | null): FormState {
 function validate(form: FormState): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!form.name.trim()) errors.name = 'Room name is required.';
-  if (!form.roomType.trim()) errors.roomType = 'Room type is required.';
+  // Either form satisfies the API: a chosen type, or a typed-in label.
+  if (form.roomTypeId === CUSTOM && !form.roomType.trim()) errors.roomType = 'Room type is required.';
 
   const capacity = Number(form.capacity);
   if (!Number.isInteger(capacity) || capacity < 1 || capacity > 50) {
@@ -52,6 +60,39 @@ export function RoomDialog({ propertyId, room, onClose, onSaved }: RoomDialogPro
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+
+  /**
+   * The catalogue is a convenience, never a gate: if it fails to load, or
+   * the property has no types configured yet, the dialog falls back to the
+   * free-text field that has always been here. A room must stay creatable
+   * even when this request doesn't come back.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    listRoomTypes(propertyId, { status: 'ACTIVE', pageSize: 100 })
+      .then((result) => {
+        if (!cancelled) setRoomTypes(result.roomTypes ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setRoomTypes([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTypes(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [propertyId]);
+
+  // A room already linked to a retired type still shows it, rather than
+  // silently resetting the field to "custom" when the dialog opens.
+  const options =
+    room?.roomTypeId && !roomTypes.some((type) => type.id === room.roomTypeId)
+      ? [...roomTypes, { id: room.roomTypeId, name: room.roomType } as RoomType]
+      : roomTypes;
+  const hasCatalogue = options.length > 0;
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -69,9 +110,17 @@ export function RoomDialog({ propertyId, room, onClose, onSaved }: RoomDialogPro
     }
 
     const optional = (value: string) => (value.trim() === '' ? undefined : value.trim());
+    // Exactly one of the two is sent. With a type chosen the server
+    // derives the legacy label from it, which is what keeps the two
+    // representations from drifting apart during the transition.
+    const typeFields =
+      form.roomTypeId === CUSTOM
+        ? { roomType: form.roomType.trim(), roomTypeId: null }
+        : { roomTypeId: form.roomTypeId };
+
     const payload = {
       name: form.name.trim(),
-      roomType: form.roomType.trim(),
+      ...typeFields,
       floor: optional(form.floor),
       capacity: Number(form.capacity),
       status: form.status,
@@ -151,15 +200,56 @@ export function RoomDialog({ propertyId, room, onClose, onSaved }: RoomDialogPro
           </div>
 
           <div className="field">
-            <label htmlFor="room-type">Room type</label>
-            <input
-              id="room-type"
-              value={form.roomType}
-              onChange={(event) => update('roomType', event.target.value)}
-              disabled={saving}
-              aria-invalid={Boolean(fieldErrors.roomType)}
-            />
+            <label htmlFor={hasCatalogue ? 'room-type-select' : 'room-type'}>Room type</label>
+            {hasCatalogue ? (
+              <>
+                <select
+                  id="room-type-select"
+                  value={form.roomTypeId}
+                  onChange={(event) => update('roomTypeId', event.target.value)}
+                  disabled={saving}
+                  aria-describedby="room-type-hint"
+                >
+                  {options.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.code ? `${type.name} (${type.code})` : type.name}
+                    </option>
+                  ))}
+                  <option value={CUSTOM}>Other — enter manually</option>
+                </select>
+                {form.roomTypeId === CUSTOM && (
+                  <input
+                    id="room-type"
+                    aria-label="Room type label"
+                    placeholder="e.g. Deluxe King"
+                    value={form.roomType}
+                    onChange={(event) => update('roomType', event.target.value)}
+                    disabled={saving}
+                    aria-invalid={Boolean(fieldErrors.roomType)}
+                  />
+                )}
+                <span id="room-type-hint" className="field-hint">
+                  {form.roomTypeId === CUSTOM
+                    ? 'Not in the catalogue yet — this stays free text.'
+                    : "The property's room-type catalogue."}
+                </span>
+              </>
+            ) : (
+              <input
+                id="room-type"
+                value={form.roomType}
+                onChange={(event) => update('roomType', event.target.value)}
+                disabled={saving}
+                aria-invalid={Boolean(fieldErrors.roomType)}
+                aria-describedby={loadingTypes ? 'room-type-hint' : undefined}
+              />
+            )}
             {fieldErrors.roomType && <span className="field-error">{fieldErrors.roomType}</span>}
+            {!hasCatalogue && loadingTypes && (
+              <span id="room-type-hint" className="field-hint">
+                Loading room types…
+              </span>
+            )}
           </div>
         </div>
 

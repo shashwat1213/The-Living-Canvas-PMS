@@ -1884,3 +1884,70 @@ unchanged — no frontend file was touched. typecheck/lint/build pass. An
 18-assertion live probe against the built server confirmed the behaviour
 on the real artifact, including that all four cross-tenant verbs 404 and
 that the row is untouched afterwards.
+
+---
+
+## 2026-08-22 — Rooms ↔ RoomType: validation, label derivation, and a corrected test
+
+Task 2c. The rooms API now accepts `roomTypeId`; the free-text `roomType`
+keeps working unchanged.
+
+### Decision 1 — the link is validated against the room's own property
+
+`resolveRoomTypeName` reads the type through the *scoped* client with an
+explicit `propertyId` filter, inside the caller's transaction. That single
+read carries both guarantees: another organization's type is invisible
+because the scoping extension reaches RoomType through its property, and
+another property's type in the same organization is excluded by the
+filter. Both produce the same 404, so a caller learns only that this
+property has no such type — the rule the rest of the API follows.
+
+Doing it inside the transaction rather than before it means the type
+cannot be deleted between the check and the write.
+
+### Decision 2 — supplying a type fills in the legacy label
+
+`roomType` is still what the rooms list searches and what the audit trail
+records. A client that sends only `roomTypeId` would otherwise leave that
+column frozen at whatever it said before, and a stale searchable label is
+a real bug rather than a cosmetic one. So the service derives it from the
+type's name. An explicitly supplied label wins — the caller said what
+they meant.
+
+### Decision 3 — a corrected test, and why it is not a weakened one
+
+`room-types.test.ts` asserted, across the whole table, that every linked
+room's `roomType` equals its type's name. That failed as soon as this
+slice landed, and the failure was correct: the equality was true of the
+backfill's output, not a rule of the system.
+
+The alternative was to *make* it a rule — reject a free-text `roomType`
+update on a linked room. That was rejected because the backfill linked
+**every** existing room, so the rule would break exactly the legacy
+clients this transition exists to protect. Backward compatibility is the
+whole point of keeping the column.
+
+So the assertion was split rather than deleted. The permanent half — a
+room's type must belong to the room's own property — is kept as its own
+test and is now the whole-table backstop for the guarantee Decision 1
+enforces per request. Label derivation moved to `rooms-room-types.test.ts`
+where it is tested against the API that owns the behaviour. The test file
+records this inline so the next reader meets it as a decision.
+
+### Decision 4 — the catalogue is a convenience, never a gate
+
+`RoomDialog` renders a picker when the property has types and the original
+free-text input when it has none *or when the request fails*. A room must
+stay creatable when the catalogue does not come back — a front desk
+adding a room at 2am should not be blocked by an unrelated endpoint. A
+room linked to a retired type still shows that type rather than silently
+resetting to "Other", which would turn opening a dialog into an
+accidental edit.
+
+**Verification.** Backend 206/206 across 15 files (14 new), frontend
+106/106 across 10 files (7 new; the existing 99 pass unchanged, which is
+the backward-compatibility claim). typecheck/lint/build pass. A
+16-assertion live probe against the built server confirmed the happy
+path, the legacy path, cross-property and cross-tenant rejection with
+nothing persisted, the clear-link path, malformed input, the anonymous
+401, and that the `roomTypeId` change reaches the audit diff.

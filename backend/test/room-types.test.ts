@@ -103,19 +103,32 @@ describe('RoomType is tenant-scoped through its property', () => {
 });
 
 describe('the migration backfill left rooms and room types consistent', () => {
-  it('every linked room points at a type with the same label, in the same property', async () => {
-    // Asserted across the whole table rather than a fixture: the backfill
-    // ran once, against whatever rooms existed, and this is the invariant
-    // it was supposed to establish. A room created after the migration
-    // simply has no type yet, which is why the join is on non-null only.
+  it('every linked room points at a type in its own property', async () => {
+    // Asserted across the whole table rather than a fixture: this is a
+    // permanent integrity rule, not a migration artifact. A room must
+    // never reference a type belonging to another property — that is the
+    // guarantee `rooms/service.ts` enforces on create and update, and a
+    // whole-table check is what would catch any future path that wrote
+    // the FK without going through it. A room created after the migration
+    // may simply have no type, which is why the join is on non-null only.
     const mismatches = await prisma.$queryRawUnsafe<{ n: number }[]>(`
       SELECT count(*)::int AS n
       FROM rooms r
       JOIN room_types rt ON rt.id = r.room_type_id
-      WHERE rt.name <> r.room_type OR rt.property_id <> r.property_id
+      WHERE rt.property_id <> r.property_id
     `);
 
     expect(mismatches[0]?.n).toBe(0);
+
+    // NOTE: this assertion deliberately no longer requires
+    // `rt.name = r.room_type`. That equality was true of the backfill's
+    // output, but it was never a rule of the system, and task 2c made the
+    // difference visible: the rooms API still accepts a free-text
+    // `roomType` update on a linked room (every pre-existing room is
+    // linked, so refusing it would break exactly the legacy clients the
+    // transition promises not to break). Label derivation is now covered
+    // where it actually belongs, against the API rather than the table,
+    // in `rooms-room-types.test.ts`. See DECISIONS.md 2026-08-22.
   });
 
   it('the legacy free-text column still exists and still carries every label', async () => {

@@ -37,6 +37,9 @@ function room(overrides: Partial<Room> = {}): Room {
     propertyId: PROPERTY_ID,
     name: '101',
     roomType: 'Deluxe King',
+    // The API returns this on every room since task 2a; null means the
+    // room has a label but no structured type assigned yet.
+    roomTypeId: null,
     floor: '1',
     capacity: 2,
     status: 'ACTIVE',

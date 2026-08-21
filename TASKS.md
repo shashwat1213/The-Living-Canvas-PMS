@@ -627,15 +627,53 @@ done; **nothing below it has been started.**
   both duplicate paths, validation, all four cross-tenant verbs, the
   anonymous 401 and the audit entry.
 
-- [ ] **2c. Backend — rooms accept `roomTypeId`**
-  The second half of the original 2b. `createRoomSchema` /
-  `updateRoomSchema` accept `roomTypeId` alongside the free-text
-  `roomType`, validating that the type belongs to the same property. Both
-  forms accepted during the deprecation window so no client breaks.
+- [x] **2c. Rooms ↔ RoomType integration** (2026-08-22)
+  `createRoomSchema` / `updateRoomSchema` accept `roomTypeId` alongside
+  the free-text `roomType`. Exactly one is required on create; `null`
+  clears the link on update.
 
-- [ ] **2d. Frontend — room-type management**
-  `features/room-types/` following the staff/properties module shape;
-  `RoomDialog` swaps its free-text input for a type picker.
+  **The link is validated against the room's own property**, inside the
+  same transaction that writes it, through the scoped client filtered by
+  `propertyId`. A type from another property in the same organization and
+  a type from another organization both resolve to nothing and surface as
+  the same 404 — the caller learns only that this property has no such
+  type. Proven not to half-write: after every rejection the room is absent
+  or unchanged, and no audit entry exists.
+
+  **Label derivation.** Supplying `roomTypeId` without `roomType` fills
+  the legacy label in from the type's name. That column is still what the
+  rooms list searches and what the audit trail records, so leaving it
+  stale would be a real bug. An explicitly supplied label is never
+  overwritten.
+
+  **Frontend.** `RoomDialog` shows a picker when the property has room
+  types, with an "Other — enter manually" escape hatch, and falls back to
+  the original free-text input when the catalogue is empty *or fails to
+  load*. The catalogue is a convenience, never a gate: a room stays
+  creatable when that request doesn't come back. A room linked to a
+  retired type still displays it rather than silently resetting.
+
+  **One existing test was corrected, not weakened.** `room-types.test.ts`
+  asserted that every linked room's label equals its type's name — true of
+  the backfill, but never a rule of the system. Every pre-existing room is
+  linked, so forbidding a free-text label update on a linked room would
+  break exactly the legacy clients this transition protects. The permanent
+  half of that assertion (a room's type must belong to the room's own
+  property) is kept and now covers what this slice enforces; label
+  derivation is covered against the API in `rooms-room-types.test.ts`. See
+  DECISIONS.md.
+
+  Verified: backend 206/206 across 15 files (was 192/14 — 14 new);
+  frontend 106/106 across 10 files (was 99/9 — 7 new, existing 99
+  unchanged). typecheck/lint/build pass. A 16-assertion live probe against
+  the built server covered the happy path, the legacy path, both rejection
+  boundaries with no partial write, the clear-link path, malformed input,
+  anonymous access and the audit entry.
+
+- [ ] **2d. Frontend — room-type management screens**
+  `features/room-types/` grown into a full module (list, create, edit,
+  retire) following the staff/properties shape. Task 2c added only the
+  read the room dialog needs.
 
 - [ ] **2e. Database — drop the legacy `Room.roomType` column**
   Only after 2c and 2d ship and no code reads it. Make `roomTypeId` NOT

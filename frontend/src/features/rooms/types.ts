@@ -17,7 +17,10 @@ export interface Room {
   id: string;
   propertyId: string;
   name: string;
+  /** Legacy free-text label. Still returned, still searchable. */
   roomType: string;
+  /** The structured type, once one has been assigned. */
+  roomTypeId: string | null;
   floor: string | null;
   capacity: number;
   status: RoomStatus;
@@ -36,7 +39,12 @@ export interface RoomListParams {
 
 export interface CreateRoomInput {
   name: string;
-  roomType: string;
+  /**
+   * One of `roomType` or `roomTypeId` is required by the API. Sending
+   * `roomTypeId` alone lets the server fill the label in from the type.
+   */
+  roomType?: string;
+  roomTypeId?: string | null;
   floor?: string;
   capacity?: number;
   status?: RoomStatus;
