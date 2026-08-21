@@ -27,6 +27,14 @@ export const ALL_PERMISSIONS = [
   { key: 'rooms:read', description: 'Read rooms.' },
   { key: 'rooms:update', description: 'Update a room.' },
   { key: 'rooms:delete', description: 'Delete a room.' },
+  {
+    key: 'room-types:read',
+    description: 'Read the room-type catalogue of a property.',
+  },
+  {
+    key: 'room-types:manage',
+    description: "Create, update and retire a property's room types.",
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -64,6 +72,14 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     'rooms:read',
     'rooms:update',
     'rooms:delete',
+    // The room-type catalogue is inventory configuration, not front-desk
+    // work: a manager sets up what a property sells, so `manage` belongs
+    // here, while STAFF below gets read only. Deliberately NOT folded
+    // into `rooms:*` — STAFF holds `rooms:update` so it can change a
+    // room's status, and reusing that key would have let the front desk
+    // rename the catalogue every rate and reservation will hang off.
+    'room-types:read',
+    'room-types:manage',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
@@ -75,7 +91,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // receive it via the PERMISSION_KEYS spread) is the intended scope,
     // not an oversight.
   ],
-  STAFF: ['organizations:read', 'properties:read', 'rooms:read', 'rooms:update'],
+  STAFF: ['organizations:read', 'properties:read', 'rooms:read', 'rooms:update', 'room-types:read'],
 };
 
 /** Organization-wide roles bypass PropertyAccess grants entirely. */

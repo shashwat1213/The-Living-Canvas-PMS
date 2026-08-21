@@ -1813,3 +1813,74 @@ pairs, all 1069 rooms linked, zero label-or-property mismatches. Backend
 99/99 unchanged, typecheck/lint/build pass, `prisma migrate status`
 clean. The scoping tests are verified by deletion: unregistering
 `roomType` makes three of them fail.
+
+---
+
+## 2026-08-22 — RoomType API: new permissions, and a delete that refuses
+
+The CRUD half of Phase 2's RoomType work, in a new `modules/room-types/`
+built on the rooms module's shape. Split from the original task 2b, whose
+second half (teaching the rooms API `roomTypeId`) is now 2c: keeping them
+apart meant this slice touched no existing module beyond mounting a
+router and extending two catalogs.
+
+### Decision 1 — `room-types:*` rather than reusing `rooms:*`
+
+Reusing the existing keys would have been the smaller diff and the wrong
+call. STAFF holds `rooms:update` so the front desk can put 204 into
+maintenance — a correct grant. But room types are what rate plans,
+availability and reservations will all reference, and renaming or
+retiring one is a revenue-management act, not a front-desk one. Reusing
+`rooms:update` would have handed that to every STAFF member in the
+organization.
+
+So: `room-types:read` (STAFF and up — a room's type is front-desk
+information) and `room-types:manage` (MANAGER and up). The cost is two new
+permission keys and a seed backfill, which is the documented pattern
+(`syncSystemRolePermissions`, run for real here — 44450 mappings).
+
+This is the same reasoning that put `staff:manage` above `staff:read`
+rather than folding both into one key: a permission should name an
+authority someone might plausibly hold *without* the others.
+
+### Decision 2 — deleting a type in use is refused, not cascaded
+
+`Room.roomTypeId` is `onDelete: SetNull`, so the database would happily
+delete a type and quietly un-type every room that used it. That is a
+silent data loss a PMS must not do, and it is almost never what the
+caller meant: "we don't sell this any more" is a retirement, not a
+detach.
+
+`DELETE` therefore 409s while `roomCount > 0`, naming the count and
+pointing at `isActive: false`. Retiring keeps every existing room's
+classification and history intact while removing the type from future
+use. Deletion stays available for a type nothing references — a
+mistyped entry created a minute ago should not need a tombstone.
+
+The alternative, cascading the null and auditing it, was rejected for the
+reason the property-delete entry already records: an action whose blast
+radius isn't visible from the request is the wrong default, even audited.
+
+### Decision 3 — codes are upper-cased at the schema boundary
+
+`code` is uniquely constrained per property, and "dlxk" versus "DLXK" is
+the same code to anyone reading a rooming list while being two rows to
+Postgres. Normalizing in the Zod schema — rather than in the service or
+with a case-insensitive index — means every path in and out of the module
+sees one canonical form, and the constraint means what it appears to
+mean. Verified: creating "DLXK" then "dlxk" is a 409.
+
+### Decision 4 — `roomCount` on the read model
+
+The list and get responses carry `roomCount` from a Prisma `_count`, in
+the same query rather than an N+1 per row. It is what makes the delete
+rule legible in a UI before the user tries it, and "how many rooms are
+this type" is the first question anyone asks of a catalogue entry.
+
+**Verification.** Backend 192/192 across 14 files (12 new: 10 in
+`test/room-types-api.test.ts`, 2 cross-organization cases added to the
+standing `tenant-isolation.test.ts` per its own charter). Frontend 99/99
+unchanged — no frontend file was touched. typecheck/lint/build pass. An
+18-assertion live probe against the built server confirmed the behaviour
+on the real artifact, including that all four cross-tenant verbs 404 and
+that the row is untouched afterwards.

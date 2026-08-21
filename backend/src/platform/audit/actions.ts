@@ -31,6 +31,13 @@ export const AUDIT_ACTIONS = {
   ROOM_CREATED: 'room.created',
   ROOM_UPDATED: 'room.updated',
   ROOM_DELETED: 'room.deleted',
+
+  // The room-type catalogue is what rate plans, availability and
+  // reservations will all reference, so a rename or a retirement is a
+  // consequential act even though the row itself is small.
+  ROOM_TYPE_CREATED: 'room_type.created',
+  ROOM_TYPE_UPDATED: 'room_type.updated',
+  ROOM_TYPE_DELETED: 'room_type.deleted',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -45,6 +52,7 @@ export const AUDIT_ENTITY_TYPES = {
   STAFF: 'staff',
   PROPERTY: 'property',
   ROOM: 'room',
+  ROOM_TYPE: 'room_type',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

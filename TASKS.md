@@ -590,21 +590,55 @@ done; **nothing below it has been started.**
   typecheck/lint/build pass. The tenancy registration is verified by
   deletion: removing it makes three of the new tests fail.
 
-- [ ] **2b. Backend — RoomType API, and switch Rooms onto it**
-  `GET/POST /properties/:propertyId/room-types`, `PATCH`/`DELETE` for
-  one. Follows the shared pagination contract and records
-  `roomType.created/updated/deleted` audit events. Then the rooms API
-  accepts `roomTypeId` instead of the free-text `roomType`, with a
-  deprecation window during which both are accepted. A room type in use
-  by a room cannot be hard-deleted — deactivate it instead, the same rule
-  staff deactivation already follows.
+- [x] **2b. Backend — RoomType API** (2026-08-22)
+  `GET/POST /properties/:propertyId/room-types` and
+  `GET/PATCH/DELETE .../:roomTypeId`, in a new `modules/room-types/`
+  following the rooms module's shape exactly: scoped repository, service
+  owning authorization and audit, routes declaring permissions. On the
+  shared pagination contract (`{ roomTypes, page }`), searchable across
+  name/code/description, filterable by `ACTIVE`/`INACTIVE`.
 
-- [ ] **2c. Frontend — room-type management**
+  Split from the original 2b, which also proposed switching the rooms API
+  onto `roomTypeId`. That half is 2c below — this slice touches **no
+  existing module** beyond mounting the router and extending two
+  catalogs, which is a materially safer diff.
+
+  **New permissions, not reused ones.** `room-types:read` /
+  `room-types:manage`. Folding this into `rooms:*` would have handed the
+  catalogue to the front desk: STAFF holds `rooms:update` so it can change
+  a room's status, and that must not also let it rename the types every
+  future rate and reservation hangs off. STAFF gets read; MANAGER and
+  above get manage. `npm run db:seed -w backend` run for real (backfilled
+  44450 mappings onto existing organizations).
+
+  **A type still assigned to rooms cannot be hard-deleted** — 409 naming
+  the count, with `isActive: false` as the retirement path. The FK is
+  `SET NULL`, so the database would have allowed it and silently
+  un-typed a floor of rooms; the same rule staff offboarding follows.
+
+  Codes are upper-cased on input so per-property uniqueness can't be
+  sidestepped by casing.
+
+  Verified: backend 192/192 across 14 files (was 180/13 — 12 new: 10 in
+  `test/room-types-api.test.ts`, 2 cross-org cases added to the standing
+  `test/tenant-isolation.test.ts`). Frontend 99/99 unchanged.
+  typecheck/lint/build pass. A live 18-assertion probe against the built
+  server covered creation, the list envelope, case-insensitive search,
+  both duplicate paths, validation, all four cross-tenant verbs, the
+  anonymous 401 and the audit entry.
+
+- [ ] **2c. Backend — rooms accept `roomTypeId`**
+  The second half of the original 2b. `createRoomSchema` /
+  `updateRoomSchema` accept `roomTypeId` alongside the free-text
+  `roomType`, validating that the type belongs to the same property. Both
+  forms accepted during the deprecation window so no client breaks.
+
+- [ ] **2d. Frontend — room-type management**
   `features/room-types/` following the staff/properties module shape;
   `RoomDialog` swaps its free-text input for a type picker.
 
-- [ ] **2d. Database — drop the legacy `Room.roomType` column**
-  Only after 2b and 2c ship and no code reads it. Make `roomTypeId` NOT
+- [ ] **2e. Database — drop the legacy `Room.roomType` column**
+  Only after 2c and 2d ship and no code reads it. Make `roomTypeId` NOT
   NULL in the same migration. This is the one destructive step in the
   sequence, which is exactly why it is last and separate.
 

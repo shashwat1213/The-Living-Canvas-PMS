@@ -120,6 +120,68 @@ describe('cross-organization isolation', () => {
   });
 });
 
+describe('cross-organization isolation: room types', () => {
+  async function createRoomType(token: string, propertyId: string, name: string) {
+    const res = await request(app)
+      .post(`/api/v1/properties/${propertyId}/room-types`)
+      .set(...authHeader(token))
+      .send({ name });
+    if (res.status !== 201) {
+      throw new Error(`room type creation failed: ${res.status} ${JSON.stringify(res.body)}`);
+    }
+    return res.body.roomType.id as string;
+  }
+
+  it("a room type in org A is invisible to org B: list, get, update, delete", async () => {
+    const orgA = await loginAsNewOwner('RT Isolation A');
+    const orgB = await loginAsNewOwner('RT Isolation B');
+    const propertyA = await createProperty(orgA.token, 'A House', `a-house-${randomUUID().slice(0, 8)}`);
+    const roomTypeId = await createRoomType(orgA.token, propertyA, 'A Deluxe');
+
+    // Every verb, through org A's real property and room-type IDs. The
+    // property itself is already invisible to B, so these must 404 rather
+    // than 403 — B must not learn that the property exists at all.
+    const list = await request(app)
+      .get(`/api/v1/properties/${propertyA}/room-types`)
+      .set(...authHeader(orgB.token));
+    expect(list.status).toBe(404);
+
+    const get = await request(app)
+      .get(`/api/v1/properties/${propertyA}/room-types/${roomTypeId}`)
+      .set(...authHeader(orgB.token));
+    expect(get.status).toBe(404);
+
+    const update = await request(app)
+      .patch(`/api/v1/properties/${propertyA}/room-types/${roomTypeId}`)
+      .set(...authHeader(orgB.token))
+      .send({ name: 'Renamed By B' });
+    expect(update.status).toBe(404);
+
+    const del = await request(app)
+      .delete(`/api/v1/properties/${propertyA}/room-types/${roomTypeId}`)
+      .set(...authHeader(orgB.token));
+    expect(del.status).toBe(404);
+
+    // The refusals must not have taken effect anyway.
+    const stillThere = await request(app)
+      .get(`/api/v1/properties/${propertyA}/room-types/${roomTypeId}`)
+      .set(...authHeader(orgA.token));
+    expect(stillThere.status).toBe(200);
+    expect(stillThere.body.roomType.name).toBe('A Deluxe');
+  });
+
+  it('two organizations can independently use the same room-type name', async () => {
+    const orgA = await loginAsNewOwner('RT Name A');
+    const orgB = await loginAsNewOwner('RT Name B');
+    const propertyA = await createProperty(orgA.token, 'A House', `a-name-${randomUUID().slice(0, 8)}`);
+    const propertyB = await createProperty(orgB.token, 'B House', `b-name-${randomUUID().slice(0, 8)}`);
+
+    const a = await createRoomType(orgA.token, propertyA, 'Deluxe King');
+    const b = await createRoomType(orgB.token, propertyB, 'Deluxe King');
+    expect(a).not.toBe(b);
+  });
+});
+
 describe('cross-organization isolation: staff', () => {
   async function createStaffMember(token: string, role = 'STAFF') {
     const suffix = randomUUID().slice(0, 8);
