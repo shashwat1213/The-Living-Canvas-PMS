@@ -1724,3 +1724,92 @@ them.
 **Verification at sign-off.** Backend 175/175 across 12 files, frontend
 99/99 across 9 files, typecheck/lint/build pass for both workspaces, plus
 the 50-assertion live probe above.
+
+---
+
+## 2026-08-21 — RoomType: a per-property catalogue, introduced additively
+
+**The problem.** `Room.roomType` was a free-text column. Nothing could
+reference a room type, "Deluxe King" and "deluxe king" were different
+categories, and every later domain in the roadmap — rate plans,
+availability, reservations — needs to attach to a type that has an
+identity. Hotel PMS products model this as a first-class entity for
+exactly that reason.
+
+### Decision 1 — scoped to the Property, not the Organization
+
+Two hotels in the same group name and price their rooms independently; a
+shared organization-level catalogue would force one property's rename
+onto the other, and there is no product requirement for a group-wide
+catalogue today. `RoomType` therefore carries `property_id` and no
+`organization_id`, reaching its tenant transitively exactly as `Room`
+does. Registered in `platform/tenancy/scoped-prisma.ts` through the
+property relation.
+
+### Decision 2 — additive migration, legacy column retained
+
+`Room.roomType` is load-bearing right now: `createRoomSchema` /
+`updateRoomSchema` accept it, the rooms repository searches on it, the
+rooms service writes it into audit metadata, and five frontend files
+render it. Replacing the column in this slice would have meant editing
+the API, the UI and their tests in a migration task — three ownership
+boundaries at once, and a destructive migration.
+
+So `room_type` stays exactly as it is and `room_type_id` arrives beside
+it, nullable, backfilled. Nothing outside `prisma/` had to change for the
+data model to move forward. The column is dropped and the FK made NOT
+NULL in task 2d, after 2b and 2c have moved every reader onto the
+relation — the one destructive step, isolated and last.
+
+The transitional cost is a `Room` carrying two representations of the
+same fact, with the free text as the source of truth. That is the honest
+trade for a non-destructive rollout, and it is written into the schema
+comments so nobody has to infer which one wins.
+
+### Decision 3 — exact-match backfill, no normalization
+
+The backfill creates one type per distinct `(property_id, room_type)`
+pair and matches rooms on the exact string. Case-insensitive or
+whitespace-trimmed matching was considered and rejected: it would change
+nothing on this database (checked first — 900 distinct pairs, zero
+differing only by case or surrounding whitespace, zero null or blank
+labels) while silently merging two genuinely distinct labels on some
+future one. A migration that quietly merges data is the kind of thing
+nobody notices until it matters.
+
+### Decision 4 — deliberately thin
+
+No occupancy fields. `Room.capacity` already exists, and a second copy on
+`RoomType` with no code to reconcile them is a source-of-truth conflict
+waiting to be discovered. No rate, no availability, no bed configuration
+— those are their own slices, and guessing their shape now would bake in
+assumptions before the requirement exists. `code` is included but
+nullable because the backfill has only the legacy label to work from and
+must not invent one; it is uniquely constrained per property when
+present.
+
+`Room.room_type_id` is `onDelete: SetNull`, the second deliberate
+non-cascade in the schema after `AuditLog.actor_user_id`: a room is
+physical and outlives a catalogue decision. The label survives in
+`room_type` either way.
+
+### A boundary crossing, flagged
+
+This was a Database-owned task, but `platform/tenancy/scoped-prisma.ts`
+(Backend-owned) was edited to register the new model. Leaving a
+tenant-scoped model unregistered is a latent isolation gap — CLAUDE.md
+names registration as part of adding such a model — so it was done rather
+than deferred. The edit also extracted the existing inline `room` block
+into `scopeByPropertyRelation()` and reused it, instead of pasting a
+second copy: the file's own comment records that branch-review finding #4
+was a drifted copy of a scoping block. `room`'s behaviour is unchanged.
+
+**Verification.** Applied with `prisma migrate dev` against real
+PostgreSQL 16.15 (`postgres:16-alpine`). Existing data proven intact
+rather than assumed: an md5 fingerprint over `id:room_type` for all 1069
+rooms is identical before and after, 900 types created from 900 distinct
+pairs, all 1069 rooms linked, zero label-or-property mismatches. Backend
+180/180 across 13 files (5 new in `test/room-types.test.ts`), frontend
+99/99 unchanged, typecheck/lint/build pass, `prisma migrate status`
+clean. The scoping tests are verified by deletion: unregistering
+`roomType` makes three of them fail.

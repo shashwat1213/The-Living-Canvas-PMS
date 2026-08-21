@@ -554,7 +554,61 @@ organizations specifically). See DECISIONS.md for detail.
   `/api/v1/staff/typo/oops` all return JSON 404, and a real endpoint
   still returns 200.
 
-Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
+## Phase 2 — RoomType foundation (2026-08-21)
+
+The inventory layer everything later hangs off: rate plans attach to a
+room type, availability is counted per room type, and a reservation books
+one. Sequenced Database → Backend → Frontend per `AGENTS.md`. Only 2a is
+done; **nothing below it has been started.**
+
+- [x] **2a. Database — RoomType model, migration and backfill** (2026-08-21)
+  `Room.roomType` was free text, so "Deluxe King" and "deluxe king" were
+  different categories and nothing could reference a type. Adds a
+  per-property `RoomType` (`name`, optional `code`, `description`,
+  `isActive`) with `@@unique([propertyId, name])` and
+  `@@unique([propertyId, code])`, plus a nullable `Room.roomTypeId`
+  (`onDelete: SetNull` — rooms are physical and outlive a catalogue
+  decision).
+
+  Scoped to the Property, not the Organization: two hotels in one group
+  name and price their rooms independently. Tenancy therefore reaches it
+  transitively through `property_id`, exactly as `Room` does, and it is
+  registered in `platform/tenancy/scoped-prisma.ts` through the property
+  relation.
+
+  **Strictly additive.** `Room.roomType` is not dropped, renamed or made
+  NOT NULL — the rooms API, its search filter, its audit metadata and the
+  frontend all keep working untouched. Migration
+  `20260821174800_room_type` backfills one type per distinct
+  `(property_id, room_type)` pair and links every existing room.
+
+  Verified: applied with `prisma migrate dev` against real PostgreSQL
+  16.15. Existing room data byte-identical afterwards (same md5
+  fingerprint over all 1069 rows), 900 types created from 900 distinct
+  pairs, all 1069 rooms linked, zero label/property mismatches. Backend
+  180/180 across 13 files (5 new); frontend 99/99 unchanged;
+  typecheck/lint/build pass. The tenancy registration is verified by
+  deletion: removing it makes three of the new tests fail.
+
+- [ ] **2b. Backend — RoomType API, and switch Rooms onto it**
+  `GET/POST /properties/:propertyId/room-types`, `PATCH`/`DELETE` for
+  one. Follows the shared pagination contract and records
+  `roomType.created/updated/deleted` audit events. Then the rooms API
+  accepts `roomTypeId` instead of the free-text `roomType`, with a
+  deprecation window during which both are accepted. A room type in use
+  by a room cannot be hard-deleted — deactivate it instead, the same rule
+  staff deactivation already follows.
+
+- [ ] **2c. Frontend — room-type management**
+  `features/room-types/` following the staff/properties module shape;
+  `RoomDialog` swaps its free-text input for a type picker.
+
+- [ ] **2d. Database — drop the legacy `Room.roomType` column**
+  Only after 2b and 2c ship and no code reads it. Make `roomTypeId` NOT
+  NULL in the same migration. This is the one destructive step in the
+  sequence, which is exactly why it is last and separate.
+
+Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the
 phased roadmap in the architecture review; each phase gets its own

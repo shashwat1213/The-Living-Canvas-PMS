@@ -65,6 +65,46 @@ function scopeByOrganizationColumn() {
 }
 
 /**
+ * Scoping logic for a model that reaches its tenant through `Property`
+ * rather than carrying `organizationId` itself (`Room`, `RoomType`).
+ *
+ * Extracted from the inline `room` block when `RoomType` was added,
+ * for the same reason `scopeByOrganizationColumn` exists: branch-review
+ * finding #4 was a drifted copy of a scoping block, and a second
+ * hand-written property-relation copy would be the same bug waiting to
+ * happen. Behaviour is byte-for-byte what `room` already did.
+ *
+ * `create` is deliberately not injected: there is no `organizationId`
+ * column on these models to set. A create is made safe by the repository
+ * resolving its parent Property through `scopedPrisma.property` first,
+ * which is what actually enforces the scope (see
+ * `modules/rooms/repository.ts`).
+ */
+function scopeByPropertyRelation() {
+  return {
+    async $allOperations({
+      operation,
+      args,
+      query,
+    }: {
+      operation: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      args: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (args: any) => Promise<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }): Promise<any> {
+      const ctx = getRequestContext();
+      const a = args;
+      if (WHERE_OPERATIONS.has(operation)) {
+        a.where = { ...a.where, property: { ...a.where?.property, organizationId: ctx.organizationId } };
+      }
+      return query(a);
+    },
+  };
+}
+
+/**
  * The multi-tenancy enforcement mechanism (Phase 1 decision, see
  * ARCHITECTURE.md "Multi-tenancy enforcement"). Every query issued
  * through `scopedPrisma` for a tenant-scoped model gets its
@@ -73,8 +113,8 @@ function scopeByOrganizationColumn() {
  * because it never writes the filter itself.
  *
  * `Property`, `User` and `AuditLog` carry `organizationId` directly;
- * `Room` doesn't (only `propertyId`), so its scope is enforced through
- * the `property` relation instead. Extend this file the same way — one entry per model
+ * `Room` and `RoomType` don't (only `propertyId`), so their scope is
+ * enforced through the `property` relation instead. Extend this file the same way — one entry per model
  * — when a new tenant-scoped model is added; a model not listed here is
  * NOT scoped by this extension (raw `prisma` from `lib/prisma.ts` stays
  * unscoped, for the platform-level code — auth, org creation — that
@@ -110,20 +150,7 @@ export const scopedPrisma = prisma.$extends({
     property: scopeByOrganizationColumn(),
     user: scopeByOrganizationColumn(),
     auditLog: scopeByOrganizationColumn(),
-    room: {
-      async $allOperations({ operation, args, query }) {
-        const ctx = getRequestContext();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const a = args as any;
-        if (WHERE_OPERATIONS.has(operation)) {
-          a.where = { ...a.where, property: { ...a.where?.property, organizationId: ctx.organizationId } };
-        }
-        // `create` has no organizationId column to inject on Room itself —
-        // the rooms repository resolves/verifies the parent Property
-        // through `scopedPrisma.property` first, which is what actually
-        // enforces the scope for a room create (see modules/rooms/repository.ts).
-        return query(a);
-      },
-    },
+    room: scopeByPropertyRelation(),
+    roomType: scopeByPropertyRelation(),
   },
 });

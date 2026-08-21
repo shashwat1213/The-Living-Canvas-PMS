@@ -166,13 +166,48 @@ bookings module, not here.
 | id           | uuid      | PK                                            |
 | property_id  | uuid      | FK → properties, cascade delete               |
 | name         | text      | unique per property (e.g. "101", "Suite A")   |
-| room_type    | text      | free-text category (e.g. "Deluxe King")       |
+| room_type    | text      | **legacy** free-text category — still what the API reads/writes |
+| room_type_id | uuid?     | FK → room_types, `SET NULL` on delete          |
 | floor        | text?     |                                                |
 | capacity     | int       | default 1                                     |
 | status       | enum      | ACTIVE \| INACTIVE \| MAINTENANCE             |
 | notes        | text?     |                                                |
 | created_at   | timestamp |                                                |
 | updated_at   | timestamp |                                                |
+
+### RoomType
+
+A category of room within a Property ("Deluxe King", "Standard Twin").
+Scoped to a **single Property**, not to the Organization: two hotels in
+the same group name and price their rooms independently, so a shared
+catalogue would force one property's rename onto the other.
+
+Like `Room`, it carries no `organization_id` of its own — tenancy reaches
+it transitively through `property_id`, and
+`src/platform/tenancy/scoped-prisma.ts` scopes it through that relation.
+
+| Column      | Type      | Notes                                        |
+|-------------|-----------|----------------------------------------------|
+| id          | uuid      | PK                                           |
+| property_id | uuid      | FK → properties, cascade delete              |
+| name        | text      | unique per property                          |
+| code        | text?     | short operational code ("DLXK"); unique per property when present |
+| description | text?     |                                              |
+| is_active   | boolean   | default true                                 |
+| created_at  | timestamp |                                              |
+| updated_at  | timestamp |                                              |
+
+Deliberately thin: occupancy lives on `Room.capacity`, and a second copy
+here with no code to reconcile the two would be a silent source-of-truth
+conflict. Rate plans, availability and reservations attach to this model
+in later slices — none of them exist yet.
+
+**Transitional state.** `Room` currently carries *both* `room_type` (the
+original free text, still what the rooms API accepts, searches and
+audits) and `room_type_id` (the new FK, backfilled from it). The FK is
+nullable because rooms created through the API before the RoomType API
+slice lands have no type yet. The free-text column is dropped only once
+the API and UI read the relation instead — see TASKS.md 2b/2c.
 
 ### AuditLog
 
@@ -216,7 +251,8 @@ tenant filter, so a tenant-first index is the one that gets used.
 
 ```
 Organization 1──* User 1──* Session
-Organization 1──* Property 1──* Room
+Organization 1──* Property 1──* Room *──0..1 RoomType
+Organization 1──* Property 1──* RoomType
 Organization 1──* Property 1──* PropertyAccess *──1 User
 Organization 1──* Role *──* Permission   (through RolePermission)
 User *──* Role                            (through UserRoleAssignment)
@@ -234,6 +270,10 @@ intentional exception, not a tenancy gap.
 user nulls the actor reference instead of deleting their audit history,
 which is why `actor_email` is captured on the row.
 
+`Room.room_type_id` is the second: deleting a RoomType nulls the
+reference rather than deleting the rooms that used it. Rooms are physical
+and outlive a catalogue decision; `room_type` still holds the label.
+
 ## Migrations
 
 Migrations live in `backend/prisma/migrations/`:
@@ -249,6 +289,17 @@ Migrations live in `backend/prisma/migrations/`:
   applied with `prisma migrate dev` against a real PostgreSQL 16.15
   (`postgres:16-alpine`), then exercised by the audit test suite against
   that same database.
+- `20260821174800_room_type` — adds the `room_types` table and the
+  nullable `rooms.room_type_id` FK, plus a **data backfill**: one
+  `room_types` row per distinct `(property_id, room_type)` pair, then
+  every room pointed at its own. Strictly additive — no column is
+  dropped, renamed or made NOT NULL, and `rooms.room_type` is read but
+  never written, so the migration cannot lose data. Applied with
+  `prisma migrate dev` against real PostgreSQL 16.15
+  (`postgres:16-alpine`); verified afterwards that the 1069 existing
+  rooms were byte-identical (same `md5` fingerprint of
+  `id:room_type` across all rows), 900 types were created, all 1069
+  rooms linked, and zero label/property mismatches.
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against
