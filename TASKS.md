@@ -270,9 +270,12 @@ organizations specifically). See DECISIONS.md for detail.
   escalation attempts that pass the permission guard and rely solely on
   the rank rule — exercised over real HTTP against the built artifact.
 
-  **Awaiting Security sign-off before merge:** touches token issuance and
-  the revocation check, which `AGENTS.md` marks as mandatory-review areas
-  regardless of diff size.
+  **Security sign-off: given (2026-08-21)** — see the sign-off entry in
+  [DECISIONS.md](DECISIONS.md). Required because this touches token
+  issuance and the revocation check, which `AGENTS.md` marks as
+  mandatory-review areas regardless of diff size. The review covered the
+  whole slice, not just this entry, and produced no must-fix findings;
+  the open items it did record are listed there as accepted risks.
 
 - [x] **Frontend — staff management screens** (2026-08-21)
   The UI half of the above, sequenced after it per `AGENTS.md`'s
@@ -387,11 +390,13 @@ organizations specifically). See DECISIONS.md for detail.
   pass is scheduled after the core domain modules. Contract is fixed, so
   the UI task is presentation only.
 
-  **Known limitation:** `deactivateUser` runs outside the service
-  transaction, so its audit entry is written after it succeeds — a crash
-  between the two leaves an unrecorded deactivation. Recording first was
-  rejected because a trail that lies is worse than one with a gap. See
-  DECISIONS.md.
+  **Known limitation — since fixed (2026-08-21):** `deactivateUser`
+  originally ran outside the service transaction, so its audit entry was
+  written after it succeeded and a crash between the two would leave an
+  unrecorded deactivation. Closed by "Transactional audit writes" below:
+  `deactivateUser` now takes a transaction client and the staff service
+  passes one (`service.ts` calls `deactivateUser(userId, tx)`), so the
+  user update, session revocation and audit entry commit together.
 
 ## Phase 2 — Properties vertical slice (2026-08-21)
 
@@ -495,11 +500,59 @@ organizations specifically). See DECISIONS.md for detail.
   by our real `entityId` *and* our real `actorUserId` gets zero rows and
   zero totals.
 
-- [ ] **JSON 404 for unmatched routes**
-  An unknown path returns Express's default HTML page instead of the
-  app's `{ error: { code, message } }` shape. Pre-existing (no catch-all
-  handler in `app.ts`), found while verifying the audit endpoints. Small,
-  but it is an API-consistency bug a client sees on any typo'd URL.
+- [x] **Authorization & RBAC hardening** (2026-08-21)
+  Recorded retroactively: this shipped in commit `be4d23e` but was never
+  written up in `TASKS.md` or `DECISIONS.md`, so the branch's largest
+  security artefact was invisible in both. Summarized here from the
+  commit message rather than re-derived.
+
+  The existing authorization model was probed empirically across every
+  role, property and tenant boundary *before* any change: no exploitable
+  vulnerability was found, cross-tenant access resolved to 404 everywhere,
+  and no IDOR was reachable. Two things were fixed anyway. (1) The
+  identical org-wide role check lived in both `canAccessProperty` (single
+  record) and `listProperties` (list filter); extracted to
+  `isOrgWideCaller()` so the two cannot drift into showing a property in a
+  listing the caller is then refused on. No behaviour change. (2) A latent
+  privilege escalation: `propertyIds` in the staff request body is the one
+  place property IDs arrive outside a `requirePropertyAccess`-guarded URL
+  parameter, and it was checked for organization membership but not for
+  caller access. Not exploitable today (only OWNER/ADMIN hold
+  `staff:manage`, both org-wide), but `staff:manage` is flat — the day a
+  property-scoped role receives it, that role could grant itself every
+  property in the organization. `assertPropertiesGrantable` now enforces
+  that you cannot grant access to a property you cannot reach yourself:
+  403 inside your organization, 404 outside it, preserving the rule that
+  existence is never disclosed across a tenant boundary.
+
+  Adds `backend/test/authorization.test.ts`, a standing authorization-
+  matrix suite (18 tests) covering authorized and unauthorized roles, the
+  right role against the wrong property, IDOR through a mismatched parent,
+  malformed identifiers, and unchanged authentication behaviour — all
+  driving the real HTTP stack against the real database. The new grant
+  check is verified by deletion rather than assumed: removing it makes the
+  covering test fail with the grant succeeding.
+
+- [x] **JSON 404 for unmatched routes** (2026-08-21)
+  A catch-all in `app.ts`, after every router and before `errorHandler`,
+  hands the existing `NotFoundError` to the existing handler rather than
+  formatting a response inline — so a typo'd URL returns the same
+  `{ error: { code, message } }` shape as every other error instead of
+  Express's default HTML page. No new error type, no new middleware file.
+
+  **One nuance worth knowing:** under `/api/v1` the routers' own
+  `authenticate` middleware (mounted path-less on the staff, audit and
+  properties routers) answers an *anonymous* request to an unknown path
+  with 401 before the catch-all is reached. That is still correct JSON,
+  and not revealing which endpoints exist to an unauthenticated caller is
+  defensible, so it was left alone — see DECISIONS.md.
+
+  Verified: backend 175/175 (was 173 — 2 new in `test/health.test.ts`,
+  one for a path outside `/api/v1`, one authenticated request to an
+  unknown API path). typecheck/lint/build pass. Live-checked against the
+  built server: `/helth`, `/api/v1/does-not-exist` and
+  `/api/v1/staff/typo/oops` all return JSON 404, and a real endpoint
+  still returns 200.
 
 Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

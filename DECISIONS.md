@@ -1595,3 +1595,132 @@ change that never happened, and this test fails. Cross-tenant attempts
 still 404 with role, grants and watermark all untouched, and the
 pre-existing demotion-invalidates-token and stale-grant tests pass
 unchanged.
+
+## 2026-08-21 — JSON 404 for unmatched routes
+
+**The bug.** `app.ts` had no catch-all, so any path no router matched fell
+through to Express's default handler and came back as an HTML error page —
+the one response in the API that a JSON client couldn't parse.
+
+**Fix.** One path-less middleware, after every router and before
+`errorHandler`, calling `next(new NotFoundError('The requested endpoint
+does not exist.'))`. Deliberately *not* a `res.status(404).json(...)`
+inline: `lib/http-errors.ts` already documents that route code throws
+typed errors and the centralized handler owns the shape, so responding
+here would have created a second place that formats an error body. No new
+error class, no new middleware file, no change to any existing route.
+
+**What was left alone, on purpose.** Under `/api/v1` the staff, audit and
+properties routers each mount `authenticate` path-lessly, so an anonymous
+request to an unknown API path is answered 401 by whichever of them runs
+first and never reaches the catch-all. Scoping those `use()` calls to
+their own prefixes would touch four route files to change the status code
+an unauthenticated caller sees on a typo — out of proportion to the fix,
+and the current behavior is defensible on its own terms: the response is
+already correct JSON, and not telling an unauthenticated caller which
+endpoints exist is the safer default. Authenticated callers — the ones
+who'd actually be debugging a typo'd URL — get the 404. Noted here so the
+next person meets it as a decision, not a surprise.
+
+**Verification.** Backend 175/175 (was 173). The two new tests live in
+`test/health.test.ts`, the existing app-wiring test file: one anonymous
+request to a path outside `/api/v1`, one authenticated request to an
+unknown `/api/v1` path — the second is the one that would have been
+silently satisfied by the 401 above if written without a token. Live-
+checked against the built server (`node dist/index.js`): `/helth`,
+`/api/v1/does-not-exist` and `/api/v1/staff/typo/oops` all return
+`{"error":{"code":"not_found",...}}` with `content-type:
+application/json`, while `/health` and `/api/v1/organizations/me` still
+return 200. typecheck, lint and build pass for both workspaces.
+
+---
+
+## 2026-08-21 — Security sign-off: staff-management slice
+
+Required by `AGENTS.md`'s mandatory-sign-off list: the slice changes
+session/token issuance and revocation (`signAccessToken`'s `iatMs`,
+`bumpTokensValidAfter`, `deactivateUser`) and writes to the
+permission/property-access models. `TASKS.md` had carried "Awaiting
+Security sign-off before merge" since 2026-08-20; this entry closes it.
+
+**Scope reviewed.** The whole slice as it stands on
+`feat/staff-management`, not one commit: `modules/staff/**`,
+`platform/audit/**`, `platform/auth/revocation.ts`,
+`platform/rbac/{guard,permissions,provisioning}.ts`,
+`platform/tenancy/**`, the audit and staff route surfaces, and
+`frontend/src/features/staff/permissions.ts`.
+
+**Method.** Source review, then an independent live probe against the
+built artifact (`node dist/index.js`) and the real database — 50
+assertions, deliberately written from the outside over real HTTP rather
+than by calling services directly, so the guards, request context and
+tenancy extension are all genuinely in the path. The probe is not
+committed; it duplicates coverage the standing suites already own
+(`authorization.test.ts`, `staff.test.ts`, `tenant-isolation.test.ts`,
+`audit.test.ts`), and its value here was being written independently of
+them.
+
+**Findings: no must-fix issues.** What was confirmed:
+
+- *Authentication.* All six staff/audit routes reject an anonymous
+  request with 401 and a JSON body; a forged bearer token is also 401.
+- *Authorization is permission-based end to end.* STAFF cannot read or
+  create staff; MANAGER can read but cannot create, PATCH, set property
+  access, or read the audit trail. The alternate routes (`PATCH
+  /staff/:id`, `PUT /staff/:id/property-access`) are guarded
+  independently, so there is no verb that reaches a mutation without
+  `staff:manage`.
+- *Rank rules hold above the permission guard.* An ADMIN cannot create an
+  OWNER, promote anyone to OWNER, modify a peer ADMIN, or deactivate
+  themselves. The self case is what keeps an organization from ever
+  reaching zero OWNERs.
+- *Tenant isolation.* Org B gets 404 on GET/PATCH/property-access for org
+  A's staff, sees only its own rows with a total of 1, and gets zero rows
+  *and a zero total* when searching for org A's email. Granting org B's
+  property to org A's staff is a 404, not a 403 — existence stays
+  undisclosed across the boundary. Audit reads are isolated the same way,
+  including a probe by org A's real `entityId`.
+- *Deactivation is immediate and complete.* A deactivated member's access
+  token dies on the next request (watermark, not expiry), their refresh
+  session is revoked, and login is refused.
+- *Audit trail.* Entries exist for creation and deactivation; no
+  `passwordHash`, no plaintext password, no `$argon2` string, no token
+  field appears anywhere in the audit API's output. A refused escalation
+  leaves the entry count unchanged — no entry for an action that did not
+  happen.
+- *No tenancy bypass.* Every repository imports `scopedPrisma`; the base
+  client appears only in three services, each for a documented
+  pre-tenancy or post-scoped-read reason (`auth` login, `organizations`
+  signup, `staff` writes whose `organizationId` comes from the token and
+  whose target was already resolved through a scoped read).
+- *No frontend-only authorization.* `features/staff/permissions.ts`
+  decides visibility only, and the probe reached the API with no UI at
+  all — every refusal above came from the server.
+
+**Accepted risks, recorded rather than fixed** (none blocking):
+
+1. An anonymous request to an *unknown* `/api/v1` path returns 401, not
+   404, because `staffRouter`/`auditRouter`/`propertiesRouter` mount
+   `authenticate` path-lessly at the v1 root. Measured against a HEAD
+   build to confirm it is pre-existing and not introduced by the 404
+   catch-all. Correct JSON either way; withholding endpoint existence
+   from anonymous callers is defensible, and the path-less mount is
+   fail-safe (a new route in those files cannot accidentally skip auth).
+   Changing it would touch three route files in a mandatory-review area
+   to improve a status code.
+2. `recordAuditEvent`'s redaction is shallow — top-level keys only. No
+   current call site nests a credential, and the metadata shapes are
+   small and explicit, but a future call site spreading a nested object
+   would not be caught.
+3. A single `PATCH` carrying both a rename and `isActive: false` runs as
+   two transactions (the rename/role transaction, then the deactivation
+   transaction). Each is internally atomic with its own audit entry; a
+   crash between them could leave the rename applied and the
+   deactivation not. Rare shape, and it fails in the safe direction.
+4. The audit route's cross-organization case lives in `audit.test.ts`
+   rather than the standing `tenant-isolation.test.ts` suite. Covered
+   either way, but `CLAUDE.md` names the latter as the standing home.
+
+**Verification at sign-off.** Backend 175/175 across 12 files, frontend
+99/99 across 9 files, typecheck/lint/build pass for both workspaces, plus
+the 50-assertion live probe above.

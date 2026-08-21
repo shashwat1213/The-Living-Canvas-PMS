@@ -3,6 +3,7 @@ import cors from 'cors';
 import express, { type Express } from 'express';
 
 import { env } from './config/env.js';
+import { NotFoundError } from './lib/http-errors.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { auditRouter } from './modules/audit/routes.js';
 import { authRouter } from './modules/auth/routes.js';
@@ -32,6 +33,14 @@ export function createApp(): Express {
   v1.use(propertiesRouter);
   v1.use('/properties/:propertyId/rooms', roomsRouter);
   app.use('/api/v1', v1);
+
+  // Nothing matched. Handing a NotFoundError to `errorHandler` rather than
+  // responding here keeps the body identical to every other error the API
+  // returns — without this, Express's default handler answers a typo'd URL
+  // with an HTML page a JSON client can't parse.
+  app.use((_req, _res, next) => {
+    next(new NotFoundError('The requested endpoint does not exist.'));
+  });
 
   app.use(errorHandler);
 
