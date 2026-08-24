@@ -39,6 +39,9 @@ export function PropertiesPage() {
   const mayCreate = hasPermission(session, 'properties:create');
   const mayUpdate = hasPermission(session, 'properties:update');
   const mayDelete = hasPermission(session, 'properties:delete');
+  // The catalogue is a separate permission pair from properties and rooms
+  // — STAFF can read it, only MANAGER and above configure it.
+  const mayReadRoomTypes = hasPermission(session, 'room-types:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -146,6 +149,13 @@ export function PropertiesPage() {
           <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/rooms`}>
             Rooms
           </Link>
+          {/* Presentation-only gating, like every other control here: the
+              route and the API both enforce `room-types:read` themselves. */}
+          {mayReadRoomTypes && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/room-types`}>
+              Room types
+            </Link>
+          )}
           {mayUpdate && (
             <button
               type="button"

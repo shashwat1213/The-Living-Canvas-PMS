@@ -48,6 +48,7 @@ export function RoomsPage() {
   const mayCreate = hasPermission(session, 'rooms:create');
   const mayUpdate = hasPermission(session, 'rooms:update');
   const mayDelete = hasPermission(session, 'rooms:delete');
+  const mayReadRoomTypes = hasPermission(session, 'room-types:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -217,6 +218,15 @@ export function RoomsPage() {
     <section className="rooms-page">
       <p className="rooms-breadcrumb">
         <Link to="/app/properties">&larr; Properties</Link>
+        {/* The catalogue is managed one click away, so a manager who hits
+            "Other — enter manually" in the dialog can go and add the type
+            properly instead of navigating back through Properties. */}
+        {propertyId && mayReadRoomTypes && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <Link to={`/app/properties/${propertyId}/room-types`}>Room types</Link>
+          </>
+        )}
       </p>
 
       <header className="rooms-header">

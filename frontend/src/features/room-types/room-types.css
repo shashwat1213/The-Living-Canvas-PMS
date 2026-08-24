@@ -1,0 +1,122 @@
+/*
+ * Room-type catalogue layout. Shared primitives live in
+ * components/ui.css; only what's specific to this feature belongs here.
+ */
+
+.room-types-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.room-types-breadcrumb {
+  font-size: 0.85rem;
+}
+
+.room-types-breadcrumb a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.room-types-breadcrumb a:hover {
+  color: var(--text-h);
+}
+
+.room-types-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.room-types-header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.8px;
+}
+
+@media (max-width: 1024px) {
+  .room-types-header h1 {
+    font-size: 26px;
+  }
+}
+
+.room-types-subtitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.room-types-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.room-types-filters .field {
+  min-width: 150px;
+}
+
+.room-types-search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.room-types-clear-filters {
+  margin-top: 0.75rem;
+}
+
+.room-type-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.room-type-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+/* The operational code, set apart from the name it belongs to. */
+.room-type-code {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.room-type-muted {
+  font-size: 0.8rem;
+  color: var(--text);
+  /* A description can run to 1000 characters; the row must not. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.room-type-danger-text {
+  color: #b91c1c;
+}
+
+.room-type-danger-text:hover:not(:disabled) {
+  border-color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .room-type-danger-text {
+    color: #fca5a5;
+  }
+  .room-type-danger-text:hover:not(:disabled) {
+    border-color: #fca5a5;
+  }
+}
+
+.room-type-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}

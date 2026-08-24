@@ -1951,3 +1951,89 @@ the backward-compatibility claim). typecheck/lint/build pass. A
 path, the legacy path, cross-property and cross-tenant rejection with
 nothing persisted, the clear-link path, malformed input, the anonymous
 401, and that the `roomTypeId` change reaches the audit diff.
+
+## 2026-08-24 — Room-type management screens: retirement over deletion, and a diffed PATCH
+
+**Context.** Task 2d. `features/room-types/` held only the one read
+`RoomDialog` needed; the catalogue had a full API and no way for a manager
+to reach it. Frontend-only — no file under `backend/` was touched.
+
+### Decision 1 — active/retired is not a field in the dialog
+
+The API accepts `isActive` on create and update, so putting a checkbox in
+the form would have been the shorter diff. It is instead an explicit
+`Retire` / `Restore` action in the list, with a confirmation that names
+how many rooms already carry the type and states that they keep it.
+
+Retiring a type is not the same kind of act as renaming one: it changes
+what the property can sell. Offering it as a checkbox among text fields is
+how someone retires a catalogue entry they only meant to rename, and a
+form has no natural place to explain the consequence to the rooms already
+classified under it. One state change, one deliberate control.
+
+### Decision 2 — `Delete` is not offered for a type that rooms use
+
+The service refuses a hard delete while `roomCount > 0` and says to retire
+instead. The row could still show a Delete button and surface that 409,
+but a control whose only possible outcome is an error is worse than no
+control — it teaches the user that the app guesses. So Delete appears only
+at `roomCount === 0`, and `Retire` is what a used type offers.
+
+The 409 is still handled. The count on screen can be stale by the time
+the button is clicked, and in that case the server's message — which
+already names the count and the retirement path — is shown verbatim
+rather than paraphrased.
+
+### Decision 3 — the edit PATCH sends a diff, not the form
+
+Three things fall out of the API's own contract. `updateRoomTypeSchema`
+requires at least one field, so submitting an untouched form would be a
+400; the server upper-cases `code`, so retyping "dlxk" over "DLXK" is not
+an edit and sending it as one would record a phantom audit entry; and
+`code`/`description` are `.optional()`, **not** `.nullable()`, so `null`
+is rejected and a cleared field cannot currently be sent at all.
+
+So the dialog diffs the form against the loaded row, compares `code`
+case-insensitively, disables Save when nothing changed, and — when a
+previously-set optional field has been blanked — says so inline instead
+of sending a payload the server would reject.
+
+**This is a real API gap, deliberately not worked around.** There is no
+way to remove a code or a description once set. Making those fields
+`.nullable()` is a backend change, outside this task's ownership scope
+per `AGENTS.md`, so it is reported rather than reached across. Until then
+the UI states the limit honestly rather than silently discarding the
+user's edit.
+
+### Decision 4 — `textarea` joined the shared field primitives
+
+A description runs to 1000 characters and is the app's first multi-line
+input. `components/ui.css` styled `.field input` and `.field select` only,
+so the rule was extended there rather than duplicated in
+`room-types.css`: a form control is a shared primitive, and the next
+module with a notes field should not have to rediscover it. Constrained to
+`resize: vertical`, because a horizontally resizable textarea breaks the
+field grid it sits in.
+
+### Decision 5 — a route-wiring test, because the page suites cannot catch that
+
+Every feature suite mounts its page under a route the test declares
+itself, which passes whether or not the route exists in `AppRouter`. New
+`src/AppRouter.test.tsx` covers what those cannot: that the path is
+registered, and that it sits *inside* the authenticated shell — an
+anonymous visit lands on the login screen, not the catalogue.
+
+**Verification.** Frontend 132/132 across 12 files, up from 106/10 — 26
+new (22 for the page and dialog, 2 for the route, 1 each for the
+cross-links added to Properties and Rooms); the pre-existing 106 pass
+unchanged. Backend 206/206 untouched, as no backend file was modified.
+typecheck, lint and build pass, with the one pre-existing `AuthContext`
+fast-refresh warning. **No live probe:** the Docker socket is not
+reachable in this sandbox, the same constraint recorded for task 1a, so
+this slice is verified by suite and by reading the API contract in
+`backend/src/modules/room-types/` — not against a running server.
+
+One real defect was found by these tests rather than in review: the
+delete-conflict path set the error banner and then called `load()`, whose
+success handler clears it, so a 409 rendered as nothing at all. The
+reload now runs first and the message is set after it.

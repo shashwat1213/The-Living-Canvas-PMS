@@ -146,6 +146,23 @@ describe('PropertiesPage — loading, empty and error states', () => {
     );
   });
 
+  it('links to the room-type catalogue only for a caller who may read it', async () => {
+    stubApi({ properties: [property()] });
+    const { unmount } = renderPage(session(['properties:read', 'room-types:read']));
+
+    expect(await screen.findByRole('link', { name: 'Room types' })).toHaveAttribute(
+      'href',
+      '/app/properties/prop-1/room-types',
+    );
+    unmount();
+
+    // Presentation only — the route and the API enforce it themselves.
+    stubApi({ properties: [property()] });
+    renderPage(readOnlySession());
+    await screen.findByText('Seaside Villa');
+    expect(screen.queryByRole('link', { name: 'Room types' })).not.toBeInTheDocument();
+  });
+
   it('surfaces the API error message when loading fails', async () => {
     stubApi({ listError: { status: 500, message: 'Could not load properties.' } });
     renderPage(ownerSession());

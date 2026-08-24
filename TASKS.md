@@ -670,10 +670,49 @@ done; **nothing below it has been started.**
   boundaries with no partial write, the clear-link path, malformed input,
   anonymous access and the audit entry.
 
-- [ ] **2d. Frontend — room-type management screens**
-  `features/room-types/` grown into a full module (list, create, edit,
-  retire) following the staff/properties shape. Task 2c added only the
-  read the room dialog needs.
+- [x] **2d. Frontend — room-type management screens** (2026-08-24)
+  `features/room-types/` grown into a full module — `RoomTypesPage` (list,
+  server-side search across name/code/description, Active/Retired filter,
+  shared pagination) plus `RoomTypeDialog` (create, edit) — following the
+  rooms/properties shape exactly. Reached at
+  `/app/properties/:propertyId/room-types`, linked from each property row
+  and from the Rooms page, both gated on `room-types:read`. No top-level
+  nav entry: the catalogue is property-scoped, like Rooms.
+
+  **Retirement is a first-class action, not a checkbox.** Active/retired
+  is deliberately absent from the dialog and lives in the row as
+  `Retire`/`Restore`, with a confirmation naming how many rooms already
+  carry the type and stating that they keep it. `Delete` is offered only
+  at `roomCount === 0` — the service refuses it otherwise, and a button
+  whose only outcome is a 409 is worse than no button. The 409 is still
+  handled for a stale count, showing the server's message verbatim.
+
+  **The edit PATCH is a diff.** The update schema requires at least one
+  field, and `code` is stored upper-cased, so an untouched submit and a
+  recased code are both non-edits; Save is disabled when nothing changed.
+  Blanking a previously-set `code` or `description` is reported inline
+  instead of sent, because those fields are `.optional()` and not
+  `.nullable()` server-side — see the follow-up below.
+
+  Verified: frontend 132/132 across 12 files (was 106/10 — 26 new); the
+  pre-existing 106 pass unchanged. Backend 206/206 untouched — no file
+  under `backend/` was modified. typecheck/lint/build pass. New
+  `src/AppRouter.test.tsx` covers route registration itself, which the
+  per-page suites structurally cannot. **Not verified against a running
+  server:** the Docker socket is unreachable in this sandbox (the same
+  constraint as task 1a), so the API contract was verified by reading
+  `backend/src/modules/room-types/`, not by probing it. One real defect
+  was caught by the new tests: the delete-conflict path set the error
+  banner before a reload that clears it, so a 409 rendered as nothing.
+  See DECISIONS.md.
+
+- [ ] **Backend — allow clearing a room type's `code` and `description`**
+  Follow-up owned by Backend, surfaced by 2d. `updateRoomTypeSchema` makes
+  both `.optional()`, so `null` is rejected and there is no way to remove
+  a code or description once set. `.nullable()` on both (with the
+  repository writing `null` through) closes it. Outside 2d's ownership
+  scope, so it was reported rather than reached across; the UI states the
+  limit honestly in the meantime.
 
 - [ ] **2e. Database — drop the legacy `Room.roomType` column**
   Only after 2c and 2d ship and no code reads it. Make `roomTypeId` NOT

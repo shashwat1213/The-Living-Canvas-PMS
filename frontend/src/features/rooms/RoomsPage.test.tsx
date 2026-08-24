@@ -142,6 +142,22 @@ describe('RoomsPage — loading, empty and error states', () => {
     expect(screen.getByRole('link', { name: '← Properties' })).toHaveAttribute('href', '/app/properties');
   });
 
+  it('links across to the room-type catalogue only with `room-types:read`', async () => {
+    stubApi({ rooms: [room()] });
+    const { unmount } = renderPage(session(['properties:read', 'rooms:read', 'room-types:read']));
+
+    expect(await screen.findByRole('link', { name: 'Room types' })).toHaveAttribute(
+      'href',
+      `/app/properties/${PROPERTY_ID}/room-types`,
+    );
+    unmount();
+
+    stubApi({ rooms: [room()] });
+    renderPage(readOnlySession());
+    await screen.findByText('101');
+    expect(screen.queryByRole('link', { name: 'Room types' })).not.toBeInTheDocument();
+  });
+
   it('still renders the table when the property heading fails to load', async () => {
     // The heading is a separate request; losing it must not take the
     // room list down with it.

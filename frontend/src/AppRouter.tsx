@@ -4,6 +4,7 @@ import App from './App';
 import { RequireAuth } from './auth/RequireAuth';
 import { AuditPage } from './features/audit/AuditPage';
 import { PropertiesPage } from './features/properties/PropertiesPage';
+import { RoomTypesPage } from './features/room-types/RoomTypesPage';
 import { RoomsPage } from './features/rooms/RoomsPage';
 import { StaffPage } from './features/staff/StaffPage';
 import { AppShell } from './layout/AppShell';
@@ -28,6 +29,7 @@ export function AppRouter() {
         <Route index element={<DashboardPage />} />
         <Route path="properties" element={<PropertiesPage />} />
         <Route path="properties/:propertyId/rooms" element={<RoomsPage />} />
+        <Route path="properties/:propertyId/room-types" element={<RoomTypesPage />} />
         <Route path="staff" element={<StaffPage />} />
         <Route path="audit" element={<AuditPage />} />
       </Route>
