@@ -10,13 +10,42 @@ leasing). It's a monorepo: `backend/` (Node + Express + TypeScript +
 Prisma/PostgreSQL) and `frontend/` (React 19 + TypeScript + Vite), wired
 together with npm workspaces.
 
-The project is still at its foundation stage: `Organization` → `User`
-(staff) → `Property` → `Room` schema exists, `GET /health` is the only
-backend route, and the frontend is a shell that checks API connectivity.
-No authentication yet. Do not build ahead of what
-[TASKS.md](TASKS.md) currently calls for — bookings, OTA integrations,
-reviews, payments, and marketing are explicitly out of scope until a task
-calls for them.
+Phase 1 (auth, RBAC, tenancy enforcement) is complete and merged. The
+core domain is `Organization` → `User` (staff) → `Property` → `Room`,
+plus the auth/authorization tables (`Session`, `Permission`, `Role`,
+`RolePermission`, `UserRoleAssignment`, `PropertyAccess`). Implemented
+today:
+
+- **Auth**: `POST /api/v1/auth/{login,refresh,logout}` — argon2id
+  hashing, JWT access token + DB-backed rotating refresh session in an
+  httpOnly cookie, replay detection, login rate limiting, and a two-layer
+  revocation model (session revocation + a per-user `tokensValidAfter`
+  watermark that kills already-issued access tokens).
+- **Tenancy/RBAC platform**: `backend/src/platform/{auth,rbac,tenancy}/**`
+  — `AsyncLocalStorage` request context, a tenant-scoping Prisma Client
+  Extension, `requirePermission` / `requirePropertyAccess` guards.
+- **Modules**: `organizations` (public signup + `/organizations/me`),
+  `properties`, `rooms`, `staff` (staff administration, role assignment,
+  property-access grants, deactivation), `audit` (read-only trail).
+  `GET /health` is unversioned. Every mutating module records audit
+  events; a service that changes state without one is the gap to look
+  for.
+- **Audit trail**: `platform/audit/` records consequential actions from
+  *inside* the service performing them, taking actor and organization
+  from the request context rather than parameters. Adding an auditable
+  action means adding a constant to `platform/audit/actions.ts` — the
+  table is generic (`entityType`/`entityId`, string `action`), so new
+  modules reuse it without a migration. A service that mutates state
+  without recording an entry is the gap to look for.
+- **Frontend**: `react-router-dom`, `auth/AuthContext`, login/signup,
+  a protected `/app/*` shell, dashboard, Properties/Rooms screens, and a
+  Team (staff management) module at `/app/staff`.
+
+Do not build ahead of what [TASKS.md](TASKS.md) currently calls for —
+bookings, OTA integrations, reviews, payments, and marketing are
+explicitly out of scope until a task calls for them. `TASKS.md` and
+`DECISIONS.md` are the accurate record of what is built and why; prefer
+them over this summary if they ever disagree.
 
 ## Commands
 
@@ -73,13 +102,44 @@ not just validated against the schema file — see
   (reused across dev hot-reloads to avoid exhausting Postgres
   connections) — this is the only data-access layer; don't instantiate
   `PrismaClient` elsewhere.
-- **Frontend**: plain Vite + React SPA, no router or state library yet.
-  Talks to the backend only through `VITE_API_URL` (defaults to
-  `http://localhost:4000`) — never hardcode the backend origin.
+- **Frontend**: Vite + React SPA with `react-router-dom`; `AuthContext` is
+  the only app-wide state (no state library). Feature modules live in
+  `src/features/<name>/` (`staff`, `properties`, `rooms`); `src/pages/`
+  holds only the pre-feature screens (dashboard, login, signup). Talks to the backend only
+  through `VITE_API_URL` (defaults to `http://localhost:4000`) — never
+  hardcode the backend origin, and never call `fetch` outside
+  `lib/api.ts`. New features go in `src/features/<name>/` with their
+  endpoints named in one `api.ts`; genuinely reusable, domain-free
+  components go in `src/components/`.
+- **AI-agent readiness**: `modules/*/service.ts` is the application-service
+  boundary agents should act through — services own the authorization and
+  audit rules, repositories own tenant scoping. An agent must run inside
+  `runWithRequestContext(...)` with a real user's resolved claims, which
+  is what makes it inherit the same RBAC, tenancy and audit trail as a
+  human. Reaching Prisma directly bypasses all three; don't.
 - **Multi-tenancy**: every domain row is scoped under `Organization`,
   either directly or transitively through `Property`. There is no
-  cross-organization data access; this must be enforced at the query
-  layer as real endpoints get added beyond `/health`.
+  cross-organization data access, and it is enforced at the query layer
+  by a Prisma Client Extension
+  (`backend/src/platform/tenancy/scoped-prisma.ts`) that injects the
+  caller's `organizationId` into every query — repositories import
+  `scopedPrisma`, never the base client, so the filter can't be
+  forgotten. Adding a tenant-scoped model means registering it there.
+  `backend/test/tenant-isolation.test.ts` is a standing regression suite;
+  every new tenant-scoped route gets a cross-org case in it.
+- **Authorization**: permission-based, never a raw role-string check —
+  routes declare what they need via `requirePermission`. Staff
+  administration additionally applies a role-rank rule (`ROLE_RANK`),
+  because a permission says what a caller may do, not who they may do it
+  to. Frontend checks are UX only; the backend is the security boundary.
+- **List endpoints are paginated**: `backend/src/lib/pagination.ts` owns
+  the shared `page`/`pageSize` contract and the `{ items, page }`
+  envelope; each module extends `paginationQuerySchema` with its own
+  filters. Every list endpoint follows this — staff, properties and
+  rooms. An authorization filter applied *after* the query is a latent
+  pagination bug (it produces short pages and a count that includes rows
+  the caller can't see); put the restriction in the `where` so the count
+  runs against it too.
 - **Schema source of truth**: `backend/prisma/schema.prisma`.
   [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) is a human-readable mirror of
   it — if they disagree, the schema wins and the doc must be updated to

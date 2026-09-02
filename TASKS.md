@@ -234,7 +234,520 @@ suite 19/19 (6 files, 5 new); backend fully re-verified unaffected
 (47/47 full suite; 34/34 auth/tenant-isolation/token-revocation/
 organizations specifically). See DECISIONS.md for detail.
 
-Phase 2 onward (RoomType/rate plans/availability, reservations, folios,
+## Phase 1 completion — staff management (2026-08-20)
+
+- [x] **Backend — staff management API** (2026-08-20)
+  Closes the gap that made Phase 1's RBAC unreachable: an organization
+  could only ever have the single OWNER created at signup, so
+  `MANAGER`/`STAFF` presets could never be assigned, `PropertyAccess`
+  could never be granted, and `platform/auth/revocation.ts` stayed
+  unwired. Three separate code comments pointed at this missing endpoint
+  (`permissions.ts`, `revocation.ts`, and both test files that provisioned
+  users directly through Prisma to work around it).
+
+  `GET/POST /api/v1/staff`, `GET/PATCH /api/v1/staff/:userId`, and
+  `PUT /api/v1/staff/:userId/property-access`. New `staff:read` /
+  `staff:manage` permissions. Privilege escalation is blocked by a role
+  rank rule (`ROLE_RANK`) layered on top of the permission guard — a
+  permission says what you may do, not who you may do it to. Role and
+  property-access changes bump the revocation watermark so a demotion
+  takes effect on the user's next request instead of up to 15 minutes
+  later. Deactivation goes through `deactivateUser`; there is no hard
+  delete. **No schema change was required** — every table already existed.
+
+  Also fixed, surfaced by wiring the watermark to role changes: the
+  watermark comparison mixed a millisecond timestamp with JWT's
+  second-granular `iat`, spuriously rejecting a token minted in the same
+  second as a bump. `signAccessToken` now records `iatMs`. This removed
+  the 1100ms sleep that `token-revocation.test.ts` had been using to work
+  around it. See DECISIONS.md.
+
+  Verified: `npm run typecheck && npm run lint && npm run build && npm run
+  test` all pass. Backend 78/78 across 9 files (was 47/47 across 8);
+  frontend 19/19 untouched. `npm run db:seed -w backend` run for real
+  (backfilled 3295 role-permission mappings onto existing organizations,
+  then reported 0 on a second run). Full flow — including the
+  escalation attempts that pass the permission guard and rely solely on
+  the rank rule — exercised over real HTTP against the built artifact.
+
+  **Security sign-off: given (2026-08-21)** — see the sign-off entry in
+  [DECISIONS.md](DECISIONS.md). Required because this touches token
+  issuance and the revocation check, which `AGENTS.md` marks as
+  mandatory-review areas regardless of diff size. The review covered the
+  whole slice, not just this entry, and produced no must-fix findings;
+  the open items it did record are listed there as accepted risks.
+
+- [x] **Frontend — staff management screens** (2026-08-21)
+  The UI half of the above, sequenced after it per `AGENTS.md`'s
+  schema → API → UI split. New `/app/staff` route ("Team"), reached from a
+  nav link that only appears with `staff:read`.
+
+  Introduces the app's first **feature module** (`frontend/src/features/staff/`:
+  `types` / `api` / `permissions` / `StaffPage` / `StaffDialog`) and its
+  first **shared UI primitives** (`frontend/src/components/`: `Modal`,
+  `ConfirmDialog`, `DataTable`, `Badge`) — both boundaries chosen so the
+  next module doesn't have to reinvent them. All staff endpoints are named
+  in exactly one file (`features/staff/api.ts`).
+
+  Table with search + role/status filters (client-side — the API has no
+  query or pagination parameters, and inventing them was not an option),
+  create/edit dialog, property-access picker, and a real focus-trapped
+  confirmation dialog for deactivate/reactivate, replacing native
+  `confirm()` for this feature.
+
+  `AuthContext` now exposes display-only `session` claims decoded from the
+  access token (`auth/session.ts`), so the UI can avoid rendering controls
+  that would only earn a 403. **This is presentation, not access control**
+  — see DECISIONS.md. `lib/api.ts` gained `PUT` and a token-change
+  subscription so those claims can't go stale after a silent refresh.
+
+  Verified: frontend typecheck/lint/build pass; frontend suite 42/42
+  across 7 files (was 19/42 across 6 — 23 new). Backend re-run unaffected
+  at 78/78. Beyond the mocked unit tests, a live contract check against
+  the running backend exercised every request the frontend actually makes
+  and asserted every field the frontend's `StaffMember` type declares —
+  92 checks, all passing, including that no `passwordHash` is ever
+  returned and that the server still refuses an action the UI hides.
+
+- [x] **Server-side list contract: pagination, search, filters** (2026-08-21)
+  Closes the client-side-filtering limitation recorded above. `GET
+  /api/v1/staff` now accepts `page`, `pageSize`, `search`, `role` and
+  `status`, and returns `{ staff, page: { page, pageSize, totalItems,
+  totalPages } }`.
+
+  The reusable half lives in `backend/src/lib/pagination.ts` (query-schema
+  fragment, `toSkipTake`, `buildPageMeta`, `MAX_PAGE_SIZE`) and
+  `frontend/src/lib/pagination.ts` (`PageMeta`, `toQueryString`), plus a
+  domain-free `components/Pagination.tsx`. **This is the pattern every
+  future module's list endpoint inherits** — properties, units, leases,
+  maintenance — rather than each inventing its own page shape.
+
+  Filtering/sorting stay with each module (they differ per domain); only
+  the page contract is shared. Search requires every whitespace-separated
+  term to match first name, last name or email, so a full name finds one
+  person even though the name spans two columns. Count and page are read
+  in one transaction, and ordering carries an `id` tiebreaker so rows
+  can't straddle or fall between pages. Over-large `pageSize` is a 400
+  rather than a silent truncation.
+
+  Frontend: search is debounced (300ms → one request per pause), filters
+  and paging are not; any filter change resets to page 1; the table stays
+  on screen while refetching instead of collapsing to a placeholder.
+
+  Verified: typecheck/lint/build pass. Backend 91/91 (was 78 — 13 new
+  covering paging, search semantics, each filter, AND-combination,
+  filtered totals, validation boundaries, and a cross-tenant probe).
+  Frontend 47/47 (was 42 — 5 new asserting the *request* rather than a
+  filtered DOM, since a DOM assertion would still pass if filtering had
+  silently reverted to the client). A live check against the running
+  backend ran 40 assertions using the exact query strings the frontend
+  builds, including that another organization searching for a known name
+  gets zero rows and a zero total.
+
+- [x] **Properties vertical slice** (2026-08-21) — see the Phase 2 entry below.
+
+- [x] **Audit trail** (2026-08-21)
+  New `AuditLog` model + `20260820201210_audit_log` migration, generated
+  and applied with `prisma migrate dev` against a **real PostgreSQL
+  16.15** (`postgres:16-alpine`).
+
+  Deliberately generic rather than staff-specific: `entityType` +
+  `entityId` name the target polymorphically and `action` is a namespaced
+  string (`"staff.role_changed"`) rather than a database enum, so
+  properties, units, leases, maintenance, payments and agent actions
+  reuse the table without a schema change — adding an action costs a
+  constant in `platform/audit/actions.ts`. `AuditActorType`
+  (`USER | SYSTEM | AGENT`) is in place from the start so an AI agent's
+  actions are attributable without a later migration.
+
+  Writes happen in `platform/audit/recorder.ts`, called from inside the
+  staff service's existing transactions, so an entry commits or rolls
+  back with the change it describes. Actor and organization come from
+  `getRequestContext()` and are not parameters — a caller cannot
+  attribute an action to someone else or file it under another tenant,
+  and a future AI agent running inside `runWithRequestContext(...)` is
+  audited automatically with no opt-out.
+
+  Covered: create, rename, role change, deactivate, reactivate, and
+  property-access change. Read API is `GET /api/v1/audit-logs`
+  (paginated, filterable by action/entity/actor, newest-first) behind a
+  new `audit:read` permission held by OWNER/ADMIN only — the trail
+  records administrative actions taken *on* MANAGER/STAFF, so they are
+  deliberately excluded. There is no write, update or delete endpoint.
+
+  Verified: typecheck/lint/build pass. Backend 115/115 (was 91 — 24 new,
+  covering authorized/unauthorized/forbidden/wrong-tenant, each mutation
+  type, entry shape, credential redaction, and that a *refused* action
+  leaves no entry). Frontend 47/47 unchanged. `npm run db:seed`
+  backfilled `audit:read` onto 2856 role-permission mappings for existing
+  organizations. A live run made 38 assertions against the running
+  server, including cross-tenant probing by real entity ID returning
+  nothing.
+
+  **UI deliberately deferred** — the write path and read API are done and
+  documented, but where an audit view belongs (per-staff timeline vs.
+  global activity log) is a product-design question, and the dashboard
+  pass is scheduled after the core domain modules. Contract is fixed, so
+  the UI task is presentation only.
+
+  **Known limitation — since fixed (2026-08-21):** `deactivateUser`
+  originally ran outside the service transaction, so its audit entry was
+  written after it succeeded and a crash between the two would leave an
+  unrecorded deactivation. Closed by "Transactional audit writes" below:
+  `deactivateUser` now takes a transaction client and the staff service
+  passes one (`service.ts` calls `deactivateUser(userId, tx)`), so the
+  user update, session revocation and audit entry commit together.
+
+## Phase 2 — Properties vertical slice (2026-08-21)
+
+- [x] **Properties & Rooms: server-side lists, audit coverage, UI migration** (2026-08-21)
+  No schema change — this hardened two modules that already existed onto
+  the three foundations established by the staff slice, which was the
+  point: proving the pagination contract, the audit table and the UI
+  primitives generalize *before* committing to them for domains that
+  don't exist yet.
+
+  **Backend.** `GET /properties` and `GET /properties/:id/rooms` now use
+  the shared pagination contract. Properties filter on `search`
+  (name/slug/city) and `status`; rooms on `search` (name/type/floor) and
+  the full `RoomStatus` enum. Rooms sort by name rather than creation
+  date — "101, 102, 201" is the order a property is actually walked, and
+  pagination made that ordering visible in a way an unbounded list didn't.
+
+  **A real correctness fix came with it.** `listProperties` filtered by
+  PropertyAccess grants *after* fetching rows. Once paginated that
+  silently breaks: the database slices a page, then the filter removes
+  rows from it, producing short pages and a `totalItems` counting
+  properties the caller cannot see. The grant is now a query condition,
+  so the count is correct too. Regression-tested directly.
+
+  **Audit.** `property.created/updated/deleted` and
+  `room.created/updated/deleted`, reusing `platform/audit` — no second
+  mechanism. Updates record a real before/after field diff computed from
+  the persisted rows, so re-submitting an unchanged value produces no
+  entry. Deletion captures the name and slug before the row is gone, plus
+  the number of rooms that cascaded with it.
+
+  **Frontend.** `pages/PropertiesPage.tsx` and `pages/RoomsPage.tsx` are
+  replaced by `features/properties/` and `features/rooms/`, following the
+  feature-module convention: endpoints named in one `api.ts`, typed
+  models, dialogs for create/edit, `DataTable` + `Pagination` +
+  `ConfirmDialog` instead of bespoke list markup and native `confirm()`.
+  Debounced server-side search, filters that reset to page 1, and
+  permission-gated controls (presentation only). Room status stays
+  editable inline — it is the field changed most often, and a one-field
+  edit shouldn't need a dialog.
+
+  Verified: typecheck/lint/build pass, `prisma migrate status` clean.
+  Backend 141/141 (was 115 — 26 new: pagination, search semantics, each
+  filter, grant-filter paging correctness, audit entries for every
+  mutation, and that a refused mutation writes nothing). Frontend 79/79
+  (was 47; 4 old tests removed with the page they covered, 36 added). A
+  live run made 41 assertions against the running server, including the
+  manager-with-one-grant paging case and cross-tenant probes.
+
+  **Two bugs found and fixed en route, neither introduced by this task:**
+  `.page-error`/`.page-success`/`.empty-state` were defined only in
+  `pages/resource-pages.css`, imported only by the two pages being
+  replaced — `DataTable`, `StaffPage`, `StaffDialog` and `DashboardPage`
+  all used them and worked purely by accident of global CSS bundling.
+  Moved to `components/ui.css`. And `Pagination` singularized by stripping
+  a trailing "s", rendering "1 propertie"; it now takes an optional
+  explicit singular.
+
+  **Deferred deliberately:** no room-level audit for the cascade when a
+  property is deleted (the property entry records the count instead —
+  emitting N room-deleted entries for one action would bury the action
+  that caused them). No bulk operations. No property detail route; the
+  dialog carries the full record, and a dedicated route is a
+  product-design question for the dashboard pass.
+
+- [x] **Transactional audit writes** (2026-08-21)
+  All three services (staff deactivation, properties, rooms) now commit
+  the mutation and its audit entry in one transaction. The blocker was a
+  type, not an architecture: the recorder now declares its client
+  structurally, so base/scoped clients and their transactions all satisfy
+  it. `deactivateUser` accepts a transaction so the user update, session
+  revocation and audit entry are atomic; its cache eviction deliberately
+  stays outside (an in-memory eviction can't roll back).
+
+  The tenancy extension propagating into `$transaction` — which the whole
+  fix depends on — is now pinned by a regression test rather than
+  assumed. Backend 150/150 (9 new, including forced-audit-failure
+  rollback proofs for every service). See DECISIONS.md.
+
+- [x] **Audit trail UI** (2026-08-21)
+  New `/app/audit` route ("Activity"), nav-gated on `audit:read`.
+  Presentation only — **no backend file was touched**; the existing
+  contract was sufficient.
+
+  Renders human summaries rather than raw JSON ("Deleted Mountain Lodge,
+  removing 3 rooms"), with a read-only detail dialog showing a from → to
+  table for update diffs. Filters on action and record type use the API's
+  own enums; drilling into a row filters by the real `actorUserId` /
+  `entityId` params, surfaced as removable chips because raw UUID inputs
+  would be unusable.
+
+  `metadata` is `unknown` by contract, so every read of it is guarded —
+  four tests cover an unknown action, null metadata, malformed metadata
+  and a deleted actor. The audit log is the screen someone opens *because*
+  something unexpected happened; it must not be the thing that breaks.
+
+  Verified: typecheck/lint/build pass; frontend 99/99 (was 79, +20);
+  backend 150/150 unchanged. A live 42-assertion contract check confirmed
+  every action and entity type the dropdowns offer is accepted, both
+  drill-down params narrow correctly, and a second organization filtering
+  by our real `entityId` *and* our real `actorUserId` gets zero rows and
+  zero totals.
+
+- [x] **Authorization & RBAC hardening** (2026-08-21)
+  Recorded retroactively: this shipped in commit `be4d23e` but was never
+  written up in `TASKS.md` or `DECISIONS.md`, so the branch's largest
+  security artefact was invisible in both. Summarized here from the
+  commit message rather than re-derived.
+
+  The existing authorization model was probed empirically across every
+  role, property and tenant boundary *before* any change: no exploitable
+  vulnerability was found, cross-tenant access resolved to 404 everywhere,
+  and no IDOR was reachable. Two things were fixed anyway. (1) The
+  identical org-wide role check lived in both `canAccessProperty` (single
+  record) and `listProperties` (list filter); extracted to
+  `isOrgWideCaller()` so the two cannot drift into showing a property in a
+  listing the caller is then refused on. No behaviour change. (2) A latent
+  privilege escalation: `propertyIds` in the staff request body is the one
+  place property IDs arrive outside a `requirePropertyAccess`-guarded URL
+  parameter, and it was checked for organization membership but not for
+  caller access. Not exploitable today (only OWNER/ADMIN hold
+  `staff:manage`, both org-wide), but `staff:manage` is flat — the day a
+  property-scoped role receives it, that role could grant itself every
+  property in the organization. `assertPropertiesGrantable` now enforces
+  that you cannot grant access to a property you cannot reach yourself:
+  403 inside your organization, 404 outside it, preserving the rule that
+  existence is never disclosed across a tenant boundary.
+
+  Adds `backend/test/authorization.test.ts`, a standing authorization-
+  matrix suite (18 tests) covering authorized and unauthorized roles, the
+  right role against the wrong property, IDOR through a mismatched parent,
+  malformed identifiers, and unchanged authentication behaviour — all
+  driving the real HTTP stack against the real database. The new grant
+  check is verified by deletion rather than assumed: removing it makes the
+  covering test fail with the grant succeeding.
+
+- [x] **JSON 404 for unmatched routes** (2026-08-21)
+  A catch-all in `app.ts`, after every router and before `errorHandler`,
+  hands the existing `NotFoundError` to the existing handler rather than
+  formatting a response inline — so a typo'd URL returns the same
+  `{ error: { code, message } }` shape as every other error instead of
+  Express's default HTML page. No new error type, no new middleware file.
+
+  **One nuance worth knowing:** under `/api/v1` the routers' own
+  `authenticate` middleware (mounted path-less on the staff, audit and
+  properties routers) answers an *anonymous* request to an unknown path
+  with 401 before the catch-all is reached. That is still correct JSON,
+  and not revealing which endpoints exist to an unauthenticated caller is
+  defensible, so it was left alone — see DECISIONS.md.
+
+  Verified: backend 175/175 (was 173 — 2 new in `test/health.test.ts`,
+  one for a path outside `/api/v1`, one authenticated request to an
+  unknown API path). typecheck/lint/build pass. Live-checked against the
+  built server: `/helth`, `/api/v1/does-not-exist` and
+  `/api/v1/staff/typo/oops` all return JSON 404, and a real endpoint
+  still returns 200.
+
+## Phase 2 — RoomType foundation (2026-08-21)
+
+The inventory layer everything later hangs off: rate plans attach to a
+room type, availability is counted per room type, and a reservation books
+one. Sequenced Database → Backend → Frontend per `AGENTS.md`. Only 2a is
+done; **nothing below it has been started.**
+
+- [x] **2a. Database — RoomType model, migration and backfill** (2026-08-21)
+  `Room.roomType` was free text, so "Deluxe King" and "deluxe king" were
+  different categories and nothing could reference a type. Adds a
+  per-property `RoomType` (`name`, optional `code`, `description`,
+  `isActive`) with `@@unique([propertyId, name])` and
+  `@@unique([propertyId, code])`, plus a nullable `Room.roomTypeId`
+  (`onDelete: SetNull` — rooms are physical and outlive a catalogue
+  decision).
+
+  Scoped to the Property, not the Organization: two hotels in one group
+  name and price their rooms independently. Tenancy therefore reaches it
+  transitively through `property_id`, exactly as `Room` does, and it is
+  registered in `platform/tenancy/scoped-prisma.ts` through the property
+  relation.
+
+  **Strictly additive.** `Room.roomType` is not dropped, renamed or made
+  NOT NULL — the rooms API, its search filter, its audit metadata and the
+  frontend all keep working untouched. Migration
+  `20260821174800_room_type` backfills one type per distinct
+  `(property_id, room_type)` pair and links every existing room.
+
+  Verified: applied with `prisma migrate dev` against real PostgreSQL
+  16.15. Existing room data byte-identical afterwards (same md5
+  fingerprint over all 1069 rows), 900 types created from 900 distinct
+  pairs, all 1069 rooms linked, zero label/property mismatches. Backend
+  180/180 across 13 files (5 new); frontend 99/99 unchanged;
+  typecheck/lint/build pass. The tenancy registration is verified by
+  deletion: removing it makes three of the new tests fail.
+
+- [x] **2b. Backend — RoomType API** (2026-08-22)
+  `GET/POST /properties/:propertyId/room-types` and
+  `GET/PATCH/DELETE .../:roomTypeId`, in a new `modules/room-types/`
+  following the rooms module's shape exactly: scoped repository, service
+  owning authorization and audit, routes declaring permissions. On the
+  shared pagination contract (`{ roomTypes, page }`), searchable across
+  name/code/description, filterable by `ACTIVE`/`INACTIVE`.
+
+  Split from the original 2b, which also proposed switching the rooms API
+  onto `roomTypeId`. That half is 2c below — this slice touches **no
+  existing module** beyond mounting the router and extending two
+  catalogs, which is a materially safer diff.
+
+  **New permissions, not reused ones.** `room-types:read` /
+  `room-types:manage`. Folding this into `rooms:*` would have handed the
+  catalogue to the front desk: STAFF holds `rooms:update` so it can change
+  a room's status, and that must not also let it rename the types every
+  future rate and reservation hangs off. STAFF gets read; MANAGER and
+  above get manage. `npm run db:seed -w backend` run for real (backfilled
+  44450 mappings onto existing organizations).
+
+  **A type still assigned to rooms cannot be hard-deleted** — 409 naming
+  the count, with `isActive: false` as the retirement path. The FK is
+  `SET NULL`, so the database would have allowed it and silently
+  un-typed a floor of rooms; the same rule staff offboarding follows.
+
+  Codes are upper-cased on input so per-property uniqueness can't be
+  sidestepped by casing.
+
+  Verified: backend 192/192 across 14 files (was 180/13 — 12 new: 10 in
+  `test/room-types-api.test.ts`, 2 cross-org cases added to the standing
+  `test/tenant-isolation.test.ts`). Frontend 99/99 unchanged.
+  typecheck/lint/build pass. A live 18-assertion probe against the built
+  server covered creation, the list envelope, case-insensitive search,
+  both duplicate paths, validation, all four cross-tenant verbs, the
+  anonymous 401 and the audit entry.
+
+- [x] **2c. Rooms ↔ RoomType integration** (2026-08-22)
+  `createRoomSchema` / `updateRoomSchema` accept `roomTypeId` alongside
+  the free-text `roomType`. Exactly one is required on create; `null`
+  clears the link on update.
+
+  **The link is validated against the room's own property**, inside the
+  same transaction that writes it, through the scoped client filtered by
+  `propertyId`. A type from another property in the same organization and
+  a type from another organization both resolve to nothing and surface as
+  the same 404 — the caller learns only that this property has no such
+  type. Proven not to half-write: after every rejection the room is absent
+  or unchanged, and no audit entry exists.
+
+  **Label derivation.** Supplying `roomTypeId` without `roomType` fills
+  the legacy label in from the type's name. That column is still what the
+  rooms list searches and what the audit trail records, so leaving it
+  stale would be a real bug. An explicitly supplied label is never
+  overwritten.
+
+  **Frontend.** `RoomDialog` shows a picker when the property has room
+  types, with an "Other — enter manually" escape hatch, and falls back to
+  the original free-text input when the catalogue is empty *or fails to
+  load*. The catalogue is a convenience, never a gate: a room stays
+  creatable when that request doesn't come back. A room linked to a
+  retired type still displays it rather than silently resetting.
+
+  **One existing test was corrected, not weakened.** `room-types.test.ts`
+  asserted that every linked room's label equals its type's name — true of
+  the backfill, but never a rule of the system. Every pre-existing room is
+  linked, so forbidding a free-text label update on a linked room would
+  break exactly the legacy clients this transition protects. The permanent
+  half of that assertion (a room's type must belong to the room's own
+  property) is kept and now covers what this slice enforces; label
+  derivation is covered against the API in `rooms-room-types.test.ts`. See
+  DECISIONS.md.
+
+  Verified: backend 206/206 across 15 files (was 192/14 — 14 new);
+  frontend 106/106 across 10 files (was 99/9 — 7 new, existing 99
+  unchanged). typecheck/lint/build pass. A 16-assertion live probe against
+  the built server covered the happy path, the legacy path, both rejection
+  boundaries with no partial write, the clear-link path, malformed input,
+  anonymous access and the audit entry.
+
+- [x] **2d. Frontend — room-type management screens** (2026-08-24)
+  `features/room-types/` grown into a full module — `RoomTypesPage` (list,
+  server-side search across name/code/description, Active/Retired filter,
+  shared pagination) plus `RoomTypeDialog` (create, edit) — following the
+  rooms/properties shape exactly. Reached at
+  `/app/properties/:propertyId/room-types`, linked from each property row
+  and from the Rooms page, both gated on `room-types:read`. No top-level
+  nav entry: the catalogue is property-scoped, like Rooms.
+
+  **Retirement is a first-class action, not a checkbox.** Active/retired
+  is deliberately absent from the dialog and lives in the row as
+  `Retire`/`Restore`, with a confirmation naming how many rooms already
+  carry the type and stating that they keep it. `Delete` is offered only
+  at `roomCount === 0` — the service refuses it otherwise, and a button
+  whose only outcome is a 409 is worse than no button. The 409 is still
+  handled for a stale count, showing the server's message verbatim.
+
+  **The edit PATCH is a diff.** The update schema requires at least one
+  field, and `code` is stored upper-cased, so an untouched submit and a
+  recased code are both non-edits; Save is disabled when nothing changed.
+  Blanking a previously-set `code` or `description` is reported inline
+  instead of sent, because those fields are `.optional()` and not
+  `.nullable()` server-side — see the follow-up below.
+
+  Verified: frontend 132/132 across 12 files (was 106/10 — 26 new); the
+  pre-existing 106 pass unchanged. Backend 206/206 untouched — no file
+  under `backend/` was modified. typecheck/lint/build pass. New
+  `src/AppRouter.test.tsx` covers route registration itself, which the
+  per-page suites structurally cannot. **Not verified against a running
+  server:** the Docker socket is unreachable in this sandbox (the same
+  constraint as task 1a), so the API contract was verified by reading
+  `backend/src/modules/room-types/`, not by probing it. One real defect
+  was caught by the new tests: the delete-conflict path set the error
+  banner before a reload that clears it, so a 409 rendered as nothing.
+  See DECISIONS.md.
+
+- [x] **Backend — allow clearing a room type's `code` and `description`** (2026-09-02)
+  Follow-up owned by Backend, surfaced by 2d. `updateRoomTypeSchema` made
+  both `.optional()`, so `null` was rejected and there was no way to remove
+  a code or description once set. Now `.nullable()` on both (extended in
+  before `.partial()`), so an omitted key leaves a field unchanged, a value
+  sets it, and `null` clears it. `create` is untouched (nothing to clear on
+  a new row). The DB columns were already nullable since 2a, so this was
+  the validation half only; the existing diff/audit path records a
+  value→null clear as a real change with no extra code.
+
+  Verified — against **real PostgreSQL 16** this time (a live DB was
+  reachable on `localhost:5432`, unlike 2d's sandbox), `prisma migrate
+  status` clean. Backend 207/207 across 15 files (was 206 — 1 new: a
+  create-then-clear round-trip proving the PATCH persists null, audits both
+  transitions, and leaves an omitted `name` untouched). typecheck/lint/
+  build pass. Frontend 132/132 unchanged (no frontend file touched). Scope
+  stayed inside `modules/room-types/`. See DECISIONS.md.
+
+- [ ] **2e. Database — drop the legacy `Room.roomType` column**
+  Only after 2c and 2d ship and no code reads it. Make `roomTypeId` NOT
+  NULL in the same migration. This is the one destructive step in the
+  sequence, which is exactly why it is last and separate.
+
+  **Blocked as of 2026-09-02 — precondition objectively unmet, verified
+  empirically, not assumed (see DECISIONS.md):**
+  1. *Code still reads the legacy column.* The rooms list search filters on
+     `roomType` (`rooms/repository.ts`), both room audit entries record it,
+     the room diff tracks it, and the whole label-derivation layer
+     (`resolveRoomTypeName`/`resolveCreateInput`/`resolveUpdateInput`)
+     exists to keep it in sync. Removing the column is a Backend slice, not
+     a one-file migration.
+  2. *Data isn't ready for NOT NULL.* 455 of 1,573 rooms have
+     `roomTypeId = NULL` (counted against the live DB). `SET NOT NULL` would
+     fail on them; a backfill/reassignment step and a product decision for
+     never-matched free-text types are both prerequisites.
+
+  Re-scoped from "run a migration" to its true shape: **Backend
+  migration-off-legacy-column slice → data backfill → then the destructive
+  DDL**, each sequenced and approved on its own. Awaiting Orchestrator/human
+  direction before any of that begins.
+
+Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the
 phased roadmap in the architecture review; each phase gets its own

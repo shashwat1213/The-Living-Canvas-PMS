@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../auth/useAuth';
+import { hasPermission } from '../auth/session';
+import { canReadStaff } from '../features/staff/permissions';
 import { ApiError, apiFetch } from '../lib/api';
 import './shell.css';
 
@@ -11,7 +13,7 @@ interface Organization {
 }
 
 export function AppShell() {
-  const { logout } = useAuth();
+  const { logout, session } = useAuth();
   const [organization, setOrganization] = useState<Organization | null>(null);
 
   useEffect(() => {
@@ -44,6 +46,22 @@ export function AppShell() {
           <NavLink to="/app/properties" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
             Properties
           </NavLink>
+          {/* Hidden without `staff:read` so the nav doesn't advertise a
+              page that would only explain itself as unavailable. The route
+              still guards itself — this is presentation, not access
+              control. */}
+          {canReadStaff(session) && (
+            <NavLink to="/app/staff" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
+              Team
+            </NavLink>
+          )}
+          {/* Same presentation-only gating as Team: the route and the API
+              both enforce `audit:read` independently. */}
+          {hasPermission(session, 'audit:read') && (
+            <NavLink to="/app/audit" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
+              Activity
+            </NavLink>
+          )}
         </nav>
         <button type="button" className="shell-logout" onClick={() => void handleLogout()}>
           Log out

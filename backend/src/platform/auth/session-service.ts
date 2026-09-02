@@ -126,8 +126,11 @@ export async function revokeSession(presentedToken: string): Promise<void> {
  * user's refresh capability dies immediately across every device, not
  * just the one session that happens to be presented next.
  */
-export async function revokeAllSessionsForUser(userId: string): Promise<void> {
-  await prisma.session.updateMany({
+export async function revokeAllSessionsForUser(
+  userId: string,
+  client: Pick<typeof prisma, 'session'> = prisma,
+): Promise<void> {
+  await client.session.updateMany({
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
   });

@@ -33,14 +33,22 @@ export async function signupOrganization(namePrefix = 'Test Hotel'): Promise<Sig
   return { organizationId: res.body.organization.id as string, ownerEmail, ownerPassword };
 }
 
-/** Signs up a fresh organization and returns a ready-to-use access token for its OWNER. */
-export async function loginAsNewOwner(namePrefix = 'Test Hotel'): Promise<{ token: string; organizationId: string }> {
-  const { organizationId, ownerEmail, ownerPassword } = await signupOrganization(namePrefix);
-  const res = await request(app).post('/api/v1/auth/login').send({ email: ownerEmail, password: ownerPassword });
+/** Logs in as an existing user and returns their access token. */
+export async function loginAs(email: string, password: string): Promise<string> {
+  const res = await request(app).post('/api/v1/auth/login').send({ email, password });
   if (res.status !== 200) {
     throw new Error(`login failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
-  return { token: res.body.accessToken as string, organizationId };
+  return res.body.accessToken as string;
+}
+
+/** Signs up a fresh organization and returns a ready-to-use access token for its OWNER. */
+export async function loginAsNewOwner(
+  namePrefix = 'Test Hotel',
+): Promise<{ token: string; organizationId: string; ownerEmail: string; ownerPassword: string }> {
+  const { organizationId, ownerEmail, ownerPassword } = await signupOrganization(namePrefix);
+  const token = await loginAs(ownerEmail, ownerPassword);
+  return { token, organizationId, ownerEmail, ownerPassword };
 }
 
 export function authHeader(token: string): [string, string] {

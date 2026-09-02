@@ -129,10 +129,10 @@ describe('POST /api/v1/auth/refresh + /logout', () => {
     const agent = request.agent(app);
     await agent.post('/api/v1/auth/login').send({ email: ownerEmail, password: ownerPassword });
 
-    // No staff-deactivation endpoint exists yet (Phase 1 scope) — this is
-    // exactly the scenario the schema/mechanism exists to support once
-    // one does, so the test provisions it directly, same pattern already
-    // used in tenant-isolation.test.ts for PropertyAccess.
+    // Deactivates directly rather than through `PATCH /api/v1/staff/:id`
+    // (which now exists, and is covered in staff.test.ts): this test is
+    // about `rotateSession` rejecting an inactive user's refresh whatever
+    // set `isActive` to false, not about the endpoint that usually does.
     const user = await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } });
     await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
 

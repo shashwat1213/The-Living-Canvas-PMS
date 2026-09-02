@@ -26,6 +26,7 @@ model Organization {
   users      User[]
   properties Property[]
   roles      Role[]
+  auditLogs  AuditLog[]
 
   @@map("organizations")
 }
@@ -66,6 +67,7 @@ model User {
   sessions        Session[]
   roleAssignments UserRoleAssignment[]
   propertyAccess  PropertyAccess[]
+  auditEvents     AuditLog[]
 
   @@index([organizationId])
   @@map("users")
@@ -186,6 +188,66 @@ model PropertyAccess {
   @@map("property_access")
 }
 
+/// Who performed an audited action. `USER` is a signed-in staff member.
+/// `SYSTEM` is the platform acting on its own (scheduled jobs, automated
+/// offboarding). `AGENT` is an AI agent acting through the application's
+/// own services — present from the start so adding one later is a value
+/// on an existing column rather than a migration on a live audit table.
+enum AuditActorType {
+  USER
+  SYSTEM
+  AGENT
+}
+
+/// Immutable record of a consequential action taken within an
+/// Organization. Written by `src/platform/audit/recorder.ts` from inside
+/// the service that performed the action, never by a route or a client.
+///
+/// Deliberately generic rather than staff-specific: `entityType` +
+/// `entityId` name the target polymorphically and `action` is a
+/// namespaced string ("staff.role_changed"), NOT a database enum — so
+/// properties, units, leases, maintenance, payments and agent actions all
+/// reuse this table without a schema change. The catalog of valid actions
+/// lives in `src/platform/audit/actions.ts`, where adding one costs a
+/// constant instead of a migration on a table that only grows.
+///
+/// Rows are append-only by convention: there is no update or delete path
+/// in application code. The only deletion is the Organization cascade,
+/// which is tenant offboarding — retaining a deleted tenant's audit trail
+/// would be the leak, not the safeguard.
+model AuditLog {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  actorType      AuditActorType @default(USER) @map("actor_type")
+  /// Null once the acting user is gone (`SetNull`, not cascade — an audit
+  /// trail that disappears with its subject is not an audit trail).
+  actorUserId    String?        @map("actor_user_id")
+  /// The actor's email captured at write time. Denormalized on purpose:
+  /// an audit record has to stay meaningful on its own, including after
+  /// the account it refers to no longer exists.
+  actorEmail     String?        @map("actor_email")
+  /// Namespaced "<module>.<event>" — see `platform/audit/actions.ts`.
+  action         String
+  /// The kind of thing acted on ("staff", later "property", "lease", …).
+  entityType     String         @map("entity_type")
+  entityId       String         @map("entity_id")
+  /// Structured, action-specific detail (e.g. `{ from, to }` for a role
+  /// change). Never contains credentials — see the recorder.
+  metadata       Json?
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorUser    User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  /// Every index leads with `organizationId`: no query reaches this table
+  /// without a tenant filter, so a tenant-first index is the one that
+  /// actually gets used.
+  @@index([organizationId, createdAt])
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, actorUserId])
+  @@map("audit_logs")
+}
+
 /// A single physical venue (hotel, guesthouse, etc.) belonging to an Organization.
 model Property {
   id             String   @id @default(uuid())
@@ -205,11 +267,47 @@ model Property {
 
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   rooms          Room[]
+  roomTypes      RoomType[]
   propertyAccess PropertyAccess[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
   @@map("properties")
+}
+
+/// A category of room within a Property — "Deluxe King", "Standard Twin".
+///
+/// Scoped to a single Property rather than to the Organization: two
+/// hotels in the same group name and price their rooms independently, and
+/// a shared catalogue would force one property's rename onto the other.
+/// Tenancy therefore reaches this model transitively through `Property`,
+/// exactly as `Room` does — there is no `organizationId` column here, and
+/// `platform/tenancy/scoped-prisma.ts` scopes it through the relation.
+///
+/// Deliberately thin. Occupancy lives on `Room.capacity` today; putting a
+/// second copy here with no code to reconcile the two would create a
+/// silent source-of-truth conflict. Rate plans, availability and
+/// reservations attach to this model in later slices — none of them are
+/// modelled yet.
+model RoomType {
+  id          String   @id @default(uuid())
+  propertyId  String   @map("property_id")
+  name        String
+  /// Short operational code ("DLXK"). Optional: the backfill has only the
+  /// legacy free-text name to work from and must not invent one.
+  code        String?
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rooms    Room[]
+
+  @@unique([propertyId, name])
+  @@unique([propertyId, code])
+  @@index([propertyId])
+  @@map("room_types")
 }
 
 enum RoomStatus {
@@ -224,7 +322,15 @@ model Room {
   id         String     @id @default(uuid())
   propertyId String     @map("property_id")
   name       String
+  /// Legacy free-text category, kept as the source of truth until the
+  /// RoomType API slice switches reads/writes over to `roomTypeId`.
+  /// Backfilled into `room_types` by migration `20260821_room_type`;
+  /// still what the rooms API accepts, searches and audits today.
   roomType   String     @map("room_type")
+  /// Structured replacement for `roomType`. Nullable on purpose: rooms
+  /// created through the API before that slice lands have no type yet,
+  /// and a NOT NULL column would have made this migration destructive.
+  roomTypeId String?    @map("room_type_id")
   floor      String?
   capacity   Int        @default(1)
   status     RoomStatus @default(ACTIVE)
@@ -232,9 +338,13 @@ model Room {
   createdAt  DateTime   @default(now()) @map("created_at")
   updatedAt  DateTime   @updatedAt @map("updated_at")
 
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// Named `type` only because `roomType` is taken by the legacy column
+  /// above; it becomes `roomType` when that column is dropped.
+  type     RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
 
   @@unique([propertyId, name])
   @@index([propertyId])
+  @@index([roomTypeId])
   @@map("rooms")
 }

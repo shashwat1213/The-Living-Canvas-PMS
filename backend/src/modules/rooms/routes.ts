@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { createRoomSchema, updateRoomSchema } from './schemas.js';
+import { createRoomSchema, listRoomsQuerySchema, updateRoomSchema } from './schemas.js';
 import * as roomsService from './service.js';
 
 // Mounted at /properties/:propertyId/rooms — every route here is
@@ -16,8 +16,9 @@ roomsRouter.get(
   '/',
   requirePermission('rooms:read'),
   asyncHandler(async (req, res) => {
-    const rooms = await roomsService.listRooms(req.params.propertyId as string);
-    res.json({ rooms });
+    const query = listRoomsQuerySchema.parse(req.query);
+    const { items, page } = await roomsService.listRooms(req.params.propertyId as string, query);
+    res.json({ rooms: items, page });
   }),
 );
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { paginationQuerySchema } from '../../lib/pagination.js';
 import { SLUG_PATTERN, SLUG_PATTERN_MESSAGE } from '../../lib/slug.js';
 
 export const createPropertySchema = z.object({
@@ -21,3 +22,15 @@ export const updatePropertySchema = createPropertySchema.partial().extend({
 });
 
 export type UpdatePropertyInput = z.infer<typeof updatePropertySchema>;
+
+/**
+ * Query parameters for `GET /properties`: the shared pagination contract
+ * plus this module's filters. Search covers the fields someone actually
+ * looks a property up by — its name, its slug, or the city it's in.
+ */
+export const listPropertiesQuerySchema = paginationQuerySchema.extend({
+  search: z.string().trim().max(120).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+
+export type ListPropertiesQuery = z.infer<typeof listPropertiesQuerySchema>;

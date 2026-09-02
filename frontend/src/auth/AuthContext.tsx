@@ -1,11 +1,19 @@
 import { createContext, useEffect, useState, type ReactNode } from 'react';
 
-import { apiFetch, setAccessToken } from '../lib/api';
+import { apiFetch, onAccessTokenChange, setAccessToken } from '../lib/api';
+import { readSessionClaims, type SessionClaims } from './session';
 
 type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
 export interface AuthContextValue {
   status: AuthStatus;
+  /**
+   * Display-only claims about the signed-in user, derived from the access
+   * token. Features use this to avoid rendering controls that would only
+   * earn a 403 — never to decide whether something is allowed. See
+   * `auth/session.ts`.
+   */
+  session: SessionClaims | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -14,6 +22,13 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
+  const [session, setSession] = useState<SessionClaims | null>(null);
+
+  // Track the token rather than snapshotting it at login: `lib/api.ts`
+  // silently refreshes on a 401, which re-mints the token (with
+  // potentially different permissions) without going through any function
+  // here. Subscribing keeps the derived claims honest in that case.
+  useEffect(() => onAccessTokenChange((token) => setSession(readSessionClaims(token))), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,5 +70,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  return <AuthContext.Provider value={{ status, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ status, session, login, logout }}>{children}</AuthContext.Provider>;
 }
