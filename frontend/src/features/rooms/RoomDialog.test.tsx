@@ -1,12 +1,14 @@
 /**
- * The room-type picker (Phase 2 task 2c/2d).
+ * The room-type picker (catalogue-only model — see the rooms-catalogue-only
+ * slice / TASKS.md task 2e).
  *
- * The rule these cover: the catalogue is a convenience, never a gate. A
- * room stays creatable when the catalogue is empty or fails to load,
- * which is what keeps the legacy free-text flow working while the
- * transition is in progress.
+ * The rule these cover: a room is always assigned a type from the
+ * property's RoomType catalogue. There is no free-text fallback. When the
+ * property has no active types, create is blocked with an empty state that
+ * points at the catalogue rather than showing an unsubmittable form.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RoomDialog } from './RoomDialog';
@@ -43,8 +45,8 @@ function existingRoom(overrides: Partial<Room> = {}): Room {
     id: 'room-1',
     propertyId: PROPERTY_ID,
     name: '101',
-    roomType: 'Deluxe King',
-    roomTypeId: null,
+    roomTypeId: 'rt-1',
+    roomType: { id: 'rt-1', name: 'Deluxe King', code: 'DLXK' },
     floor: '1',
     capacity: 2,
     status: 'ACTIVE',
@@ -56,7 +58,11 @@ function existingRoom(overrides: Partial<Room> = {}): Room {
 }
 
 function renderDialog(room: Room | null = null) {
-  return render(<RoomDialog propertyId={PROPERTY_ID} room={room} onClose={vi.fn()} onSaved={vi.fn()} />);
+  return render(
+    <MemoryRouter>
+      <RoomDialog propertyId={PROPERTY_ID} room={room} onClose={vi.fn()} onSaved={vi.fn()} />
+    </MemoryRouter>,
+  );
 }
 
 afterEach(() => {
@@ -69,10 +75,8 @@ describe('RoomDialog room-type picker', () => {
     createRoom.mockResolvedValue(existingRoom({ name: '303' }));
     renderDialog();
 
-    // Waits for the catalogue to arrive: before it does, the field is
-    // still the free-text fallback, so asserting on the label alone would
-    // race the fetch. The code is shown alongside the name — it is what
-    // staff read on a rooming list.
+    // The code is shown alongside the name — it is what staff read on a
+    // rooming list.
     await screen.findByRole('option', { name: 'Deluxe King (DLXK)' });
     const select = screen.getByLabelText('Room type');
     expect(select.tagName).toBe('SELECT');
@@ -84,59 +88,32 @@ describe('RoomDialog room-type picker', () => {
     await waitFor(() => expect(createRoom).toHaveBeenCalledTimes(1));
     const payload = createRoom.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(payload.roomTypeId).toBe('rt-1');
-    // The server derives the label; sending one too would let the two drift.
+    // Catalogue-only: there is no free-text label to send at all.
     expect(payload).not.toHaveProperty('roomType');
   });
 
-  it('falls back to free text when "Other" is chosen, clearing the link', async () => {
-    listRoomTypes.mockResolvedValue({ roomTypes: [roomType()], page: {} });
-    createRoom.mockResolvedValue(existingRoom());
-    renderDialog();
-
-    await screen.findByRole('option', { name: 'Deluxe King (DLXK)' });
-    const select = screen.getByLabelText('Room type');
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: '304' } });
-    fireEvent.change(select, { target: { value: '' } });
-
-    fireEvent.change(await screen.findByLabelText('Room type label'), { target: { value: 'Rooftop Cabana' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add room' }));
-
-    await waitFor(() => expect(createRoom).toHaveBeenCalledTimes(1));
-    expect(createRoom.mock.calls[0]?.[1]).toMatchObject({ roomType: 'Rooftop Cabana', roomTypeId: null });
-  });
-
-  it('stays usable as a plain text field when the property has no room types', async () => {
+  it('blocks create with an empty state when the property has no room types', async () => {
     listRoomTypes.mockResolvedValue({ roomTypes: [], page: {} });
-    createRoom.mockResolvedValue(existingRoom());
     renderDialog();
 
     await waitFor(() => expect(listRoomTypes).toHaveBeenCalled());
-    const input = screen.getByLabelText('Room type');
-    expect(input.tagName).toBe('INPUT');
-
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: '305' } });
-    fireEvent.change(input, { target: { value: 'Standard Twin' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add room' }));
-
-    await waitFor(() => expect(createRoom).toHaveBeenCalledTimes(1));
-    expect(createRoom.mock.calls[0]?.[1]).toMatchObject({ roomType: 'Standard Twin', roomTypeId: null });
+    // No form to submit; the user is pointed at the catalogue instead.
+    expect(await screen.findByText('No room types yet')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Manage room types' })).toHaveAttribute(
+      'href',
+      `/app/properties/${PROPERTY_ID}/room-types`,
+    );
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
   });
 
-  it('still creates a room when the catalogue request fails outright', async () => {
+  it('surfaces a load failure and disables submit rather than inventing a fallback', async () => {
     listRoomTypes.mockRejectedValue(new Error('network'));
-    createRoom.mockResolvedValue(existingRoom());
     renderDialog();
 
     await waitFor(() => expect(listRoomTypes).toHaveBeenCalled());
-    const input = await screen.findByLabelText('Room type');
-    expect(input.tagName).toBe('INPUT');
-
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: '306' } });
-    fireEvent.change(input, { target: { value: 'Fallback Suite' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add room' }));
-
-    await waitFor(() => expect(createRoom).toHaveBeenCalledTimes(1));
-    expect(createRoom.mock.calls[0]?.[1]).toMatchObject({ roomType: 'Fallback Suite' });
+    expect(await screen.findByText(/Could not load room types/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add room' })).toBeDisabled();
+    expect(createRoom).not.toHaveBeenCalled();
   });
 
   it('preselects the room’s existing type when editing', async () => {
@@ -151,25 +128,31 @@ describe('RoomDialog room-type picker', () => {
 
   it('keeps showing a retired type the room is still linked to', async () => {
     // The catalogue only returns ACTIVE types. A room linked to a retired
-    // one must not silently reset to "Other" just because the dialog opened.
+    // one must not silently reset just because the dialog opened.
     listRoomTypes.mockResolvedValue({ roomTypes: [roomType()], page: {} });
-    renderDialog(existingRoom({ roomTypeId: 'rt-retired', roomType: 'Retired Suite' }));
+    renderDialog(
+      existingRoom({ roomTypeId: 'rt-retired', roomType: { id: 'rt-retired', name: 'Retired Suite', code: null } }),
+    );
 
     await screen.findByRole('option', { name: 'Retired Suite' });
     const select = screen.getByLabelText('Room type') as HTMLSelectElement;
     expect(select.value).toBe('rt-retired');
-    expect(screen.getByRole('option', { name: 'Retired Suite' })).toBeInTheDocument();
   });
 
-  it('requires a label when no type is chosen, and sends nothing', async () => {
-    listRoomTypes.mockResolvedValue({ roomTypes: [], page: {} });
+  it('requires a type to be chosen, and sends nothing until one is', async () => {
+    // A single active type exists but the user must still actively confirm
+    // it — the select starts on the disabled "Select a room type" prompt.
+    listRoomTypes.mockResolvedValue({ roomTypes: [roomType()], page: {} });
     renderDialog();
 
-    await waitFor(() => expect(listRoomTypes).toHaveBeenCalled());
+    await screen.findByRole('option', { name: 'Deluxe King (DLXK)' });
+    const select = screen.getByLabelText('Room type') as HTMLSelectElement;
+    expect(select.value).toBe('');
+
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: '307' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add room' }));
 
-    expect(await screen.findByText('Room type is required.')).toBeInTheDocument();
+    expect(await screen.findByText('Choose a room type.')).toBeInTheDocument();
     expect(createRoom).not.toHaveBeenCalled();
   });
 });

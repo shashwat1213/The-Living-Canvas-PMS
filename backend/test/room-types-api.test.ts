@@ -177,13 +177,13 @@ describe('room types in use cannot be hard-deleted', () => {
       .send({ name: 'Suite' });
     const roomTypeId = roomType.body.roomType.id as string;
 
-    // The rooms API doesn't accept roomTypeId yet (task 2b's second half),
-    // so the link is made directly — this test is about the delete rule.
+    // Assign the type to a room through the API — the room now references
+    // it, which is what makes the hard delete a 409.
     const room = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...auth)
-      .send({ name: '301', roomType: 'Suite' });
-    await prisma.room.update({ where: { id: room.body.room.id }, data: { roomTypeId } });
+      .send({ name: '301', roomTypeId });
+    expect(room.status).toBe(201);
 
     const refused = await request(app)
       .delete(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}`)

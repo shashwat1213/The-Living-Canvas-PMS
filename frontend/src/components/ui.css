@@ -414,6 +414,17 @@
   text-align: center;
 }
 
+.empty-state-title {
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.empty-state-body {
+  color: var(--text-muted, #6b7280);
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+
 @media (prefers-color-scheme: dark) {
   .page-error {
     background: rgba(153, 27, 27, 0.25);

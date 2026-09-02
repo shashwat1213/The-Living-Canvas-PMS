@@ -5,49 +5,34 @@ import { paginationQuerySchema } from '../../lib/pagination.js';
 const roomStatus = z.enum(['ACTIVE', 'INACTIVE', 'MAINTENANCE']);
 
 /**
- * A room's category, in the two forms the API currently accepts.
- *
- * `roomType` is the original free text and stays required-in-effect for
- * backward compatibility: every existing client sends it, and nothing
- * that worked before this slice may stop working. `roomTypeId` is the
- * structured replacement — when it is supplied without `roomType`, the
- * service fills the legacy label in from the type's name so the two
- * representations never disagree (see `rooms/service.ts`).
- *
- * At least one of them is required on create, which is what keeps
- * `roomType` NOT NULL satisfied without forcing new clients to send a
- * label they no longer own.
+ * A room's category is a reference into this property's RoomType
+ * catalogue — the model every commercial PMS uses (Mews, Cloudbeds,
+ * Stayntouch): rooms are assigned a type from a managed list, never free
+ * text. The free-text `roomType` this replaced was dropped in migration
+ * `20260902000200_rooms_catalogue_only`. The id is validated against the
+ * room's own property inside the write transaction (see `rooms/service.ts`),
+ * which is what stops a caller pointing a room at another tenant's type.
  */
-const roomTypeFields = {
-  roomType: z.string().min(1).max(80).optional(),
-  /** `null` clears the link; omitted leaves it untouched. */
-  roomTypeId: z.string().uuid().nullable().optional(),
-};
-
-export const createRoomSchema = z
-  .object({
-    name: z.string().min(1).max(40),
-    ...roomTypeFields,
-    floor: z.string().max(20).optional(),
-    capacity: z.number().int().min(1).max(50).optional(),
-    status: roomStatus.optional(),
-    notes: z.string().max(1000).optional(),
-  })
-  .refine((value) => value.roomType !== undefined || typeof value.roomTypeId === 'string', {
-    message: 'Provide either roomType or roomTypeId.',
-    path: ['roomType'],
-  });
+export const createRoomSchema = z.object({
+  name: z.string().min(1).max(40),
+  roomTypeId: z.string().uuid(),
+  floor: z.string().max(20).optional(),
+  capacity: z.number().int().min(1).max(50).optional(),
+  status: roomStatus.optional(),
+  notes: z.string().max(1000).optional(),
+});
 
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
 
 /**
- * `.partial()` can't be called on a refined schema, so the update shape is
- * declared from the same field set rather than derived. Update has no
- * "one of the two is required" rule — a room already has a label.
+ * Update leaves every field optional — a room already has a type, and a
+ * caller may be changing only its status. `roomTypeId` is re-assignable
+ * but never clearable: there is no valid "untyped room" state, so it is
+ * not `.nullable()`.
  */
 export const updateRoomSchema = z.object({
   name: z.string().min(1).max(40).optional(),
-  ...roomTypeFields,
+  roomTypeId: z.string().uuid().optional(),
   floor: z.string().max(20).optional(),
   capacity: z.number().int().min(1).max(50).optional(),
   status: roomStatus.optional(),

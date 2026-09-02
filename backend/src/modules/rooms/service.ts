@@ -1,15 +1,15 @@
-import type { Room } from '@prisma/client';
-
-import { BadRequestError, ConflictError, NotFoundError } from '../../lib/http-errors.js';
+import { ConflictError, NotFoundError } from '../../lib/http-errors.js';
 import type { PageMeta } from '../../lib/pagination.js';
 import { withUniqueConstraintGuard } from '../../lib/prisma-errors.js';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../../platform/audit/actions.js';
 import { recordAuditEvent } from '../../platform/audit/recorder.js';
 import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
-import { roomsRepository, type CreateRoomData, type RoomsDb } from './repository.js';
+import { roomsRepository, type RoomsDb, type RoomWithType } from './repository.js';
 import type { CreateRoomInput, ListRoomsQuery, UpdateRoomInput } from './schemas.js';
 
-export function listRooms(propertyId: string, query: ListRoomsQuery): Promise<{ items: Room[]; page: PageMeta }> {
+const DUPLICATE_NAME = 'A room with that name already exists at this property.';
+
+export function listRooms(propertyId: string, query: ListRoomsQuery): Promise<{ items: RoomWithType[]; page: PageMeta }> {
   return roomsRepository.list(propertyId, query);
 }
 
@@ -18,21 +18,30 @@ type FieldChange = { from: string | number | boolean | null; to: string | number
 
 /**
  * The fields that actually moved. Same reasoning as the property diff:
- * comparing persisted before/after means re-submitting an unchanged
- * value doesn't produce an entry claiming a change.
+ * comparing persisted before/after means re-submitting an unchanged value
+ * doesn't produce an entry claiming a change.
+ *
+ * The room's category is audited by its type id and name — the name is
+ * captured so a later rename of the type doesn't rewrite history.
  */
-function diffRoom(before: Room, after: Room): Record<string, FieldChange> {
-  const tracked = ['name', 'roomType', 'roomTypeId', 'floor', 'capacity', 'status', 'notes'] as const;
+function diffRoom(before: RoomWithType, after: RoomWithType): Record<string, FieldChange> {
   const changed: Record<string, FieldChange> = {};
-  for (const field of tracked) {
+
+  const scalar = ['name', 'floor', 'capacity', 'status', 'notes'] as const;
+  for (const field of scalar) {
     if (before[field] !== after[field]) {
       changed[field] = { from: before[field], to: after[field] };
     }
   }
+  if (before.roomTypeId !== after.roomTypeId) {
+    changed.roomTypeId = { from: before.roomTypeId, to: after.roomTypeId };
+    changed.roomType = { from: before.roomType.name, to: after.roomType.name };
+  }
+
   return changed;
 }
 
-export async function getRoom(propertyId: string, id: string): Promise<Room> {
+export async function getRoom(propertyId: string, id: string): Promise<RoomWithType> {
   const room = await roomsRepository.findById(propertyId, id);
   if (!room) {
     throw new NotFoundError('Room not found.');
@@ -41,98 +50,63 @@ export async function getRoom(propertyId: string, id: string): Promise<Room> {
 }
 
 /**
- * Resolves a supplied `roomTypeId` against the room's own property.
+ * Confirms a `roomTypeId` names a type at the room's OWN property, inside
+ * the caller's transaction so it cannot be deleted between the check and
+ * the write.
  *
- * This is the whole tenant/property guarantee for the link, and it is
- * deliberately a *scoped* read filtered by `propertyId`: a type from
+ * Deliberately a *scoped* read filtered by `propertyId`: a type from
  * another organization resolves to nothing because the scoping extension
  * reaches RoomType through its property, and a type from another property
  * in the same organization resolves to nothing because of the explicit
  * filter. Both surface as the same 404 — the caller learns only that this
- * property has no such type, which is the rule the rest of the API
- * follows.
+ * property has no such type, which is the rule the rest of the API follows.
  *
- * Runs inside the caller's transaction so the type cannot be deleted
- * between the check and the write.
+ * The database FK would also reject a bad id, but only with a generic
+ * constraint error that can't tell "wrong tenant" from "wrong property";
+ * this makes the boundary explicit and the 404 precise.
  */
-async function resolveRoomTypeName(propertyId: string, roomTypeId: string, db: RoomsDb): Promise<string> {
+async function assertTypeAtProperty(propertyId: string, roomTypeId: string, db: RoomsDb): Promise<void> {
   const roomType = await db.roomType.findFirst({ where: { id: roomTypeId, propertyId } });
   if (!roomType) {
     throw new NotFoundError('Room type not found at this property.');
   }
-  return roomType.name;
 }
 
-/**
- * Keeps the two representations of a room's category in step.
- *
- * When a caller supplies `roomTypeId` without a `roomType` label, the
- * label is filled in from the type's name. Without this the legacy column
- * would drift away from the relation the moment a client stopped sending
- * it — and that column is still what the rooms list searches and what the
- * audit trail records, so a stale value there is a real bug, not a
- * cosmetic one. An explicitly supplied `roomType` is never overwritten:
- * the caller said what they meant.
- */
-async function resolveCreateInput(propertyId: string, input: CreateRoomInput, db: RoomsDb): Promise<CreateRoomData> {
-  if (typeof input.roomTypeId === 'string') {
-    const name = await resolveRoomTypeName(propertyId, input.roomTypeId, db);
-    return { ...input, roomType: input.roomType ?? name };
-  }
-
-  // `createRoomSchema` already refuses a body with neither field, so this
-  // is unreachable over HTTP. It is still checked rather than cast,
-  // because services are the boundary an AI agent calls directly (see
-  // CLAUDE.md) and a cast would turn that into a NOT NULL violation.
-  if (input.roomType === undefined) {
-    throw new BadRequestError('Provide either roomType or roomTypeId.');
-  }
-  return { ...input, roomType: input.roomType };
-}
-
-/** Same rule for updates, where neither field is required. */
-async function resolveUpdateInput(propertyId: string, input: UpdateRoomInput, db: RoomsDb): Promise<UpdateRoomInput> {
-  if (typeof input.roomTypeId !== 'string') {
-    return input;
-  }
-  const name = await resolveRoomTypeName(propertyId, input.roomTypeId, db);
-  return input.roomType === undefined ? { ...input, roomType: name } : input;
-}
-
-// See properties/service.ts for why creates/updates check for an
-// existing name proactively rather than relying solely on catching the
-// database's unique-constraint error.
-export async function createRoom(propertyId: string, input: CreateRoomInput): Promise<Room> {
+// See properties/service.ts for why creates/updates check for an existing
+// name proactively rather than relying solely on catching the database's
+// unique-constraint error.
+export async function createRoom(propertyId: string, input: CreateRoomInput): Promise<RoomWithType> {
   const existing = await roomsRepository.findByName(propertyId, input.name);
   if (existing) {
-    throw new ConflictError('A room with that name already exists at this property.');
+    throw new ConflictError(DUPLICATE_NAME);
   }
   // Write and audit entry share one transaction, on the scoped client so
   // tenancy is still injected inside it.
   return withUniqueConstraintGuard(
     () =>
       scopedPrisma.$transaction(async (tx) => {
-        const room = await roomsRepository.create(propertyId, await resolveCreateInput(propertyId, input, tx), tx);
+        await assertTypeAtProperty(propertyId, input.roomTypeId, tx);
+        const room = await roomsRepository.create(propertyId, input, tx);
         await recordAuditEvent(
           {
             action: AUDIT_ACTIONS.ROOM_CREATED,
             entityType: AUDIT_ENTITY_TYPES.ROOM,
             entityId: room.id,
-            metadata: { propertyId, name: room.name, roomType: room.roomType },
+            metadata: { propertyId, name: room.name, roomTypeId: room.roomTypeId, roomType: room.roomType.name },
           },
           tx,
         );
         return room;
       }),
-    'A room with that name already exists at this property.',
+    DUPLICATE_NAME,
   );
 }
 
-export async function updateRoom(propertyId: string, id: string, input: UpdateRoomInput): Promise<Room> {
+export async function updateRoom(propertyId: string, id: string, input: UpdateRoomInput): Promise<RoomWithType> {
   if (input.name) {
     const existing = await roomsRepository.findByName(propertyId, input.name);
     if (existing && existing.id !== id) {
-      throw new ConflictError('A room with that name already exists at this property.');
+      throw new ConflictError(DUPLICATE_NAME);
     }
   }
   const before = await getRoom(propertyId, id);
@@ -140,8 +114,10 @@ export async function updateRoom(propertyId: string, id: string, input: UpdateRo
   return withUniqueConstraintGuard(
     () =>
       scopedPrisma.$transaction(async (tx) => {
-        const resolved = await resolveUpdateInput(propertyId, input, tx);
-        const room = await roomsRepository.update(propertyId, id, resolved, tx);
+        if (typeof input.roomTypeId === 'string' && input.roomTypeId !== before.roomTypeId) {
+          await assertTypeAtProperty(propertyId, input.roomTypeId, tx);
+        }
+        const room = await roomsRepository.update(propertyId, id, input, tx);
 
         const changed = diffRoom(before, room);
         if (Object.keys(changed).length > 0) {
@@ -157,7 +133,7 @@ export async function updateRoom(propertyId: string, id: string, input: UpdateRo
         }
         return room;
       }),
-    'A room with that name already exists at this property.',
+    DUPLICATE_NAME,
   );
 }
 
@@ -173,7 +149,7 @@ export async function deleteRoom(propertyId: string, id: string): Promise<void> 
         action: AUDIT_ACTIONS.ROOM_DELETED,
         entityType: AUDIT_ENTITY_TYPES.ROOM,
         entityId: id,
-        metadata: { propertyId, name: room.name, roomType: room.roomType },
+        metadata: { propertyId, name: room.name, roomTypeId: room.roomTypeId, roomType: room.roomType.name },
       },
       tx,
     );

@@ -10,8 +10,17 @@ async function createProperty(token: string) {
   const res = await request(app)
     .post('/api/v1/properties')
     .set(...authHeader(token))
-    .send({ name: 'Main House', slug: 'main-house' });
+    .send({ name: 'Main House', slug: `main-house-${randomUUID().slice(0, 8)}` });
   return res.body.property.id as string;
+}
+
+async function createRoomType(token: string, propertyId: string, name: string, code?: string) {
+  const res = await request(app)
+    .post(`/api/v1/properties/${propertyId}/room-types`)
+    .set(...authHeader(token))
+    .send(code ? { name, code } : { name });
+  if (res.status !== 201) throw new Error(`room-type seed failed: ${res.status} ${JSON.stringify(res.body)}`);
+  return res.body.roomType.id as string;
 }
 
 describe('/api/v1/properties/:propertyId/rooms', () => {
@@ -35,20 +44,25 @@ describe('/api/v1/properties/:propertyId/rooms', () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
     const propertyId = await createProperty(token);
+    const roomTypeId = await createRoomType(token, propertyId, 'Deluxe King', 'DLXK');
 
     const create = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...auth)
-      .send({ name: '101', roomType: 'Deluxe King', capacity: 2 });
+      .send({ name: '101', roomTypeId, capacity: 2 });
     expect(create.status).toBe(201);
     const roomId = create.body.room.id as string;
     expect(create.body.room.status).toBe('ACTIVE');
+    // The room carries its type embedded, not a free-text label.
+    expect(create.body.room.roomTypeId).toBe(roomTypeId);
+    expect(create.body.room.roomType).toMatchObject({ id: roomTypeId, name: 'Deluxe King', code: 'DLXK' });
 
     const list = await request(app)
       .get(`/api/v1/properties/${propertyId}/rooms`)
       .set(...auth);
     expect(list.status).toBe(200);
     expect(list.body.rooms).toHaveLength(1);
+    expect(list.body.rooms[0].roomType.name).toBe('Deluxe King');
 
     const update = await request(app)
       .patch(`/api/v1/properties/${propertyId}/rooms/${roomId}`)
@@ -68,19 +82,42 @@ describe('/api/v1/properties/:propertyId/rooms', () => {
     expect(getAfterDelete.status).toBe(404);
   });
 
+  it('requires a room type: a body without roomTypeId is a 400', async () => {
+    const { token } = await loginAsNewOwner();
+    const propertyId = await createProperty(token);
+
+    const res = await request(app)
+      .post(`/api/v1/properties/${propertyId}/rooms`)
+      .set(...authHeader(token))
+      .send({ name: '101' });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a malformed room type id as a validation error', async () => {
+    const { token } = await loginAsNewOwner();
+    const propertyId = await createProperty(token);
+
+    const res = await request(app)
+      .post(`/api/v1/properties/${propertyId}/rooms`)
+      .set(...authHeader(token))
+      .send({ name: '101', roomTypeId: 'not-a-uuid' });
+    expect(res.status).toBe(400);
+  });
+
   it('rejects a duplicate room name within the same property with 409', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
     const propertyId = await createProperty(token);
+    const roomTypeId = await createRoomType(token, propertyId, 'Standard');
 
     await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...auth)
-      .send({ name: '101', roomType: 'Standard' });
+      .send({ name: '101', roomTypeId });
     const dup = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...auth)
-      .send({ name: '101', roomType: 'Standard' });
+      .send({ name: '101', roomTypeId });
 
     expect(dup.status).toBe(409);
   });
@@ -95,18 +132,29 @@ describe('rooms listing: pagination, search and filters', () => {
       .send({ name: 'Roster House', slug: `roster-${randomUUID().slice(0, 8)}` });
     const propertyId = property.body.property.id as string;
 
+    // A catalogue is created up front; rooms reference it by id.
+    const typeIds: Record<string, string> = {};
+    for (const [name, code] of [
+      ['Deluxe King', 'DLXK'],
+      ['Deluxe Twin', 'DLXT'],
+      ['Standard King', 'STDK'],
+      ['Suite', 'STE'],
+    ] as const) {
+      typeIds[name] = await createRoomType(owner.token, propertyId, name, code);
+    }
+
     const seeds = [
-      { name: '101', roomType: 'Deluxe King', floor: '1' },
-      { name: '102', roomType: 'Deluxe Twin', floor: '1' },
-      { name: '201', roomType: 'Standard King', floor: '2' },
-      { name: '202', roomType: 'Suite', floor: '2' },
-      { name: '301', roomType: 'Suite', floor: '3' },
+      { name: '101', type: 'Deluxe King', floor: '1' },
+      { name: '102', type: 'Deluxe Twin', floor: '1' },
+      { name: '201', type: 'Standard King', floor: '2' },
+      { name: '202', type: 'Suite', floor: '2' },
+      { name: '301', type: 'Suite', floor: '3' },
     ];
     for (const seed of seeds) {
       const res = await request(app)
         .post(`/api/v1/properties/${propertyId}/rooms`)
         .set(...authHeader(owner.token))
-        .send(seed);
+        .send({ name: seed.name, roomTypeId: typeIds[seed.type], floor: seed.floor });
       if (res.status !== 201) throw new Error(`seed failed: ${res.status} ${JSON.stringify(res.body)}`);
     }
     return { owner, propertyId };
@@ -148,11 +196,15 @@ describe('rooms listing: pagination, search and filters', () => {
     expect(new Set(ids).size).toBe(5);
   });
 
-  it('searches name, room type and floor', async () => {
+  it('searches name, room type name, room type code and floor', async () => {
     const { owner, propertyId } = await seedRooms();
 
+    // By type name.
     expect((await list(owner.token, propertyId, '?search=suite')).body.page.totalItems).toBe(2);
+    // By room name.
     expect((await list(owner.token, propertyId, '?search=101')).body.page.totalItems).toBe(1);
+    // By type code.
+    expect((await list(owner.token, propertyId, '?search=STE')).body.page.totalItems).toBe(2);
     // Every term must match: "deluxe king" excludes the twin.
     expect((await list(owner.token, propertyId, '?search=deluxe%20king')).body.page.totalItems).toBe(1);
   });
@@ -199,27 +251,28 @@ describe('room mutations are audited', () => {
       .set(...authHeader(owner.token))
       .send({ name: 'Audit House', slug: `audit-${randomUUID().slice(0, 8)}` });
     const propertyId = property.body.property.id as string;
+    const roomTypeId = await createRoomType(owner.token, propertyId, 'Deluxe King');
 
     const room = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...authHeader(owner.token))
-      .send({ name: '101', roomType: 'Deluxe King' });
+      .send({ name: '101', roomTypeId });
 
-    return { owner, propertyId, roomId: room.body.room.id as string };
+    return { owner, propertyId, roomTypeId, roomId: room.body.room.id as string };
   }
 
   function auditFor(organizationId: string, action: string) {
     return prisma.auditLog.findMany({ where: { organizationId, action }, orderBy: { createdAt: 'asc' } });
   }
 
-  it('records a creation', async () => {
-    const { owner, propertyId, roomId } = await seedRoom();
+  it('records a creation with the structured type', async () => {
+    const { owner, propertyId, roomTypeId, roomId } = await seedRoom();
 
     const rows = await auditFor(owner.organizationId, 'room.created');
     expect(rows).toHaveLength(1);
     expect(rows[0]!.entityType).toBe('room');
     expect(rows[0]!.entityId).toBe(roomId);
-    expect(rows[0]!.metadata).toEqual({ propertyId, name: '101', roomType: 'Deluxe King' });
+    expect(rows[0]!.metadata).toEqual({ propertyId, name: '101', roomTypeId, roomType: 'Deluxe King' });
   });
 
   it('records a status change as an update diff', async () => {
@@ -237,18 +290,18 @@ describe('room mutations are audited', () => {
   });
 
   it('writes no update entry when nothing moved', async () => {
-    const { owner, propertyId, roomId } = await seedRoom();
+    const { owner, propertyId, roomTypeId, roomId } = await seedRoom();
 
     await request(app)
       .patch(`/api/v1/properties/${propertyId}/rooms/${roomId}`)
       .set(...authHeader(owner.token))
-      .send({ roomType: 'Deluxe King' });
+      .send({ roomTypeId });
 
     expect(await auditFor(owner.organizationId, 'room.updated')).toHaveLength(0);
   });
 
   it('records a deletion with what was removed', async () => {
-    const { owner, propertyId, roomId } = await seedRoom();
+    const { owner, propertyId, roomTypeId, roomId } = await seedRoom();
 
     await request(app)
       .delete(`/api/v1/properties/${propertyId}/rooms/${roomId}`)
@@ -257,6 +310,6 @@ describe('room mutations are audited', () => {
     const rows = await auditFor(owner.organizationId, 'room.deleted');
     expect(rows).toHaveLength(1);
     expect(rows[0]!.entityId).toBe(roomId);
-    expect(rows[0]!.metadata).toEqual({ propertyId, name: '101', roomType: 'Deluxe King' });
+    expect(rows[0]!.metadata).toEqual({ propertyId, name: '101', roomTypeId, roomType: 'Deluxe King' });
   });
 });

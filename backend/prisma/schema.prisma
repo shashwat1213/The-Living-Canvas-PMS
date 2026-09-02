@@ -322,15 +322,14 @@ model Room {
   id         String     @id @default(uuid())
   propertyId String     @map("property_id")
   name       String
-  /// Legacy free-text category, kept as the source of truth until the
-  /// RoomType API slice switches reads/writes over to `roomTypeId`.
-  /// Backfilled into `room_types` by migration `20260821_room_type`;
-  /// still what the rooms API accepts, searches and audits today.
-  roomType   String     @map("room_type")
-  /// Structured replacement for `roomType`. Nullable on purpose: rooms
-  /// created through the API before that slice lands have no type yet,
-  /// and a NOT NULL column would have made this migration destructive.
-  roomTypeId String?    @map("room_type_id")
+  /// The room's category, drawn from this property's RoomType catalogue.
+  /// Required: a room is always a bookable unit of some sellable type —
+  /// the model Mews/Cloudbeds/Stayntouch all use — and rates and
+  /// availability attach to the type, so an untyped room could never be
+  /// sold. The legacy free-text `room_type` column this replaced was
+  /// backfilled into `room_types` and dropped in migration
+  /// `20260902000200_rooms_catalogue_only`.
+  roomTypeId String     @map("room_type_id")
   floor      String?
   capacity   Int        @default(1)
   status     RoomStatus @default(ACTIVE)
@@ -338,10 +337,12 @@ model Room {
   createdAt  DateTime   @default(now()) @map("created_at")
   updatedAt  DateTime   @updatedAt @map("updated_at")
 
-  property Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  /// Named `type` only because `roomType` is taken by the legacy column
-  /// above; it becomes `roomType` when that column is dropped.
-  type     RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// Restrict, not SetNull: `roomTypeId` is now required, so a type still
+  /// assigned to rooms must not be deletable out from under them. This is
+  /// the database backstop for the 409 the room-types service already
+  /// returns proactively (see `modules/room-types/service.ts`).
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
 
   @@unique([propertyId, name])
   @@index([propertyId])

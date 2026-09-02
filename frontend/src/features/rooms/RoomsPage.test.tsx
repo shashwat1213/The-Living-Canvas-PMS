@@ -36,10 +36,8 @@ function room(overrides: Partial<Room> = {}): Room {
     id: 'room-1',
     propertyId: PROPERTY_ID,
     name: '101',
-    roomType: 'Deluxe King',
-    // The API returns this on every room since task 2a; null means the
-    // room has a label but no structured type assigned yet.
-    roomTypeId: null,
+    roomTypeId: 'rt-1',
+    roomType: { id: 'rt-1', name: 'Deluxe King', code: 'DLXK' },
     floor: '1',
     capacity: 2,
     status: 'ACTIVE',
@@ -70,6 +68,7 @@ function stubApi(options: {
   pageOverrides?: Partial<PageMeta>;
   listError?: { status: number; message: string };
   propertyFails?: boolean;
+  roomTypes?: { id: string; name: string; code: string | null }[];
   onMutate?: (url: string, init?: RequestInit) => void;
   onList?: (url: string) => void;
 }) {
@@ -78,6 +77,13 @@ function stubApi(options: {
     if (method !== 'GET') {
       options.onMutate?.(url, init);
       return Promise.resolve(jsonResponse({ room: room() }));
+    }
+    // The RoomDialog loads the property's active room-type catalogue.
+    if (url.includes('/room-types')) {
+      const roomTypes = options.roomTypes ?? [{ id: 'rt-1', name: 'Suite', code: null }];
+      return Promise.resolve(
+        jsonResponse({ roomTypes, page: { page: 1, pageSize: 100, totalItems: roomTypes.length, totalPages: 1 } }),
+      );
     }
     if (url.includes('/rooms')) {
       options.onList?.(url);
@@ -174,7 +180,7 @@ describe('RoomsPage — loading, empty and error states', () => {
 
     await screen.findByText('101');
     const table = within(screen.getByRole('table'));
-    expect(table.getByText('Deluxe King')).toBeInTheDocument();
+    expect(table.getByText('Deluxe King (DLXK)')).toBeInTheDocument();
     expect(table.getByText('1')).toBeInTheDocument();
     expect(table.getByText('2')).toBeInTheDocument();
   });
@@ -291,8 +297,9 @@ describe('RoomsPage — mutations', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add room' }));
     const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByRole('option', { name: 'Suite' });
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: '303' } });
-    fireEvent.change(within(dialog).getByLabelText('Room type'), { target: { value: 'Suite' } });
+    fireEvent.change(within(dialog).getByLabelText('Room type'), { target: { value: 'rt-1' } });
     fireEvent.change(within(dialog).getByLabelText('Capacity'), { target: { value: '0' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add room' }));
 
@@ -312,14 +319,17 @@ describe('RoomsPage — mutations', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add room' }));
     const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByRole('option', { name: 'Suite' });
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: '303' } });
-    fireEvent.change(within(dialog).getByLabelText('Room type'), { target: { value: 'Suite' } });
+    fireEvent.change(within(dialog).getByLabelText('Room type'), { target: { value: 'rt-1' } });
     fireEvent.change(within(dialog).getByLabelText('Capacity'), { target: { value: '4' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add room' }));
 
     await waitFor(() => expect(mutations).toHaveLength(1));
     expect(mutations[0]?.method).toBe('POST');
-    expect(mutations[0]?.body).toMatchObject({ name: '303', roomType: 'Suite', capacity: 4, status: 'ACTIVE' });
+    expect(mutations[0]?.body).toMatchObject({ name: '303', roomTypeId: 'rt-1', capacity: 4, status: 'ACTIVE' });
+    // Catalogue-only: no free-text label is ever sent.
+    expect(mutations[0]?.body).not.toHaveProperty('roomType');
     // Blank optional fields are omitted, not sent as empty strings.
     expect(mutations[0]?.body).not.toHaveProperty('notes');
   });

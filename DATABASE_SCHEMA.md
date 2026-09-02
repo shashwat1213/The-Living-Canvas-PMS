@@ -166,8 +166,7 @@ bookings module, not here.
 | id           | uuid      | PK                                            |
 | property_id  | uuid      | FK → properties, cascade delete               |
 | name         | text      | unique per property (e.g. "101", "Suite A")   |
-| room_type    | text      | **legacy** free-text category — still what the API reads/writes |
-| room_type_id | uuid?     | FK → room_types, `SET NULL` on delete          |
+| room_type_id | uuid      | **required** FK → room_types, `RESTRICT` on delete |
 | floor        | text?     |                                                |
 | capacity     | int       | default 1                                     |
 | status       | enum      | ACTIVE \| INACTIVE \| MAINTENANCE             |
@@ -202,12 +201,15 @@ here with no code to reconcile the two would be a silent source-of-truth
 conflict. Rate plans, availability and reservations attach to this model
 in later slices — none of them exist yet.
 
-**Transitional state.** `Room` currently carries *both* `room_type` (the
-original free text, still what the rooms API accepts, searches and
-audits) and `room_type_id` (the new FK, backfilled from it). The FK is
-nullable because rooms created through the API before the RoomType API
-slice lands have no type yet. The free-text column is dropped only once
-the API and UI read the relation instead — see TASKS.md 2b/2c.
+**Catalogue-only.** Every `Room` references a `RoomType` at its own
+property through the **required** `room_type_id` FK — the model Mews,
+Cloudbeds and Stayntouch all use: rooms are assigned a type from a managed
+catalogue, never free text. The original free-text `room_type` column was
+backfilled into `room_types` and dropped (migrations
+`20260902000100_rooms_backfill_types` then
+`20260902000200_rooms_catalogue_only`). The FK is `ON DELETE RESTRICT`, so
+a type still assigned to rooms cannot be deleted out from under them — the
+database backstop for the 409 the room-types service returns proactively.
 
 ### AuditLog
 
@@ -251,7 +253,7 @@ tenant filter, so a tenant-first index is the one that gets used.
 
 ```
 Organization 1──* User 1──* Session
-Organization 1──* Property 1──* Room *──0..1 RoomType
+Organization 1──* Property 1──* Room *──1 RoomType
 Organization 1──* Property 1──* RoomType
 Organization 1──* Property 1──* PropertyAccess *──1 User
 Organization 1──* Role *──* Permission   (through RolePermission)
@@ -270,9 +272,10 @@ intentional exception, not a tenancy gap.
 user nulls the actor reference instead of deleting their audit history,
 which is why `actor_email` is captured on the row.
 
-`Room.room_type_id` is the second: deleting a RoomType nulls the
-reference rather than deleting the rooms that used it. Rooms are physical
-and outlive a catalogue decision; `room_type` still holds the label.
+`Room.room_type_id` goes the other way — `ON DELETE RESTRICT`: a
+RoomType still assigned to rooms cannot be deleted, because a room must
+always have a type. Retire the type (`is_active = false`) instead; the
+rooms keep their classification.
 
 ## Migrations
 
@@ -290,16 +293,28 @@ Migrations live in `backend/prisma/migrations/`:
   (`postgres:16-alpine`), then exercised by the audit test suite against
   that same database.
 - `20260821174800_room_type` — adds the `room_types` table and the
-  nullable `rooms.room_type_id` FK, plus a **data backfill**: one
+  (then nullable) `rooms.room_type_id` FK, plus a **data backfill**: one
   `room_types` row per distinct `(property_id, room_type)` pair, then
-  every room pointed at its own. Strictly additive — no column is
-  dropped, renamed or made NOT NULL, and `rooms.room_type` is read but
-  never written, so the migration cannot lose data. Applied with
-  `prisma migrate dev` against real PostgreSQL 16.15
-  (`postgres:16-alpine`); verified afterwards that the 1069 existing
-  rooms were byte-identical (same `md5` fingerprint of
-  `id:room_type` across all rows), 900 types were created, all 1069
-  rooms linked, and zero label/property mismatches.
+  every room pointed at its own. Strictly additive at the time — no column
+  dropped, renamed or made NOT NULL. Applied with `prisma migrate dev`
+  against real PostgreSQL 16.15 (`postgres:16-alpine`); verified afterwards
+  that the existing rooms were byte-identical, one type per distinct pair
+  was created, every room linked, and zero label/property mismatches.
+- `20260902000100_rooms_backfill_types` — **safe / non-destructive** first
+  half of the catalogue-only transition. Creates a `room_types` row for
+  any `(property, label)` pair that still had unlinked rooms and no
+  matching type, links every remaining orphan, and relaxes the legacy
+  `rooms.room_type` NOT NULL so catalogue-only writes succeed while the
+  column still exists. Deterministic: a room's type is its own label at
+  its own property — nothing invented or merged across casing. Applied and
+  verified against real PostgreSQL 16 (501 orphans → 0).
+- `20260902000200_rooms_catalogue_only` — **destructive / irreversible**
+  second half. Sets `rooms.room_type_id` NOT NULL, switches its FK from
+  `SET NULL` to `RESTRICT`, and drops the legacy `rooms.room_type` column.
+  Preconditioned on the backfill above (every room linked) and applied
+  separately after it was verified, with explicit human approval for the
+  destructive step. The label text survives on the linked `room_types`
+  row, which is the point.
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

@@ -13,14 +13,20 @@ export const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
   MAINTENANCE: 'Maintenance',
 };
 
+/** The room's category, embedded from the property's RoomType catalogue. */
+export interface RoomTypeRef {
+  id: string;
+  name: string;
+  code: string | null;
+}
+
 export interface Room {
   id: string;
   propertyId: string;
   name: string;
-  /** Legacy free-text label. Still returned, still searchable. */
-  roomType: string;
-  /** The structured type, once one has been assigned. */
-  roomTypeId: string | null;
+  /** The room's category. Every room has one. */
+  roomTypeId: string;
+  roomType: RoomTypeRef;
   floor: string | null;
   capacity: number;
   status: RoomStatus;
@@ -39,12 +45,8 @@ export interface RoomListParams {
 
 export interface CreateRoomInput {
   name: string;
-  /**
-   * One of `roomType` or `roomTypeId` is required by the API. Sending
-   * `roomTypeId` alone lets the server fill the label in from the type.
-   */
-  roomType?: string;
-  roomTypeId?: string | null;
+  /** Required: rooms are assigned a type from the property's catalogue. */
+  roomTypeId: string;
   floor?: string;
   capacity?: number;
   status?: RoomStatus;

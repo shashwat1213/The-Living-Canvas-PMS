@@ -28,6 +28,14 @@ async function createProperty(token: string, name = 'Main House', slug = 'main-h
   return res.body.property.id as string;
 }
 
+async function createRoomType(token: string, propertyId: string, name = 'Standard') {
+  const res = await request(app)
+    .post(`/api/v1/properties/${propertyId}/room-types`)
+    .set(...authHeader(token))
+    .send({ name });
+  return res.body.roomType.id as string;
+}
+
 describe('cross-organization isolation', () => {
   it('a property created in org A is invisible to org B: list, get, update, delete', async () => {
     const orgA = await loginAsNewOwner('Org A');
@@ -67,10 +75,11 @@ describe('cross-organization isolation', () => {
     const orgA = await loginAsNewOwner('Org A');
     const orgB = await loginAsNewOwner('Org B');
     const propertyId = await createProperty(orgA.token);
+    const roomTypeId = await createRoomType(orgA.token, propertyId);
     const room = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...authHeader(orgA.token))
-      .send({ name: '101', roomType: 'Standard' });
+      .send({ name: '101', roomTypeId });
     const roomId = room.body.room.id as string;
 
     const list = await request(app)
@@ -86,7 +95,7 @@ describe('cross-organization isolation', () => {
     const create = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...authHeader(orgB.token))
-      .send({ name: '999', roomType: 'Should not be created' });
+      .send({ name: '999', roomTypeId: randomUUID() });
     expect(create.status).toBe(404);
 
     const update = await request(app)

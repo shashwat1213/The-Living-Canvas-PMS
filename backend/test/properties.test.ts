@@ -348,11 +348,17 @@ describe('property mutations are audited', () => {
       .send({ name: 'Doomed', slug: 'doomed-slug' });
     const id = created.body.property.id as string;
 
+    const roomType = await request(app)
+      .post(`/api/v1/properties/${id}/room-types`)
+      .set(...authHeader(owner.token))
+      .send({ name: 'Standard' });
+    const roomTypeId = roomType.body.roomType.id as string;
+
     for (const name of ['101', '102']) {
       await request(app)
         .post(`/api/v1/properties/${id}/rooms`)
         .set(...authHeader(owner.token))
-        .send({ name, roomType: 'Standard' });
+        .send({ name, roomTypeId });
     }
 
     await request(app)

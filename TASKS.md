@@ -724,28 +724,46 @@ done; **nothing below it has been started.**
   build pass. Frontend 132/132 unchanged (no frontend file touched). Scope
   stayed inside `modules/room-types/`. See DECISIONS.md.
 
-- [ ] **2e. Database — drop the legacy `Room.roomType` column**
-  Only after 2c and 2d ship and no code reads it. Make `roomTypeId` NOT
-  NULL in the same migration. This is the one destructive step in the
-  sequence, which is exactly why it is last and separate.
+- [x] **2e. Rooms → catalogue-only: drop the legacy `Room.roomType` column** (2026-09-02)
+  The last step of the RoomType sequence, and the one destructive one.
+  Reframed after research + data inspection: benchmarking Mews/Cloudbeds/
+  Stayntouch confirmed every commercial PMS assigns rooms a type from a
+  managed catalogue — free text does not exist — so 2e's true shape was
+  "finish the catalogue-only transition", not "run a migration". Product
+  decision (catalogue-only) taken with the human before implementation.
 
-  **Blocked as of 2026-09-02 — precondition objectively unmet, verified
-  empirically, not assumed (see DECISIONS.md):**
-  1. *Code still reads the legacy column.* The rooms list search filters on
-     `roomType` (`rooms/repository.ts`), both room audit entries record it,
-     the room diff tracks it, and the whole label-derivation layer
-     (`resolveRoomTypeName`/`resolveCreateInput`/`resolveUpdateInput`)
-     exists to keep it in sync. Removing the column is a Backend slice, not
-     a one-file migration.
-  2. *Data isn't ready for NOT NULL.* 455 of 1,573 rooms have
-     `roomTypeId = NULL` (counted against the live DB). `SET NOT NULL` would
-     fail on them; a backfill/reassignment step and a product decision for
-     never-matched free-text types are both prerequisites.
+  **Backend.** `createRoomSchema`/`updateRoomSchema` now take a required
+  `roomTypeId` (uuid) and no free-text field. The rooms repository search
+  spans the *related* type's name and code; the service validates the id
+  against the room's own property inside the write transaction (same 404
+  semantics — a cross-property or cross-tenant type is indistinguishable
+  from a nonexistent one); the response embeds `roomType: { id, name,
+  code }`; audit records the type id + name (name captured so a later
+  rename doesn't rewrite history). Label-derivation machinery removed
+  entirely.
 
-  Re-scoped from "run a migration" to its true shape: **Backend
-  migration-off-legacy-column slice → data backfill → then the destructive
-  DDL**, each sequenced and approved on its own. Awaiting Orchestrator/human
-  direction before any of that begins.
+  **Frontend.** `RoomDialog` is a required room-type picker. When the
+  property has no active types, create is blocked with an empty state that
+  links to the catalogue rather than showing an unsubmittable form — the
+  same "set up types before rooms" flow real PMS enforce. `RoomsPage`
+  shows `Name (CODE)`.
+
+  **Migrations — expand→contract, destructive step isolated and last.**
+  `20260902000100_rooms_backfill_types` (safe: backfilled 501 orphaned
+  rooms into the catalogue, linked them, relaxed the old NOT NULL) applied
+  and verified first (501 → 0 orphans on real PostgreSQL 16). Then, with
+  explicit human approval, `20260902000200_rooms_catalogue_only`
+  (destructive: `roomTypeId` SET NOT NULL, FK → RESTRICT, DROP COLUMN
+  `room_type`) applied. FK is RESTRICT so a type assigned to rooms can't
+  be deleted — the DB backstop for the existing 409.
+
+  Verified: `npm run typecheck && lint && build && test` green both
+  workspaces. Backend 208/208 across 15 files (rewrote rooms/rooms-room-
+  types tests for the catalogue-only contract; updated rooms creation in
+  properties/authorization/tenant-isolation/audit-transactional; new
+  whole-table integrity + column-dropped assertions). Frontend 131/131.
+  Migration state clean (`prisma migrate status`). Every step run against
+  the real PostgreSQL 16 on localhost:5432. See DECISIONS.md.
 
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Modal } from '../../components/Modal';
 import { ApiError } from '../../lib/api';
@@ -6,9 +7,6 @@ import { listRoomTypes } from '../room-types/api';
 import type { RoomType } from '../room-types/types';
 import { createRoom, updateRoom } from './api';
 import { ROOM_STATUSES, ROOM_STATUS_LABEL, type Room, type RoomStatus } from './types';
-
-/** Sentinel for "no structured type — I'll type the label myself". */
-const CUSTOM = '';
 
 interface RoomDialogProps {
   propertyId: string;
@@ -21,7 +19,6 @@ interface RoomDialogProps {
 interface FormState {
   name: string;
   roomTypeId: string;
-  roomType: string;
   floor: string;
   capacity: string;
   status: RoomStatus;
@@ -31,8 +28,7 @@ interface FormState {
 function initialState(room: Room | null): FormState {
   return {
     name: room?.name ?? '',
-    roomTypeId: room?.roomTypeId ?? CUSTOM,
-    roomType: room?.roomType ?? '',
+    roomTypeId: room?.roomTypeId ?? '',
     floor: room?.floor ?? '',
     // Kept as a string so the input can be cleared while typing; parsed on submit.
     capacity: String(room?.capacity ?? 1),
@@ -44,8 +40,7 @@ function initialState(room: Room | null): FormState {
 function validate(form: FormState): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!form.name.trim()) errors.name = 'Room name is required.';
-  // Either form satisfies the API: a chosen type, or a typed-in label.
-  if (form.roomTypeId === CUSTOM && !form.roomType.trim()) errors.roomType = 'Room type is required.';
+  if (!form.roomTypeId) errors.roomTypeId = 'Choose a room type.';
 
   const capacity = Number(form.capacity);
   if (!Number.isInteger(capacity) || capacity < 1 || capacity > 50) {
@@ -62,21 +57,25 @@ export function RoomDialog({ propertyId, room, onClose, onSaved }: RoomDialogPro
   const [saving, setSaving] = useState(false);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(true);
+  const [typesFailed, setTypesFailed] = useState(false);
 
   /**
-   * The catalogue is a convenience, never a gate: if it fails to load, or
-   * the property has no types configured yet, the dialog falls back to the
-   * free-text field that has always been here. A room must stay creatable
-   * even when this request doesn't come back.
+   * A room must be assigned a type from the property's catalogue, so the
+   * catalogue is loaded up front. Active types only — a retired type is
+   * not offered for new assignment, though a room already on one keeps it
+   * (added to the options below so editing an existing room never silently
+   * drops its type).
    */
   useEffect(() => {
     let cancelled = false;
+    setLoadingTypes(true);
+    setTypesFailed(false);
     listRoomTypes(propertyId, { status: 'ACTIVE', pageSize: 100 })
       .then((result) => {
         if (!cancelled) setRoomTypes(result.roomTypes ?? []);
       })
       .catch(() => {
-        if (!cancelled) setRoomTypes([]);
+        if (!cancelled) setTypesFailed(true);
       })
       .finally(() => {
         if (!cancelled) setLoadingTypes(false);
@@ -86,11 +85,11 @@ export function RoomDialog({ propertyId, room, onClose, onSaved }: RoomDialogPro
     };
   }, [propertyId]);
 
-  // A room already linked to a retired type still shows it, rather than
-  // silently resetting the field to "custom" when the dialog opens.
+  // A room already linked to a retired (or otherwise unlisted) type keeps
+  // showing it rather than resetting the field when the dialog opens.
   const options =
     room?.roomTypeId && !roomTypes.some((type) => type.id === room.roomTypeId)
-      ? [...roomTypes, { id: room.roomTypeId, name: room.roomType } as RoomType]
+      ? [{ id: room.roomTypeId, name: room.roomType.name, code: room.roomType.code } as RoomType, ...roomTypes]
       : roomTypes;
   const hasCatalogue = options.length > 0;
 
@@ -110,17 +109,9 @@ export function RoomDialog({ propertyId, room, onClose, onSaved }: RoomDialogPro
     }
 
     const optional = (value: string) => (value.trim() === '' ? undefined : value.trim());
-    // Exactly one of the two is sent. With a type chosen the server
-    // derives the legacy label from it, which is what keeps the two
-    // representations from drifting apart during the transition.
-    const typeFields =
-      form.roomTypeId === CUSTOM
-        ? { roomType: form.roomType.trim(), roomTypeId: null }
-        : { roomTypeId: form.roomTypeId };
-
     const payload = {
       name: form.name.trim(),
-      ...typeFields,
+      roomTypeId: form.roomTypeId,
       floor: optional(form.floor),
       capacity: Number(form.capacity),
       status: form.status,
@@ -155,161 +146,170 @@ export function RoomDialog({ propertyId, room, onClose, onSaved }: RoomDialogPro
     }
   }
 
+  // Create is blocked with a helpful empty state when the property has no
+  // room types yet: a room can't exist without one, so we point the user
+  // at the catalogue rather than showing a form they can't submit. Editing
+  // an existing room always has at least that room's own type to show.
+  const blockedNoTypes = isCreate && !loadingTypes && !typesFailed && !hasCatalogue;
+
   return (
     <Modal
       title={isCreate ? 'Add room' : `Room ${room.name}`}
-      description={isCreate ? 'A bookable unit at this property.' : room.roomType}
+      description={isCreate ? 'A bookable unit at this property.' : room.roomType.name}
       size="wide"
       onClose={onClose}
       footer={
-        <>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
-            Cancel
+        blockedNoTypes ? (
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Close
           </button>
-          <button type="submit" form="room-form" className="btn btn-primary" disabled={saving}>
-            {saving ? 'Saving…' : isCreate ? 'Add room' : 'Save changes'}
-          </button>
-        </>
+        ) : (
+          <>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="room-form"
+              className="btn btn-primary"
+              disabled={saving || loadingTypes || typesFailed}
+            >
+              {saving ? 'Saving…' : isCreate ? 'Add room' : 'Save changes'}
+            </button>
+          </>
+        )
       }
     >
-      <form id="room-form" className="room-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
-        {error && (
-          <p className="page-error" role="alert">
-            {error}
+      {blockedNoTypes ? (
+        <div className="empty-state" role="status">
+          <p className="empty-state-title">No room types yet</p>
+          <p className="empty-state-body">
+            Every room belongs to a room type, so add at least one before creating rooms.
           </p>
-        )}
+          <Link className="btn btn-primary" to={`/app/properties/${propertyId}/room-types`}>
+            Manage room types
+          </Link>
+        </div>
+      ) : (
+        <form id="room-form" className="room-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+          {error && (
+            <p className="page-error" role="alert">
+              {error}
+            </p>
+          )}
+          {typesFailed && (
+            <p className="page-error" role="alert">
+              Could not load room types. Close and try again.
+            </p>
+          )}
 
-        <div className="field-grid">
-          <div className="field">
-            <label htmlFor="room-name">Name</label>
-            <input
-              id="room-name"
-              value={form.name}
-              onChange={(event) => update('name', event.target.value)}
-              disabled={saving}
-              aria-invalid={Boolean(fieldErrors.name)}
-              aria-describedby="room-name-hint"
-            />
-            {fieldErrors.name ? (
-              <span className="field-error">{fieldErrors.name}</span>
-            ) : (
-              <span id="room-name-hint" className="field-hint">
-                e.g. 101, or Suite A. Unique within this property.
-              </span>
-            )}
-          </div>
-
-          <div className="field">
-            <label htmlFor={hasCatalogue ? 'room-type-select' : 'room-type'}>Room type</label>
-            {hasCatalogue ? (
-              <>
-                <select
-                  id="room-type-select"
-                  value={form.roomTypeId}
-                  onChange={(event) => update('roomTypeId', event.target.value)}
-                  disabled={saving}
-                  aria-describedby="room-type-hint"
-                >
-                  {options.map((type) => (
-                    <option key={type.id} value={type.id}>
-                      {type.code ? `${type.name} (${type.code})` : type.name}
-                    </option>
-                  ))}
-                  <option value={CUSTOM}>Other — enter manually</option>
-                </select>
-                {form.roomTypeId === CUSTOM && (
-                  <input
-                    id="room-type"
-                    aria-label="Room type label"
-                    placeholder="e.g. Deluxe King"
-                    value={form.roomType}
-                    onChange={(event) => update('roomType', event.target.value)}
-                    disabled={saving}
-                    aria-invalid={Boolean(fieldErrors.roomType)}
-                  />
-                )}
-                <span id="room-type-hint" className="field-hint">
-                  {form.roomTypeId === CUSTOM
-                    ? 'Not in the catalogue yet — this stays free text.'
-                    : "The property's room-type catalogue."}
-                </span>
-              </>
-            ) : (
+          <div className="field-grid">
+            <div className="field">
+              <label htmlFor="room-name">Name</label>
               <input
-                id="room-type"
-                value={form.roomType}
-                onChange={(event) => update('roomType', event.target.value)}
+                id="room-name"
+                value={form.name}
+                onChange={(event) => update('name', event.target.value)}
                 disabled={saving}
-                aria-invalid={Boolean(fieldErrors.roomType)}
-                aria-describedby={loadingTypes ? 'room-type-hint' : undefined}
+                aria-invalid={Boolean(fieldErrors.name)}
+                aria-describedby="room-name-hint"
               />
-            )}
-            {fieldErrors.roomType && <span className="field-error">{fieldErrors.roomType}</span>}
-            {!hasCatalogue && loadingTypes && (
-              <span id="room-type-hint" className="field-hint">
-                Loading room types…
-              </span>
-            )}
-          </div>
-        </div>
+              {fieldErrors.name ? (
+                <span className="field-error">{fieldErrors.name}</span>
+              ) : (
+                <span id="room-name-hint" className="field-hint">
+                  e.g. 101, or Suite A. Unique within this property.
+                </span>
+              )}
+            </div>
 
-        <div className="field-grid">
+            <div className="field">
+              <label htmlFor="room-type-select">Room type</label>
+              <select
+                id="room-type-select"
+                value={form.roomTypeId}
+                onChange={(event) => update('roomTypeId', event.target.value)}
+                disabled={saving || loadingTypes}
+                aria-invalid={Boolean(fieldErrors.roomTypeId)}
+                aria-describedby="room-type-hint"
+              >
+                <option value="" disabled>
+                  {loadingTypes ? 'Loading…' : 'Select a room type'}
+                </option>
+                {options.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.code ? `${type.name} (${type.code})` : type.name}
+                  </option>
+                ))}
+              </select>
+              {fieldErrors.roomTypeId ? (
+                <span className="field-error">{fieldErrors.roomTypeId}</span>
+              ) : (
+                <span id="room-type-hint" className="field-hint">
+                  From this property's room-type catalogue.
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="field-grid">
+            <div className="field">
+              <label htmlFor="room-floor">Floor</label>
+              <input
+                id="room-floor"
+                value={form.floor}
+                onChange={(event) => update('floor', event.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="room-capacity">Capacity</label>
+              <input
+                id="room-capacity"
+                type="number"
+                min={1}
+                max={50}
+                value={form.capacity}
+                onChange={(event) => update('capacity', event.target.value)}
+                disabled={saving}
+                aria-invalid={Boolean(fieldErrors.capacity)}
+              />
+              {fieldErrors.capacity && <span className="field-error">{fieldErrors.capacity}</span>}
+            </div>
+          </div>
+
           <div className="field">
-            <label htmlFor="room-floor">Floor</label>
+            <label htmlFor="room-status">Status</label>
+            <select
+              id="room-status"
+              value={form.status}
+              onChange={(event) => update('status', event.target.value as RoomStatus)}
+              disabled={saving}
+              aria-describedby="room-status-hint"
+            >
+              {ROOM_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {ROOM_STATUS_LABEL[status]}
+                </option>
+              ))}
+            </select>
+            <span id="room-status-hint" className="field-hint">
+              Operational state only — this is not occupancy.
+            </span>
+          </div>
+
+          <div className="field">
+            <label htmlFor="room-notes">Notes</label>
             <input
-              id="room-floor"
-              value={form.floor}
-              onChange={(event) => update('floor', event.target.value)}
+              id="room-notes"
+              value={form.notes}
+              onChange={(event) => update('notes', event.target.value)}
               disabled={saving}
             />
           </div>
-
-          <div className="field">
-            <label htmlFor="room-capacity">Capacity</label>
-            <input
-              id="room-capacity"
-              type="number"
-              min={1}
-              max={50}
-              value={form.capacity}
-              onChange={(event) => update('capacity', event.target.value)}
-              disabled={saving}
-              aria-invalid={Boolean(fieldErrors.capacity)}
-            />
-            {fieldErrors.capacity && <span className="field-error">{fieldErrors.capacity}</span>}
-          </div>
-        </div>
-
-        <div className="field">
-          <label htmlFor="room-status">Status</label>
-          <select
-            id="room-status"
-            value={form.status}
-            onChange={(event) => update('status', event.target.value as RoomStatus)}
-            disabled={saving}
-            aria-describedby="room-status-hint"
-          >
-            {ROOM_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {ROOM_STATUS_LABEL[status]}
-              </option>
-            ))}
-          </select>
-          <span id="room-status-hint" className="field-hint">
-            Operational state only — this is not occupancy.
-          </span>
-        </div>
-
-        <div className="field">
-          <label htmlFor="room-notes">Notes</label>
-          <input
-            id="room-notes"
-            value={form.notes}
-            onChange={(event) => update('notes', event.target.value)}
-            disabled={saving}
-          />
-        </div>
-      </form>
+        </form>
+      )}
     </Modal>
   );
 }

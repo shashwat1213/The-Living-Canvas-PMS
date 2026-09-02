@@ -2111,3 +2111,86 @@ above and is re-scoped from "run a migration" to its true shape: a Backend
 migration-off-legacy-column slice → data backfill → then the destructive
 DDL, each sequenced and approved on its own. Recorded here so the next
 session doesn't rediscover the 455-row wall the hard way.
+
+## 2026-09-02 — Rooms become catalogue-only (task 2e, executed)
+
+The follow-on to the entry above: the blocked 2e was picked up, researched,
+implemented, and its destructive step applied with human approval.
+
+### Decision 1 — catalogue-only, because that is what a PMS is
+
+Benchmarked the leading products before choosing. Stayntouch's own setup
+docs, and the Mews/Cloudbeds model, are unanimous: a room is assigned a
+room type from a managed catalogue (a dropdown), and rates, availability
+and channel-manager distribution all map 1:1 to that type. Free-text room
+category does not exist in a serious PMS — it's a foundation crack that
+makes rate plans and availability impossible to attach. So the free-text
+`Room.roomType` was not just dropped; the model was completed to
+catalogue-only, and `roomTypeId` was made **required**. The human approved
+this product direction (Plan A of four) before any code was written.
+
+### Decision 2 — the 501-orphan reality, and a deterministic backfill
+
+The working database had 1625 rooms, 501 with `roomTypeId = NULL` — rooms
+created through the legacy free-text path (mostly by the integration suite,
+which itself used that path). Their labels did *not* match existing types
+(491/501, 414 distinct pairs), because creating a room never created a
+catalogue entry. The backfill is deterministic and invents nothing: for
+each `(property, label)` pair with unlinked rooms and no matching type, it
+creates the type, then links the rooms. Casing is preserved — "Suite" and
+"suite" stay distinct, matching the `@@unique([property_id, name])` rule.
+
+### Decision 3 — expand→contract, so the irreversible step stands alone
+
+Two migrations, not one. `20260902000100_rooms_backfill_types` is safe and
+non-destructive (backfill + link + relax the old NOT NULL); it was applied
+and verified first (501 → 0 orphans) against the real Postgres. Only then,
+as a separate migration and with explicit human go/no-go,
+`20260902000200_rooms_catalogue_only` did the irreversible work:
+`roomTypeId` SET NOT NULL, FK switched `SET NULL` → `RESTRICT`, and
+`DROP COLUMN room_type`. Splitting them means the destructive DDL is
+isolated, ordered last, and the safe half is provable in production before
+the point of no return — the pattern any future destructive migration in
+this project should copy.
+
+### Decision 4 — FK is RESTRICT, and the response embeds the type
+
+The old FK was `SET NULL` (a room could lose its type). With `roomTypeId`
+now required, that is incoherent, so the FK is `ON DELETE RESTRICT`: the
+database now *enforces* the rule the room-types service already returned a
+409 for (can't delete a type still assigned to rooms) — defence in depth,
+not either/or. Retiring the type (`is_active = false`) stays the intended
+path. The rooms API response now returns `roomType: { id, name, code }`
+embedded rather than a free-text string: it's the shape rates/availability
+will consume, and a type rename reflects on every room with no second
+write. Audit records the type id *and* its name at the time, so a later
+rename doesn't rewrite history.
+
+### Decision 5 — UI blocks room creation when no types exist
+
+`RoomDialog` no longer has a free-text escape hatch. If a property has no
+active room types, create is blocked with an empty state linking to the
+catalogue ("add at least one room type first"), rather than presenting a
+form that can't be submitted — the same setup order (types before rooms)
+that Stayntouch and Mews enforce. Editing an existing room always has at
+least that room's own type to show, including a retired one, so a room
+never silently loses its type when the dialog opens.
+
+**Verification.** Every step ran against the real PostgreSQL 16 on
+localhost:5432 (not a WASM stand-in). Backend 208/208 across 15 files;
+frontend 131/131; typecheck/lint/build green both workspaces;
+`prisma migrate status` clean. The rooms and rooms↔room-types suites were
+rewritten for the catalogue-only contract; rooms-creating tests in
+properties, authorization, tenant-isolation and audit-transactional were
+updated to seed a type first; new standing assertions cover whole-table
+FK integrity, zero untyped rooms, and that the legacy column is gone
+(scoped to `current_schema()` — the shadow database keeps its own copy).
+
+**One gotcha worth recording.** An unscoped `information_schema.columns`
+query counts Prisma's `public_shadow` (migration-diff) schema as well as
+`public`, so a "column no longer exists" assertion must filter on
+`table_schema = current_schema()` or it reports a false positive.
+Likewise, the regenerated client rejects `where: { roomTypeId: null }` at
+runtime now that the field is non-null — a whole-table null check has to
+drop to raw SQL.
+
