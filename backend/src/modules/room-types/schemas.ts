@@ -25,7 +25,21 @@ export const createRoomTypeSchema = z.object({
 
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>;
 
+/**
+ * Update differs from create in one way: `code` and `description` accept
+ * `null`, not just a value or absence. `create` has nothing to clear, so
+ * there both stay `.optional()` only — but once set, the sole way to
+ * remove a code or description is to send `null` explicitly, and a schema
+ * that rejected it (2d's limitation) left those fields write-once. The DB
+ * columns are already nullable; this is the validation half of allowing a
+ * clear. An omitted key still means "leave unchanged"; `null` means
+ * "clear it".
+ */
 export const updateRoomTypeSchema = createRoomTypeSchema
+  .extend({
+    code: roomTypeCode.nullable(),
+    description: z.string().trim().max(1000).nullable(),
+  })
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: 'Provide at least one field to update.' });
 

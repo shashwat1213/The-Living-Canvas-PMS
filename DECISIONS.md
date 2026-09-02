@@ -2037,3 +2037,77 @@ One real defect was found by these tests rather than in review: the
 delete-conflict path set the error banner and then called `load()`, whose
 success handler clears it, so a 409 rendered as nothing at all. The
 reload now runs first and the message is set after it.
+
+## 2026-09-02 — Clearing a room type's code/description, and why 2e is still blocked
+
+Two board items were picked up this session: the Backend follow-up under
+task 2d, and task 2e. The first shipped; the second is deliberately *not*
+started, because its own stated precondition is unmet. Both decisions are
+recorded here.
+
+### Decision 1 — `code` and `description` become clearable via `null`
+
+2d surfaced that `updateRoomTypeSchema` made both fields `.optional()`
+only, so `null` was rejected and there was no way to remove a code or a
+description once set — write-once fields the UI had to apologise for. The
+DB columns were already nullable (`String?` in `schema.prisma`, unchanged
+since 2a), so this was purely the validation half.
+
+`updateRoomTypeSchema` now `.extend()`s `code` and `description` to
+`.nullable()` before `.partial()`, so three states are distinguishable
+and each means what a caller expects: key omitted → leave unchanged; a
+value → set it; `null` → clear it. `create` is untouched — there is
+nothing to clear on a new row, so its fields stay `.optional()` only. The
+existing diff/audit path already treated a value→null transition as a real
+change, so a clear is audited as `{ from: 'CLR', to: null }` with no extra
+code. `assertNameAndCodeFree`'s input type widened to `code?: string |
+null`; its `if (input.code)` guard already skips a null (falsy) code, which
+is correct — a cleared code can't collide with anything.
+
+**Scope discipline.** This touched only `modules/room-types/` and its test
+— no rooms, properties, tenancy or audit file was modified, matching the
+Backend follow-up's narrow ownership.
+
+**Verification — against real PostgreSQL, not a stand-in.** Unlike 2d
+(authored where Docker was unreachable), this session had a live
+PostgreSQL 16 on `localhost:5432` with all five migrations already applied
+(`prisma migrate status` clean). Backend 207/207 across 15 files, up from
+206 — one new test asserting a create-then-clear round-trip: the PATCH
+returns null for both fields, a re-read confirms it persisted (not just
+echoed), the audit entry records both value→null transitions, and an
+omitted key left `name` untouched. typecheck, lint and build all pass.
+Frontend re-verified unaffected at 132/132 (no frontend file changed; the
+UI already sends the values and can now stop stating the limit — a
+follow-up UI polish, not required for correctness).
+
+### Decision 2 — task 2e (drop legacy `Room.roomType`) is NOT started: precondition unmet
+
+2e's board text gates it explicitly: *"Only after 2c and 2d ship and no
+code reads it… make `roomTypeId` NOT NULL."* Both halves of that gate are
+objectively false today, so running the migration now would be wrong on
+two independent grounds — this was checked empirically, not assumed:
+
+1. **Code still reads and writes the legacy column.** The rooms list
+   search filters on `roomType` (`rooms/repository.ts` `buildWhere`), both
+   room audit entries record it (`rooms/service.ts` create/delete
+   metadata), the room diff tracks it, and the entire label-derivation
+   layer (`resolveRoomTypeName` / `resolveCreateInput` /
+   `resolveUpdateInput`) exists precisely to keep that column in step with
+   the relation. Dropping the column is a Backend slice — strip those
+   reads, move search onto the relation, decide what audit records instead
+   — not a one-file migration.
+
+2. **The data isn't ready for NOT NULL.** A direct count against the live
+   DB: 455 of 1,573 rooms have `roomTypeId = NULL` (rooms created via
+   free-text `roomType` with no link). `SET NOT NULL` would fail on those
+   455 rows. 2e therefore also needs a backfill/reassignment step that
+   doesn't exist yet, and a product decision for rooms whose free-text
+   type never matched a catalogue entry.
+
+2e is the one destructive, irreversible step in the RoomType sequence
+(column drop + NOT NULL). With its precondition unmet, forcing it would be
+both premature and unsafe, so it stays `[ ]` with the real blockers named
+above and is re-scoped from "run a migration" to its true shape: a Backend
+migration-off-legacy-column slice → data backfill → then the destructive
+DDL, each sequenced and approved on its own. Recorded here so the next
+session doesn't rediscover the 455-row wall the hard way.

@@ -294,3 +294,53 @@ describe('room-type mutations are audited', () => {
     });
   });
 });
+
+describe('a room type code and description can be cleared', () => {
+  it('accepts null to remove a previously-set code and description, and audits the clear', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const propertyId = await createProperty(token);
+
+    const created = await request(app)
+      .post(`/api/v1/properties/${propertyId}/room-types`)
+      .set(...auth)
+      .send({ name: 'Clearable', code: 'CLR', description: 'Has both fields set.' });
+    expect(created.status).toBe(201);
+    const roomTypeId = created.body.roomType.id as string;
+    expect(created.body.roomType.code).toBe('CLR');
+    expect(created.body.roomType.description).toBe('Has both fields set.');
+
+    // Null explicitly clears; the DB columns are nullable and the update
+    // schema now accepts it (2d's follow-up).
+    const cleared = await request(app)
+      .patch(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}`)
+      .set(...auth)
+      .send({ code: null, description: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.roomType.code).toBeNull();
+    expect(cleared.body.roomType.description).toBeNull();
+
+    // Persisted, not just echoed.
+    const reread = await request(app)
+      .get(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}`)
+      .set(...auth);
+    expect(reread.body.roomType.code).toBeNull();
+    expect(reread.body.roomType.description).toBeNull();
+
+    // The clear is a real change, so it is audited as one.
+    const trail = await request(app)
+      .get(`/api/v1/audit-logs?entityId=${roomTypeId}&pageSize=50`)
+      .set(...auth);
+    const update = (trail.body.auditLogs as { action: string; metadata: Record<string, unknown> }[]).find(
+      (entry) => entry.action === 'room_type.updated',
+    );
+    expect(update?.metadata.changed).toMatchObject({
+      code: { from: 'CLR', to: null },
+      description: { from: 'Has both fields set.', to: null },
+    });
+
+    // An omitted key still means "leave unchanged" — clearing code must
+    // not have wiped the name.
+    expect(reread.body.roomType.name).toBe('Clearable');
+  });
+});

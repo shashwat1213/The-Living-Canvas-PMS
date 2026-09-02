@@ -51,7 +51,7 @@ function diffRoomType(before: RoomType, after: RoomType): Record<string, FieldCh
  */
 async function assertNameAndCodeFree(
   propertyId: string,
-  input: { name?: string; code?: string },
+  input: { name?: string; code?: string | null },
   excludingId?: string,
 ): Promise<void> {
   if (input.name) {

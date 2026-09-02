@@ -706,18 +706,46 @@ done; **nothing below it has been started.**
   banner before a reload that clears it, so a 409 rendered as nothing.
   See DECISIONS.md.
 
-- [ ] **Backend — allow clearing a room type's `code` and `description`**
-  Follow-up owned by Backend, surfaced by 2d. `updateRoomTypeSchema` makes
-  both `.optional()`, so `null` is rejected and there is no way to remove
-  a code or description once set. `.nullable()` on both (with the
-  repository writing `null` through) closes it. Outside 2d's ownership
-  scope, so it was reported rather than reached across; the UI states the
-  limit honestly in the meantime.
+- [x] **Backend — allow clearing a room type's `code` and `description`** (2026-09-02)
+  Follow-up owned by Backend, surfaced by 2d. `updateRoomTypeSchema` made
+  both `.optional()`, so `null` was rejected and there was no way to remove
+  a code or description once set. Now `.nullable()` on both (extended in
+  before `.partial()`), so an omitted key leaves a field unchanged, a value
+  sets it, and `null` clears it. `create` is untouched (nothing to clear on
+  a new row). The DB columns were already nullable since 2a, so this was
+  the validation half only; the existing diff/audit path records a
+  value→null clear as a real change with no extra code.
+
+  Verified — against **real PostgreSQL 16** this time (a live DB was
+  reachable on `localhost:5432`, unlike 2d's sandbox), `prisma migrate
+  status` clean. Backend 207/207 across 15 files (was 206 — 1 new: a
+  create-then-clear round-trip proving the PATCH persists null, audits both
+  transitions, and leaves an omitted `name` untouched). typecheck/lint/
+  build pass. Frontend 132/132 unchanged (no frontend file touched). Scope
+  stayed inside `modules/room-types/`. See DECISIONS.md.
 
 - [ ] **2e. Database — drop the legacy `Room.roomType` column**
   Only after 2c and 2d ship and no code reads it. Make `roomTypeId` NOT
   NULL in the same migration. This is the one destructive step in the
   sequence, which is exactly why it is last and separate.
+
+  **Blocked as of 2026-09-02 — precondition objectively unmet, verified
+  empirically, not assumed (see DECISIONS.md):**
+  1. *Code still reads the legacy column.* The rooms list search filters on
+     `roomType` (`rooms/repository.ts`), both room audit entries record it,
+     the room diff tracks it, and the whole label-derivation layer
+     (`resolveRoomTypeName`/`resolveCreateInput`/`resolveUpdateInput`)
+     exists to keep it in sync. Removing the column is a Backend slice, not
+     a one-file migration.
+  2. *Data isn't ready for NOT NULL.* 455 of 1,573 rooms have
+     `roomTypeId = NULL` (counted against the live DB). `SET NOT NULL` would
+     fail on them; a backfill/reassignment step and a product decision for
+     never-matched free-text types are both prerequisites.
+
+  Re-scoped from "run a migration" to its true shape: **Backend
+  migration-off-legacy-column slice → data backfill → then the destructive
+  DDL**, each sequenced and approved on its own. Awaiting Orchestrator/human
+  direction before any of that begins.
 
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
