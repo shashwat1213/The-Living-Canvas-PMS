@@ -1,0 +1,142 @@
+/*
+ * Folio (guest bill) dialog: charges/payments tables, balance, posting forms.
+ * Shared primitives live in components/ui.css; only folio-specific styling is
+ * here. Reuses the CSS variables the other feature files use.
+ */
+
+.folio {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.folio-loading,
+.folio-empty {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.folio-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.folio-section h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.4rem;
+}
+
+.folio-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.folio-table td,
+.folio-table th {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.folio-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.folio-table tfoot th,
+.folio-table tfoot td {
+  border-bottom: none;
+  border-top: 2px solid var(--border);
+  font-weight: 600;
+}
+
+.folio-muted {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+/* ---------- Balance banner ---------- */
+
+.folio-balance {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.folio-balance-amount {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.folio-settled {
+  background: var(--code-bg);
+  color: #15803d;
+}
+
+.folio-owing {
+  background: var(--code-bg);
+  color: #b91c1c;
+}
+
+.folio-credit {
+  background: var(--code-bg);
+  color: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .folio-settled {
+    color: #86efac;
+  }
+  .folio-owing {
+    color: #fca5a5;
+  }
+}
+
+/* ---------- Posting forms ---------- */
+
+.folio-forms {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+}
+
+.folio-form h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+}
+
+.folio-form-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.folio-form-row input,
+.folio-form-row select {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--social-bg);
+  color: var(--text-h);
+  font-size: 0.88rem;
+}
+
+.folio-form-row button {
+  flex: 0 0 auto;
+}

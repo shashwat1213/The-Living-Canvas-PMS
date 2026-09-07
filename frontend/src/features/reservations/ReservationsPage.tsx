@@ -14,6 +14,7 @@ import type { Property } from '../properties/types';
 import { formatMinor } from '../rate-plans/money';
 import { BookingDialog } from './BookingDialog';
 import { AssignRoomDialog } from './AssignRoomDialog';
+import { FolioDialog } from '../folios/FolioDialog';
 import { cancelReservation, checkOut, listReservations, markNoShow } from './api';
 import { ReservationDetailDialog } from './ReservationDetailDialog';
 import {
@@ -69,9 +70,12 @@ export function ReservationsPage() {
   /** Open the room picker for either a bare assignment or a check-in. */
   const [assignTarget, setAssignTarget] = useState<{ reservation: ReservationListRow; mode: 'assign' | 'check-in' } | null>(null);
   const [checkOutTarget, setCheckOutTarget] = useState<ReservationListRow | null>(null);
+  const [folioTarget, setFolioTarget] = useState<ReservationListRow | null>(null);
 
   const mayRead = hasPermission(session, 'reservations:read');
   const mayManage = hasPermission(session, 'reservations:manage');
+  const mayReadFolio = hasPermission(session, 'payments:read');
+  const mayManageFolio = hasPermission(session, 'payments:manage');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -252,6 +256,11 @@ export function ReservationsPage() {
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetailId(r.id)}>
             View
           </button>
+          {mayReadFolio && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFolioTarget(r)}>
+              Folio
+            </button>
+          )}
           {mayManage && canCheckIn(r.status) && (
             <button
               type="button"
@@ -447,6 +456,16 @@ export function ReservationsPage() {
           busy={working}
           onConfirm={() => void confirmCheckOut()}
           onCancel={() => setCheckOutTarget(null)}
+        />
+      )}
+
+      {folioTarget && propertyId && (
+        <FolioDialog
+          propertyId={propertyId}
+          reservationId={folioTarget.id}
+          reference={folioTarget.reference}
+          mayManage={mayManageFolio}
+          onClose={() => setFolioTarget(null)}
         />
       )}
 
