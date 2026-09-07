@@ -6,6 +6,7 @@ import { AuditPage } from './features/audit/AuditPage';
 import { AvailabilityPage } from './features/availability/AvailabilityPage';
 import { GuestsPage } from './features/guests/GuestsPage';
 import { HousekeepingPage } from './features/housekeeping/HousekeepingPage';
+import { MaintenancePage } from './features/maintenance/MaintenancePage';
 import { PropertiesPage } from './features/properties/PropertiesPage';
 import { RatePlansPage } from './features/rate-plans/RatePlansPage';
 import { ReservationsPage } from './features/reservations/ReservationsPage';
@@ -37,6 +38,7 @@ export function AppRouter() {
         <Route path="properties/:propertyId/reservations" element={<ReservationsPage />} />
         <Route path="properties/:propertyId/availability" element={<AvailabilityPage />} />
         <Route path="properties/:propertyId/housekeeping" element={<HousekeepingPage />} />
+        <Route path="properties/:propertyId/maintenance" element={<MaintenancePage />} />
         <Route path="properties/:propertyId/room-types" element={<RoomTypesPage />} />
         <Route path="properties/:propertyId/room-types/:roomTypeId/rate-plans" element={<RatePlansPage />} />
         <Route path="guests" element={<GuestsPage />} />
