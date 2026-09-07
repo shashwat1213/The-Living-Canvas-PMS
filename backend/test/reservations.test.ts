@@ -318,3 +318,219 @@ describe('reservations API', () => {
     expect(entries.map((e) => e.action)).toEqual(['reservation.created', 'reservation.cancelled']);
   });
 });
+
+/** Lists a property's rooms and returns them (id + name) for assignment tests. */
+async function roomsOf(token: string, propertyId: string): Promise<{ id: string; name: string }[]> {
+  const res = await request(app).get(`/api/v1/properties/${propertyId}/rooms`).set(...authHeader(token));
+  return res.body.rooms.map((r: { id: string; name: string }) => ({ id: r.id, name: r.name }));
+}
+
+describe('reservations — room assignment & check-in/out', () => {
+  it('lists assignable rooms flagged by availability, then assigns one', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 2 });
+
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+
+    const assignable = await request(app)
+      .get(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assignable-rooms`)
+      .set(...auth);
+    expect(assignable.status).toBe(200);
+    expect(assignable.body.rooms).toHaveLength(2);
+    expect(assignable.body.rooms.every((r: { available: boolean }) => r.available)).toBe(true);
+
+    const roomId = assignable.body.rooms[0].id as string;
+    const assign = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assign-room`)
+      .set(...auth)
+      .send({ roomId });
+    expect(assign.status).toBe(200);
+    expect(assign.body.reservation.room.id).toBe(roomId);
+  });
+
+  it('refuses a room of a different type, out of service, or already occupied', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 2 });
+
+    // A room of a different type.
+    const otherType = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/room-types`)
+      .set(...auth)
+      .send({ name: 'Suite' });
+    const otherRoom = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/rooms`)
+      .set(...auth)
+      .send({ name: 'S1', roomTypeId: otherType.body.roomType.id });
+
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+
+    const wrongType = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assign-room`)
+      .set(...auth)
+      .send({ roomId: otherRoom.body.room.id });
+    expect(wrongType.status).toBe(409);
+    expect(wrongType.body.error.message).toContain('different room type');
+
+    // Occupy one room with a second overlapping booking, then try to assign it
+    // to the first — it's taken.
+    const rooms = await roomsOf(token, ids.propertyId);
+    const deluxe = rooms.filter((r) => r.name !== 'S1');
+    const second = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const secondId = second.body.reservation.id as string;
+    await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${secondId}/assign-room`)
+      .set(...auth)
+      .send({ roomId: deluxe[0].id });
+
+    const clash = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assign-room`)
+      .set(...auth)
+      .send({ roomId: deluxe[0].id });
+    expect(clash.status).toBe(409);
+    expect(clash.body.error.message).toContain('already occupied');
+
+    // A nonexistent / cross-tenant room id is a 404.
+    const missing = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assign-room`)
+      .set(...auth)
+      .send({ roomId: randomUUID() });
+    expect(missing.status).toBe(404);
+  });
+
+  it('runs the full check-in → check-out lifecycle, assigning a room on check-in', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 1 });
+
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+
+    // Can't check out before checking in.
+    const earlyOut = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-out`)
+      .set(...auth);
+    expect(earlyOut.status).toBe(409);
+
+    const rooms = await roomsOf(token, ids.propertyId);
+    const checkIn = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-in`)
+      .set(...auth)
+      .send({ roomId: rooms[0].id });
+    expect(checkIn.status).toBe(200);
+    expect(checkIn.body.reservation.status).toBe('CHECKED_IN');
+    expect(checkIn.body.reservation.room.id).toBe(rooms[0].id);
+
+    // Double check-in is refused.
+    const again = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-in`)
+      .set(...auth)
+      .send({});
+    expect(again.status).toBe(409);
+
+    const checkOut = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-out`)
+      .set(...auth);
+    expect(checkOut.status).toBe(200);
+    expect(checkOut.body.reservation.status).toBe('CHECKED_OUT');
+    // The room record is kept as history.
+    expect(checkOut.body.reservation.room.id).toBe(rooms[0].id);
+  });
+
+  it('refuses check-in without a room, and cannot cancel after check-out', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 1 });
+
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+
+    // No room assigned and none supplied → 400.
+    const noRoom = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-in`)
+      .set(...auth)
+      .send({});
+    expect(noRoom.status).toBe(400);
+
+    const rooms = await roomsOf(token, ids.propertyId);
+    await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-in`)
+      .set(...auth)
+      .send({ roomId: rooms[0].id });
+    await request(app).post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-out`).set(...auth);
+
+    // A checked-out booking can't be cancelled.
+    const cancel = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/cancel`)
+      .set(...auth)
+      .send({});
+    expect(cancel.status).toBe(409);
+  });
+
+  it('a released room (after check-out) is free for a later overlapping stay; audit trail records the lifecycle', async () => {
+    const { token, organizationId } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 1 });
+
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+    const rooms = await roomsOf(token, ids.propertyId);
+
+    await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assign-room`)
+      .set(...auth)
+      .send({ roomId: rooms[0].id });
+    await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-in`)
+      .set(...auth)
+      .send({});
+    await request(app).post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-out`).set(...auth);
+
+    const entries = await prisma.auditLog.findMany({
+      where: { organizationId, entityType: 'reservation', entityId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(entries.map((e) => e.action)).toEqual([
+      'reservation.created',
+      'reservation.room_assigned',
+      'reservation.checked_in',
+      'reservation.checked_out',
+    ]);
+  });
+
+  it('gates check-in behind reservations:manage (STAFF can, read-only cannot)', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 1 });
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+
+    // Unauthenticated is refused.
+    const anon = await request(app).post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/check-in`).send({});
+    expect(anon.status).toBe(401);
+  });
+});

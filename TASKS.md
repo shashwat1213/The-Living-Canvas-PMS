@@ -765,6 +765,51 @@ done; **nothing below it has been started.**
   Migration state clean (`prisma migrate status`). Every step run against
   the real PostgreSQL 16 on localhost:5432. See DECISIONS.md.
 
+## Phase 2 — Booking core (2026-09-07)
+
+- [x] **Rate plans, reservations & guests — backend + UI**
+  The booking core. Three domain modules on the established pattern
+  (scoped repository, service owning authz + audit, permission-guarded
+  routes; matching feature-module frontends). Rate plans (per RoomType) +
+  per-date rates in INR paise with bulk set/clear; org-scoped guest
+  profiles (delete blocked while a reservation references them);
+  reservations — availability-checked booking in one Serializable
+  transaction, price snapshotted per night, a no-write quote endpoint, and
+  cancel + no-show lifecycle. New permissions (`rate-plans:*`, `guests:*`,
+  `reservations:*`), audit actions, two tenancy relation-scoping helpers.
+  Migrations `20260904103803_rate_plans` and `20260904113021_reservations`
+  applied to real PostgreSQL 16. Reservations UI carries a live
+  server-priced availability + cost quote — the client never computes
+  money. Verified: typecheck/lint/build green; backend 240/240, frontend
+  150/150.
+
+- [x] **Check-in / check-out + room assignment** (2026-09-07)
+  Closes the gap that a booking held a room *type* but never a physical
+  room. No schema change — `Reservation.roomId` was nullable from the
+  start (the create-slice left it "a check-in-slice concern"). Adds
+  `POST /reservations/:id/{assign-room,check-in,check-out}` and
+  `GET /reservations/:id/assignable-rooms`, plus three audit actions
+  (`reservation.room_assigned/checked_in/checked_out`).
+
+  A room is assignable only if it exists at the property, is of the
+  booking's own room type, is ACTIVE, and is free for the whole stay (no
+  other occupying reservation overlaps it). Cross-property / cross-tenant
+  room ids are indistinguishable from nonexistent (404). Assignment and
+  check-in run Serializable so two clerks can't hand the same room to two
+  bookings. Lifecycle is guarded: only CONFIRMED checks in (room required,
+  assignable inline), only CHECKED_IN checks out; the room record is kept
+  as history. The assignable-rooms endpoint returns every ACTIVE room of
+  the type flagged free/occupied, so the picker shows the whole floor and
+  why a room is unavailable rather than a silently short list.
+
+  Verified against real PostgreSQL 16 (`prisma migrate status` clean).
+  Backend 246/246 (was 240 — 6 new: assign happy-path, wrong-type/occupied/
+  404 rejections, full check-in→check-out lifecycle, no-room-on-check-in,
+  released-room-reuse + audit-trail order, auth gating). Frontend 153/153
+  (was 150 — 3 new: lifecycle-correct action buttons, check-in via the
+  room picker asserting the POST body, occupied room non-selectable).
+  typecheck/lint/build green both workspaces. See DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the

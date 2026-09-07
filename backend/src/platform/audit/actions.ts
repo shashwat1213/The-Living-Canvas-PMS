@@ -63,6 +63,9 @@ export const AUDIT_ACTIONS = {
   RESERVATION_CREATED: 'reservation.created',
   RESERVATION_CANCELLED: 'reservation.cancelled',
   RESERVATION_NO_SHOW: 'reservation.no_show',
+  RESERVATION_ROOM_ASSIGNED: 'reservation.room_assigned',
+  RESERVATION_CHECKED_IN: 'reservation.checked_in',
+  RESERVATION_CHECKED_OUT: 'reservation.checked_out',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

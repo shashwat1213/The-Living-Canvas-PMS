@@ -71,6 +71,7 @@ function listPage(rows: ReservationListRow[], overrides: Partial<PageMeta> = {})
 
 function stubApi(options: {
   reservations?: ReservationListRow[];
+  assignableRooms?: { id: string; name: string; floor: string | null; available: boolean }[];
   onMutate?: (url: string, init?: RequestInit) => void;
 } = {}) {
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -78,6 +79,13 @@ function stubApi(options: {
     if (method !== 'GET') {
       options.onMutate?.(url, init);
       return Promise.resolve(jsonResponse({ reservation: reservation({ status: 'CANCELLED' }) }));
+    }
+    if (url.includes('/assignable-rooms')) {
+      return Promise.resolve(
+        jsonResponse({
+          rooms: options.assignableRooms ?? [{ id: 'room-1', name: '101', floor: '1', available: true }],
+        }),
+      );
     }
     if (url.includes('/reservations')) {
       return Promise.resolve(jsonResponse(listPage(options.reservations ?? [])));
@@ -177,5 +185,59 @@ describe('ReservationsPage', () => {
     await waitFor(() => {
       expect(cancelUrl).toContain(`/api/v1/properties/${PROPERTY_ID}/reservations/res-1/cancel`);
     });
+  });
+
+  it('offers check-in and assign-room for a confirmed booking, check-out for a checked-in one', async () => {
+    stubApi({ reservations: [reservation({ status: 'CHECKED_IN', roomId: 'room-1' })] });
+    renderPage(manageSession());
+
+    await screen.findByText('LC-3F9K2A');
+    // Checked-in booking: check-out + change room, no check-in.
+    expect(screen.getByRole('button', { name: 'Check out' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change room' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check in' })).not.toBeInTheDocument();
+  });
+
+  it('checks a guest in via the room picker, POSTing to the check-in endpoint', async () => {
+    let checkInUrl: string | undefined;
+    let checkInBody: unknown;
+    stubApi({
+      reservations: [reservation()],
+      onMutate: (url, init) => {
+        if (init?.method === 'POST' && url.includes('/check-in')) {
+          checkInUrl = url;
+          checkInBody = init.body ? JSON.parse(init.body as string) : undefined;
+        }
+      },
+    });
+    renderPage(manageSession());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check in' }));
+    // Room picker loads the assignable rooms; select 101 and confirm.
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(await within(dialog).findByRole('radio', { name: /101/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Check in' }));
+
+    await waitFor(() => {
+      expect(checkInUrl).toContain(`/api/v1/properties/${PROPERTY_ID}/reservations/res-1/check-in`);
+    });
+    expect(checkInBody).toEqual({ roomId: 'room-1' });
+  });
+
+  it('shows an occupied room as non-selectable in the picker', async () => {
+    stubApi({
+      reservations: [reservation()],
+      assignableRooms: [
+        { id: 'room-1', name: '101', floor: '1', available: true },
+        { id: 'room-2', name: '102', floor: '1', available: false },
+      ],
+    });
+    renderPage(manageSession());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign room' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByRole('radio', { name: /101/ })).toBeEnabled();
+    expect(within(dialog).getByRole('radio', { name: /102/ })).toBeDisabled();
+    expect(within(dialog).getByText('Occupied')).toBeInTheDocument();
   });
 });

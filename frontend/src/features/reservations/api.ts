@@ -1,6 +1,7 @@
 import { apiFetch } from '../../lib/api';
 import { toQueryString, type PageMeta } from '../../lib/pagination';
 import type {
+  AssignableRoom,
   CreateReservationInput,
   Reservation,
   ReservationListParams,
@@ -56,6 +57,32 @@ export function cancelReservation(propertyId: string, reservationId: string, rea
 
 export function markNoShow(propertyId: string, reservationId: string): Promise<Reservation> {
   return apiFetch<{ reservation: Reservation }>(`${base(propertyId)}/${reservationId}/no-show`, {
+    method: 'POST',
+  }).then((res) => res.reservation);
+}
+
+export function listAssignableRooms(propertyId: string, reservationId: string): Promise<AssignableRoom[]> {
+  return apiFetch<{ rooms: AssignableRoom[] }>(`${base(propertyId)}/${reservationId}/assignable-rooms`).then(
+    (res) => res.rooms,
+  );
+}
+
+export function assignRoom(propertyId: string, reservationId: string, roomId: string): Promise<Reservation> {
+  return apiFetch<{ reservation: Reservation }>(`${base(propertyId)}/${reservationId}/assign-room`, {
+    method: 'POST',
+    body: { roomId },
+  }).then((res) => res.reservation);
+}
+
+export function checkIn(propertyId: string, reservationId: string, roomId?: string): Promise<Reservation> {
+  return apiFetch<{ reservation: Reservation }>(`${base(propertyId)}/${reservationId}/check-in`, {
+    method: 'POST',
+    body: roomId ? { roomId } : {},
+  }).then((res) => res.reservation);
+}
+
+export function checkOut(propertyId: string, reservationId: string): Promise<Reservation> {
+  return apiFetch<{ reservation: Reservation }>(`${base(propertyId)}/${reservationId}/check-out`, {
     method: 'POST',
   }).then((res) => res.reservation);
 }

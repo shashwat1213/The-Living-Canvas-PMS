@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { cancelReservationSchema, createReservationSchema, listReservationsQuerySchema } from './schemas.js';
+import { assignRoomSchema, cancelReservationSchema, checkInSchema, createReservationSchema, listReservationsQuerySchema } from './schemas.js';
 import * as reservationsService from './service.js';
 
 /**
@@ -85,6 +85,63 @@ reservationsRouter.post(
   requirePermission('reservations:manage'),
   asyncHandler(async (req, res) => {
     const reservation = await reservationsService.markNoShow(
+      req.params.propertyId as string,
+      req.params.reservationId as string,
+    );
+    res.json({ reservation });
+  }),
+);
+
+/**
+ * The ACTIVE rooms of the booking's type, each flagged available/occupied for
+ * its dates — drives the room-assignment picker. `read` is enough; it writes
+ * nothing.
+ */
+reservationsRouter.get(
+  '/:reservationId/assignable-rooms',
+  requirePermission('reservations:read'),
+  asyncHandler(async (req, res) => {
+    const result = await reservationsService.listAssignableRooms(
+      req.params.propertyId as string,
+      req.params.reservationId as string,
+    );
+    res.json(result);
+  }),
+);
+
+reservationsRouter.post(
+  '/:reservationId/assign-room',
+  requirePermission('reservations:manage'),
+  asyncHandler(async (req, res) => {
+    const input = assignRoomSchema.parse(req.body);
+    const reservation = await reservationsService.assignRoom(
+      req.params.propertyId as string,
+      req.params.reservationId as string,
+      input,
+    );
+    res.json({ reservation });
+  }),
+);
+
+reservationsRouter.post(
+  '/:reservationId/check-in',
+  requirePermission('reservations:manage'),
+  asyncHandler(async (req, res) => {
+    const input = checkInSchema.parse(req.body ?? {});
+    const reservation = await reservationsService.checkIn(
+      req.params.propertyId as string,
+      req.params.reservationId as string,
+      input,
+    );
+    res.json({ reservation });
+  }),
+);
+
+reservationsRouter.post(
+  '/:reservationId/check-out',
+  requirePermission('reservations:manage'),
+  asyncHandler(async (req, res) => {
+    const reservation = await reservationsService.checkOut(
       req.params.propertyId as string,
       req.params.reservationId as string,
     );

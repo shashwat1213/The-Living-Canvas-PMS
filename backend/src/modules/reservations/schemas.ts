@@ -47,6 +47,24 @@ export const cancelReservationSchema = z.object({
 
 export type CancelReservationInput = z.infer<typeof cancelReservationSchema>;
 
+/** Assign a specific physical room to a booking. */
+export const assignRoomSchema = z.object({
+  roomId: z.string().uuid(),
+});
+
+export type AssignRoomInput = z.infer<typeof assignRoomSchema>;
+
+/**
+ * Check a guest in. A room may be assigned at the same moment (the common
+ * front-desk flow — the guest is standing there and gets a key), or omitted
+ * if the booking was already assigned a room earlier.
+ */
+export const checkInSchema = z.object({
+  roomId: z.string().uuid().optional(),
+});
+
+export type CheckInInput = z.infer<typeof checkInSchema>;
+
 export const RESERVATION_STATUSES = ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'NO_SHOW'] as const;
 
 /**

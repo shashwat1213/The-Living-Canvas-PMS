@@ -13,7 +13,7 @@ import {
   type ReservationListRow,
   type ReservationsDb,
 } from './repository.js';
-import type { CancelReservationInput, CreateReservationInput, ListReservationsQuery } from './schemas.js';
+import type { AssignRoomInput, CancelReservationInput, CheckInInput, CreateReservationInput, ListReservationsQuery } from './schemas.js';
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -323,6 +323,181 @@ export function cancelReservation(
 
 export function markNoShow(propertyId: string, id: string): Promise<ReservationView> {
   return transitionToInactive(propertyId, id, 'NO_SHOW', AUDIT_ACTIONS.RESERVATION_NO_SHOW, undefined);
+}
+
+/**
+ * Validates a room can hold this booking and reserves it, inside the caller's
+ * transaction. The room must exist at the property, be of the booking's own
+ * room type (you can't put a Deluxe booking in a Standard room), be ACTIVE,
+ * and be free for the whole stay — no other occupying reservation overlapping
+ * the dates may hold it. Every failure is a specific message; a cross-property
+ * or cross-tenant room id is indistinguishable from a nonexistent one (404).
+ */
+async function assertRoomAssignable(
+  propertyId: string,
+  reservation: ReservationView,
+  roomId: string,
+  tx: ReservationsDb,
+): Promise<{ id: string; name: string }> {
+  const room = await reservationsRepository.findRoom(propertyId, roomId, tx);
+  if (!room) {
+    throw new NotFoundError('Room not found at this property.');
+  }
+  if (room.roomTypeId !== reservation.roomTypeId) {
+    throw new ConflictError('That room is a different room type than this booking.');
+  }
+  if (room.status !== 'ACTIVE') {
+    throw new ConflictError(`Room ${room.name} is not in service and cannot be assigned.`);
+  }
+  const occupied = await reservationsRepository.occupiedRoomIds(
+    propertyId,
+    new Date(`${reservation.checkIn}T00:00:00.000Z`),
+    new Date(`${reservation.checkOut}T00:00:00.000Z`),
+    reservation.id,
+    tx,
+  );
+  if (occupied.has(roomId)) {
+    throw new ConflictError(`Room ${room.name} is already occupied for these dates.`);
+  }
+  return { id: room.id, name: room.name };
+}
+
+/**
+ * Assign (or re-assign) a physical room to a booking without changing its
+ * lifecycle status. Only a booking that still holds inventory — CONFIRMED or
+ * CHECKED_IN — can be assigned a room; a cancelled/checked-out/no-show booking
+ * cannot. Runs Serializable so two clerks can't hand the same room to two
+ * bookings at once.
+ */
+export async function assignRoom(propertyId: string, id: string, input: AssignRoomInput): Promise<ReservationView> {
+  const before = await getReservation(propertyId, id);
+  if (before.status !== 'CONFIRMED' && before.status !== 'CHECKED_IN') {
+    throw new ConflictError(`A ${before.status.toLowerCase().replace('_', '-')} booking cannot be assigned a room.`);
+  }
+
+  await scopedPrisma.$transaction(
+    async (tx) => {
+      const room = await assertRoomAssignable(propertyId, before, input.roomId, tx);
+      await tx.reservation.update({ where: { id }, data: { roomId: room.id } });
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.RESERVATION_ROOM_ASSIGNED,
+          entityType: AUDIT_ENTITY_TYPES.RESERVATION,
+          entityId: id,
+          metadata: {
+            reference: before.reference,
+            roomId: room.id,
+            roomName: room.name,
+            ...(before.roomId && before.roomId !== room.id ? { previousRoomId: before.roomId } : {}),
+          },
+        },
+        tx,
+      );
+    },
+    { isolationLevel: 'Serializable' },
+  );
+
+  return getReservation(propertyId, id);
+}
+
+/**
+ * Check a guest in. Only a CONFIRMED booking can be checked in. A room is
+ * required — either already assigned, or supplied here and assigned as part of
+ * the same transaction (the standard front-desk flow). The whole thing is
+ * Serializable so the room-availability check and the status change commit as
+ * one.
+ */
+export async function checkIn(propertyId: string, id: string, input: CheckInInput): Promise<ReservationView> {
+  const before = await getReservation(propertyId, id);
+  if (before.status !== 'CONFIRMED') {
+    throw new ConflictError(`Only a confirmed booking can be checked in (this one is ${before.status.toLowerCase().replace('_', '-')}).`);
+  }
+  if (!input.roomId && !before.roomId) {
+    throw new BadRequestError('Assign a room before checking the guest in.');
+  }
+
+  await scopedPrisma.$transaction(
+    async (tx) => {
+      let roomId = before.roomId;
+      let roomName: string | undefined;
+      if (input.roomId) {
+        const room = await assertRoomAssignable(propertyId, before, input.roomId, tx);
+        roomId = room.id;
+        roomName = room.name;
+      }
+      await tx.reservation.update({ where: { id }, data: { status: 'CHECKED_IN', roomId } });
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.RESERVATION_CHECKED_IN,
+          entityType: AUDIT_ENTITY_TYPES.RESERVATION,
+          entityId: id,
+          metadata: { reference: before.reference, ...(roomId ? { roomId } : {}), ...(roomName ? { roomName } : {}) },
+        },
+        tx,
+      );
+    },
+    { isolationLevel: 'Serializable' },
+  );
+
+  return getReservation(propertyId, id);
+}
+
+/**
+ * Check a guest out. Only a CHECKED_IN booking can be checked out. The room
+ * assignment is kept as a record of where they stayed; releasing it is implicit
+ * in the status leaving the occupying set for future dates (the stay is over).
+ */
+export async function checkOut(propertyId: string, id: string): Promise<ReservationView> {
+  const before = await getReservation(propertyId, id);
+  if (before.status !== 'CHECKED_IN') {
+    throw new ConflictError('Only a checked-in booking can be checked out.');
+  }
+
+  await scopedPrisma.$transaction(async (tx) => {
+    await tx.reservation.update({ where: { id }, data: { status: 'CHECKED_OUT' } });
+    await recordAuditEvent(
+      {
+        action: AUDIT_ACTIONS.RESERVATION_CHECKED_OUT,
+        entityType: AUDIT_ENTITY_TYPES.RESERVATION,
+        entityId: id,
+        metadata: { reference: before.reference, ...(before.roomId ? { roomId: before.roomId } : {}) },
+      },
+      tx,
+    );
+  });
+
+  return getReservation(propertyId, id);
+}
+
+/**
+ * The rooms a booking can be assigned to: every ACTIVE room of its type, each
+ * flagged with whether it's free for the stay dates. Drives the assignment
+ * picker — an occupied room is shown but not selectable, so the clerk sees the
+ * whole floor and why a room is unavailable rather than a silently short list.
+ */
+export async function listAssignableRooms(
+  propertyId: string,
+  id: string,
+): Promise<{ rooms: { id: string; name: string; floor: string | null; available: boolean }[] }> {
+  const reservation = await getReservation(propertyId, id);
+  const rooms = await reservationsRepository.listActiveRoomsOfType(propertyId, reservation.roomTypeId);
+  const occupied = await reservationsRepository.occupiedRoomIds(
+    propertyId,
+    new Date(`${reservation.checkIn}T00:00:00.000Z`),
+    new Date(`${reservation.checkOut}T00:00:00.000Z`),
+    reservation.id,
+  );
+  return {
+    rooms: rooms.map((room) => ({
+      id: room.id,
+      name: room.name,
+      floor: room.floor,
+      // The booking's currently-assigned room is always shown available to
+      // itself, even though it "occupies" itself — excludeId already dropped it
+      // from the occupied set, so this is just the plain membership test.
+      available: !occupied.has(room.id),
+    })),
+  };
 }
 
 export type { Reservation };

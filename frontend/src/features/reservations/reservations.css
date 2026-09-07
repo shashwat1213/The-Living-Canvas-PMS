@@ -270,3 +270,62 @@
   border-top: 2px solid var(--border);
   font-weight: 600;
 }
+
+/* ---------- Room assignment picker ---------- */
+
+.room-choice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.room-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.room-choice:hover {
+  background: var(--social-bg);
+}
+
+.room-choice input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.room-choice-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.room-choice-disabled:hover {
+  background: none;
+}
+
+.room-choice-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.room-choice-tag {
+  margin-left: auto;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.room-choice-tag-busy {
+  color: var(--text);
+}

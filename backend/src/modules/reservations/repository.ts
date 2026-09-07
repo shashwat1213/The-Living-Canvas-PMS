@@ -143,4 +143,61 @@ export const reservationsRepository = {
       },
     });
   },
+
+  /**
+   * ACTIVE physical rooms of a type at a property — the pool a booking of that
+   * type can be assigned to. INACTIVE/MAINTENANCE rooms are excluded: a room
+   * out of service can't take a guest.
+   */
+  listActiveRoomsOfType(
+    propertyId: string,
+    roomTypeId: string,
+    db: ReservationsDb = scopedPrisma,
+  ): Promise<{ id: string; name: string; floor: string | null }[]> {
+    return db.room.findMany({
+      where: { propertyId, roomTypeId, status: 'ACTIVE' },
+      select: { id: true, name: true, floor: true },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+  },
+
+  /**
+   * Room ids already occupied by a reservation overlapping [checkIn, checkOut)
+   * at this property — i.e. rooms that can't be assigned to another stay in
+   * the window. Only occupying statuses with a room actually assigned count;
+   * `excludeId` ignores the booking being assigned (so re-assigning to its own
+   * current room isn't blocked by itself).
+   */
+  async occupiedRoomIds(
+    propertyId: string,
+    checkIn: Date,
+    checkOut: Date,
+    excludeId: string,
+    db: ReservationsDb = scopedPrisma,
+  ): Promise<Set<string>> {
+    const rows = await db.reservation.findMany({
+      where: {
+        propertyId,
+        status: OCCUPYING_STATUSES,
+        roomId: { not: null },
+        id: { not: excludeId },
+        checkIn: { lt: checkOut },
+        checkOut: { gt: checkIn },
+      },
+      select: { roomId: true },
+    });
+    return new Set(rows.map((r) => r.roomId).filter((id): id is string => id !== null));
+  },
+
+  /** A single room's identity + type + status, scoped to the property. */
+  findRoom(
+    propertyId: string,
+    roomId: string,
+    db: ReservationsDb = scopedPrisma,
+  ): Promise<{ id: string; name: string; roomTypeId: string; status: string } | null> {
+    return db.room.findFirst({
+      where: { id: roomId, propertyId },
+      select: { id: true, name: true, roomTypeId: true, status: true },
+    });
+  },
 };

@@ -2237,3 +2237,55 @@ new: 9 in `rate-plans.test.ts` covering CRUD, bulk rate set/clear/read, window
 validation, audit, STAFF read-but-not-manage; 2 cross-org cases in
 `tenant-isolation.test.ts`). typecheck/lint/build green. Frontend follows in
 the same slice.
+
+## Check-in / check-out + room assignment (2026-09-07)
+
+**Context.** A booking held a room *type* but never a physical room —
+`Reservation.roomId` was nullable from the create-slice, which explicitly
+deferred assignment as "a check-in-slice concern". This is that slice: the
+front desk's daily arrival→departure flow.
+
+**No schema change.** `roomId` already existed (nullable, `onDelete: SetNull`).
+The work was three POST actions (`assign-room`, `check-in`, `check-out`), one
+read (`assignable-rooms`), and three audit actions — no migration.
+
+**Assignability rules.** A room may hold a booking only if it (1) exists at the
+property, (2) is of the booking's own room type — you can't put a Deluxe
+booking in a Standard room, (3) is ACTIVE — an INACTIVE/MAINTENANCE room isn't
+sellable capacity, and (4) is free for the whole stay: no other *occupying*
+reservation (CONFIRMED/CHECKED_IN/CHECKED_OUT with a room assigned) overlaps
+the half-open [checkIn, checkOut) window. A cross-property or cross-tenant room
+id resolves to nothing through the scoped client and 404s, same "no such thing
+here" signal every scoped sub-resource gives. Each other failure is a specific
+409 naming the reason.
+
+**Concurrency.** `assignRoom` and `checkIn` run Serializable, same as booking
+creation, so two clerks can't hand the same physical room to two overlapping
+stays — one commits, the other fails to serialize. The availability check and
+the write commit as one.
+
+**Lifecycle guards.** Only CONFIRMED can check in (and a room is required —
+already assigned, or supplied inline and assigned in the same transaction, the
+standard front-desk flow). Only CHECKED_IN can check out. Assignment is allowed
+while the booking still holds inventory (CONFIRMED or CHECKED_IN). Check-out
+keeps the room on the record as history rather than nulling it — "where did
+they stay" is a real question — and the stay simply leaves the occupying set
+for future dates because it's over.
+
+**Picker UX.** `GET .../assignable-rooms` returns every ACTIVE room of the
+type flagged `available` for the dates, not just the free ones. The UI shows
+the whole floor with occupied rooms visible-but-disabled, so a clerk sees *why*
+a room is unavailable rather than a silently short list. The booking's own
+current room is always shown selectable to itself.
+
+**Verified** against real PostgreSQL 16 (`prisma migrate status` clean).
+Backend 246/246 (was 240 — 6 new in `reservations.test.ts`: assign happy-path
+with availability flags, wrong-type/occupied/404 rejections, full
+check-in→check-out lifecycle, no-room-on-check-in 400, released-room reuse with
+the four-entry audit trail in order, and auth gating). Frontend 153/153 (was
+150 — 3 new: lifecycle-correct action buttons per status, check-in through the
+room picker asserting the exact POST body, and an occupied room rendered
+non-selectable). typecheck/lint/build green both workspaces. `ConfirmDialog`
+gained an optional `children` slot (non-breaking) so the check-out and
+cancel-reason flows reuse it rather than duplicating the dialog.
+

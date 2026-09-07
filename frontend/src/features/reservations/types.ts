@@ -83,6 +83,14 @@ export interface CreateReservationInput {
   notes?: string;
 }
 
+/** A candidate room for assignment, flagged free/occupied for the stay dates. */
+export interface AssignableRoom {
+  id: string;
+  name: string;
+  floor: string | null;
+  available: boolean;
+}
+
 export interface ReservationQuote {
   available: boolean;
   sellableRooms: number;
@@ -108,6 +116,21 @@ export function canCancel(status: ReservationStatus): boolean {
 /** Only a confirmed booking can be marked a no-show, per the service. */
 export function canMarkNoShow(status: ReservationStatus): boolean {
   return status === 'CONFIRMED';
+}
+
+/** A room can be assigned while the booking still holds inventory. */
+export function canAssignRoom(status: ReservationStatus): boolean {
+  return status === 'CONFIRMED' || status === 'CHECKED_IN';
+}
+
+/** Only a confirmed booking can be checked in. */
+export function canCheckIn(status: ReservationStatus): boolean {
+  return status === 'CONFIRMED';
+}
+
+/** Only a checked-in booking can be checked out. */
+export function canCheckOut(status: ReservationStatus): boolean {
+  return status === 'CHECKED_IN';
 }
 
 export function reservationGuestName(guest: Pick<ReservationGuest, 'firstName' | 'lastName'>): string {

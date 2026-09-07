@@ -13,12 +13,16 @@ import { getProperty } from '../properties/api';
 import type { Property } from '../properties/types';
 import { formatMinor } from '../rate-plans/money';
 import { BookingDialog } from './BookingDialog';
-import { cancelReservation, listReservations, markNoShow } from './api';
+import { AssignRoomDialog } from './AssignRoomDialog';
+import { cancelReservation, checkOut, listReservations, markNoShow } from './api';
 import { ReservationDetailDialog } from './ReservationDetailDialog';
 import {
   RESERVATION_STATUS_LABEL,
   RESERVATION_STATUSES,
+  canAssignRoom,
   canCancel,
+  canCheckIn,
+  canCheckOut,
   canMarkNoShow,
   nightCount,
   reservationGuestName,
@@ -62,6 +66,9 @@ export function ReservationsPage() {
   const [pending, setPending] = useState<Pending>(null);
   const [reason, setReason] = useState('');
   const [working, setWorking] = useState(false);
+  /** Open the room picker for either a bare assignment or a check-in. */
+  const [assignTarget, setAssignTarget] = useState<{ reservation: ReservationListRow; mode: 'assign' | 'check-in' } | null>(null);
+  const [checkOutTarget, setCheckOutTarget] = useState<ReservationListRow | null>(null);
 
   const mayRead = hasPermission(session, 'reservations:read');
   const mayManage = hasPermission(session, 'reservations:manage');
@@ -119,6 +126,30 @@ export function ReservationsPage() {
     setBookingOpen(false);
     void load();
     flashSuccess(`Booked ${reservation.reference} for ${reservationGuestName(reservation.guest)}.`);
+  }
+
+  function handleAssignDone(_reservation: Reservation, message: string) {
+    setAssignTarget(null);
+    void load();
+    flashSuccess(message);
+  }
+
+  async function confirmCheckOut() {
+    if (!checkOutTarget || !propertyId) return;
+    const target = checkOutTarget;
+    setWorking(true);
+    setError(null);
+    try {
+      await checkOut(propertyId, target.id);
+      setCheckOutTarget(null);
+      await load();
+      flashSuccess(`${reservationGuestName(target.guest)} checked out of ${target.reference}.`);
+    } catch (err) {
+      setCheckOutTarget(null);
+      setError(err instanceof ApiError ? err.message : 'Could not check this booking out.');
+    } finally {
+      setWorking(false);
+    }
   }
 
   async function confirmTransition() {
@@ -221,6 +252,29 @@ export function ReservationsPage() {
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetailId(r.id)}>
             View
           </button>
+          {mayManage && canCheckIn(r.status) && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setAssignTarget({ reservation: r, mode: 'check-in' })}
+            >
+              Check in
+            </button>
+          )}
+          {mayManage && canCheckOut(r.status) && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCheckOutTarget(r)}>
+              Check out
+            </button>
+          )}
+          {mayManage && canAssignRoom(r.status) && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setAssignTarget({ reservation: r, mode: 'assign' })}
+            >
+              {r.roomId ? 'Change room' : 'Assign room'}
+            </button>
+          )}
           {mayManage && canMarkNoShow(r.status) && (
             <button
               type="button"
@@ -373,6 +427,27 @@ export function ReservationsPage() {
 
       {bookingOpen && propertyId && (
         <BookingDialog propertyId={propertyId} onClose={() => setBookingOpen(false)} onBooked={handleBooked} />
+      )}
+
+      {assignTarget && propertyId && (
+        <AssignRoomDialog
+          propertyId={propertyId}
+          reservation={assignTarget.reservation}
+          mode={assignTarget.mode}
+          onClose={() => setAssignTarget(null)}
+          onDone={handleAssignDone}
+        />
+      )}
+
+      {checkOutTarget && (
+        <ConfirmDialog
+          title="Check out?"
+          message={`${reservationGuestName(checkOutTarget.guest)} (${checkOutTarget.reference}) will be checked out and their room released.`}
+          confirmLabel="Check out"
+          busy={working}
+          onConfirm={() => void confirmCheckOut()}
+          onCancel={() => setCheckOutTarget(null)}
+        />
       )}
 
       {detailId && propertyId && (
