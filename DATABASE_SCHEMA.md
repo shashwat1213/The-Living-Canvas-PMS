@@ -10,9 +10,13 @@ The foundational schema covers organizations, staff users, properties,
 and rooms. Phase 1 (2026-08-19, see [DECISIONS.md](DECISIONS.md)) adds
 the auth/tenancy/authorization layer on top of it: sessions, a permission
 catalog, organization-scoped roles, and property-level access grants.
-Both are still explicitly narrower than the full product — bookings,
-reservations, OTA integration data, reviews, payments, and marketing
-remain future modules with their own tasks.
+
+Phase 2 builds out the operational core on the same foundation: the
+room-type catalogue, rate plans and per-date rates, guests, reservations
+(with per-night price snapshots and check-in/out), guest folios with
+charges and payments, the housekeeping board, and maintenance work orders.
+Still future modules with their own tasks: OTA integration data, reviews,
+reporting, and marketing.
 
 ## Entities
 
@@ -259,6 +263,129 @@ not free.
 | created_at   | timestamp |                                             |
 | updated_at   | timestamp |                                             |
 
+### Guest
+
+A person who stays (or has booked to stay) at one of an Organization's
+properties. Scoped to the **Organization**, not a single Property: the same
+person can stay at several of the group's hotels and their history should
+follow them. Deliberately thin for the booking core — a richer profile
+(loyalty, preferences, documents, consent) attaches here later without
+reshaping it.
+
+| Column          | Type      | Notes                                     |
+|-----------------|-----------|-------------------------------------------|
+| id              | uuid      | PK                                        |
+| organization_id | uuid      | FK → organizations, cascade delete        |
+| first_name      | text      |                                           |
+| last_name       | text      |                                           |
+| email           | text?     | not globally unique; a `(org, email)` index guards duplicate profiles within one org (enforced in app code, not a DB constraint) |
+| phone           | text?     |                                           |
+| notes           | text?     |                                           |
+| created_at      | timestamp |                                           |
+| updated_at      | timestamp |                                           |
+
+### Reservation
+
+A booking: a guest, a room type, a rate plan, and a stay window — the central
+transactional record everything downstream (folios, housekeeping) hangs off.
+A reservation books a **room type**, not a specific room (the industry model);
+`room_id` is assigned at or before check-in. Money is **snapshotted**:
+`total_amount_minor` is the price agreed at booking, with the per-night
+breakdown in `ReservationNight`, so a later repricing of the rate calendar
+never silently re-prices a booking a guest already holds. `room_type_id`,
+`rate_plan_id` and `guest_id` are `RESTRICT` on delete (the DB backstop for the
+services' delete-guards); the `property` cascade is the deliberate exception.
+
+| Column             | Type      | Notes                                    |
+|--------------------|-----------|------------------------------------------|
+| id                 | uuid      | PK                                       |
+| property_id        | uuid      | FK → properties, cascade delete          |
+| room_type_id       | uuid      | FK → room_types, `RESTRICT`              |
+| rate_plan_id       | uuid      | FK → rate_plans, `RESTRICT`              |
+| guest_id           | uuid      | FK → guests, `RESTRICT`                  |
+| room_id            | uuid?     | FK → rooms, `SET NULL`; null until assigned |
+| reference          | text      | human booking ref (e.g. "LC-3F9K2A"), unique per property |
+| status             | enum      | CONFIRMED \| CHECKED_IN \| CHECKED_OUT \| CANCELLED \| NO_SHOW; default CONFIRMED |
+| check_in           | date      | arrival (date-only), inclusive           |
+| check_out          | date      | departure (date-only), exclusive — nights = check_out − check_in |
+| adults             | int       | default 1                                |
+| children           | int       | default 0                                |
+| total_amount_minor | int       | price agreed at booking, INR paise (sum of nights) |
+| notes              | text?     |                                          |
+| cancelled_at       | timestamp?| set when it leaves the active state      |
+| cancel_reason      | text?     |                                          |
+| created_at         | timestamp |                                          |
+| updated_at         | timestamp |                                          |
+
+A composite index on `(property_id, room_type_id, check_in, check_out)` backs
+the overlap query availability and booking run.
+
+### ReservationNight
+
+One night of a reservation, with the price locked in at booking time — the
+snapshot that makes `Reservation.total_amount_minor` trustworthy, what a folio
+bills from, and what a nightly revenue report sums. One row per night in
+`[check_in, check_out)`.
+
+| Column         | Type      | Notes                                      |
+|----------------|-----------|--------------------------------------------|
+| id             | uuid      | PK                                         |
+| reservation_id | uuid      | FK → reservations, cascade delete          |
+| date           | date      | stay night (date-only); unique per reservation |
+| amount_minor   | int       | price for this night in INR paise, as agreed at booking |
+| created_at     | timestamp |                                            |
+
+### Folio
+
+The guest bill for a reservation — **one folio per booking (1:1)**. The running
+account of what the guest owes (charges) against what they have paid
+(payments). The balance is **derived** (charges − payments), never stored, so
+it cannot drift from the rows that justify it. INR paise throughout, no
+currency column. Tenancy reaches it through `reservation → property`; deleting
+a reservation cascades its folio, charges and payments.
+
+| Column         | Type      | Notes                                      |
+|----------------|-----------|--------------------------------------------|
+| id             | uuid      | PK                                         |
+| reservation_id | uuid      | **unique** FK → reservations, cascade delete (1:1) |
+| status         | enum      | OPEN \| CLOSED; default OPEN                |
+| closed_at      | timestamp?| set when settled and closed (balance zero) |
+| created_at     | timestamp |                                            |
+| updated_at     | timestamp |                                            |
+
+### FolioCharge
+
+A single line item on a folio — a room charge auto-posted from the
+reservation's nightly total when the folio opens, or a manually added extra
+(minibar, late checkout, damage). The ledger is **append-only**: a correction
+is a separate negative line, not an edit.
+
+| Column      | Type      | Notes                                         |
+|-------------|-----------|-----------------------------------------------|
+| id          | uuid      | PK                                            |
+| folio_id    | uuid      | FK → folios, cascade delete                   |
+| description | text      |                                               |
+| amount_minor| int       | INR paise; positive owes the guest, negative is a correction/discount |
+| created_at  | timestamp |                                               |
+
+### Payment
+
+A payment (or, negative, a refund) recorded against a folio. **Manual entry
+only** — the front desk records that a payment was taken; it is NOT a gateway
+integration and holds no gateway credentials. The optional `reference` is a
+free-text external id (card auth code, UPI txn id), never a stored credential.
+Append-only: a refund is a separate negative row.
+
+| Column      | Type      | Notes                                         |
+|-------------|-----------|-----------------------------------------------|
+| id          | uuid      | PK                                            |
+| folio_id    | uuid      | FK → folios, cascade delete                   |
+| method      | enum      | CASH \| CARD \| UPI \| BANK_TRANSFER \| OTHER |
+| amount_minor| int       | amount received in INR paise (positive); a refund is negative |
+| reference   | text?     | free-text external id; never a credential     |
+| note        | text?     |                                               |
+| created_at  | timestamp |                                               |
+
 ### HousekeepingTask
 
 A unit of housekeeping work on a room — the task board a supervisor runs the
@@ -350,28 +477,40 @@ tenant filter, so a tenant-first index is the one that gets used.
 ```
 Organization 1──* User 1──* Session
 Organization 1──* Property 1──* Room *──1 RoomType
-Organization 1──* Property 1──* RoomType
+Organization 1──* Property 1──* RoomType 1──* RatePlan 1──* RatePlanRate
 Organization 1──* Property 1──* PropertyAccess *──1 User
 Organization 1──* Role *──* Permission   (through RolePermission)
 User *──* Role                            (through UserRoleAssignment)
+Organization 1──* Guest 1──* Reservation
+Property 1──* Reservation *──1 RoomType, *──1 RatePlan, *──0..1 Room
+Reservation 1──* ReservationNight
+Reservation 1──0..1 Folio 1──* FolioCharge, 1──* Payment
+Room 1──* HousekeepingTask *──0..1 User   (assignee; SET NULL)
+Property 1──* MaintenanceWorkOrder *──0..1 Room, *──0..1 User (assignee; SET NULL)
 Organization 1──* AuditLog *──0..1 User   (actor; SET NULL, not cascade)
 ```
 
 All child rows cascade-delete with their parent (deleting an Organization
-removes its Users, Properties, Rooms, Roles, and — transitively — every
-Session/RolePermission/UserRoleAssignment/PropertyAccess row that hangs
-off them, plus its AuditLog rows). `Permission` is the one model with no
-path back to `Organization` — see its entry above for why that's an
-intentional exception, not a tenancy gap.
+removes its Users, Properties, Rooms, Roles, Guests, Reservations, and —
+transitively — every Session/RolePermission/UserRoleAssignment/PropertyAccess,
+ReservationNight, Folio/FolioCharge/Payment, HousekeepingTask and
+MaintenanceWorkOrder row that hangs off them, plus its AuditLog rows).
+`Permission` is the one model with no path back to `Organization` — see its
+entry above for why that's an intentional exception, not a tenancy gap.
 
 `AuditLog.actor_user_id` is the one deliberate *non*-cascade: removing a
 user nulls the actor reference instead of deleting their audit history,
-which is why `actor_email` is captured on the row.
+which is why `actor_email` is captured on the row. The `assigned_to_id` on
+HousekeepingTask and MaintenanceWorkOrder, and `Reservation.room_id` /
+MaintenanceWorkOrder.room_id, are `SET NULL` for the same reason — work and
+booking history survive the deletion of the staff member or room they named.
 
-`Room.room_type_id` goes the other way — `ON DELETE RESTRICT`: a
-RoomType still assigned to rooms cannot be deleted, because a room must
-always have a type. Retire the type (`is_active = false`) instead; the
-rooms keep their classification.
+`Room.room_type_id`, plus `Reservation.{room_type_id, rate_plan_id, guest_id}`,
+go the other way — `ON DELETE RESTRICT`: a RoomType still assigned to rooms
+cannot be deleted, because a room must always have a type; likewise a room
+type, rate plan or guest a reservation refers to cannot vanish out from under
+it. Retire the type (`is_active = false`) instead; the rooms keep their
+classification.
 
 ## Migrations
 
@@ -414,6 +553,15 @@ Migrations live in `backend/prisma/migrations/`:
 - `20260904103803_rate_plans` — **additive**. Adds `rate_plans` (per room
   type) and `rate_plan_rates` (per plan, per date; INR paise). No change to
   any existing table. Applied and verified against real PostgreSQL 16.
+- `20260904113021_reservations` — **additive**. Adds the `ReservationStatus`
+  enum, the `guests`, `reservations` and `reservation_nights` tables, and the
+  `rooms.room_id` booking relation, with the composite overlap index that backs
+  availability. No existing table altered destructively. Applied and verified
+  against real PostgreSQL 16.
+- `20260907044128_folios_payments` — **additive**. Adds the `FolioStatus` and
+  `PaymentMethod` enums and the `folios` (1:1 with a reservation), `folio_charges`
+  and `payments` tables. No existing table touched. Applied and verified against
+  real PostgreSQL 16.
 - `20260907115046_housekeeping` — **additive / non-destructive**. Adds the
   `HousekeepingStatus`, `HousekeepingTaskStatus` and `HousekeepingTaskType`
   enums, a `rooms.housekeeping_status` column (NOT NULL, default `INSPECTED`

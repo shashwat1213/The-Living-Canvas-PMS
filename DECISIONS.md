@@ -2443,3 +2443,25 @@ takeRoomOutOfService-without-room, room OUT on open + BACK on resolve, the
 multiple-hold guard (room stays out until the last holding order resolves),
 terminal-edit 409, cross-property-room 404, cross-tenant 404, no passwordHash
 leak.
+
+## DATABASE_SCHEMA.md backfill (2026-09-07)
+
+Cleared the documentation debt flagged by the housekeeping and maintenance
+entries above. `DATABASE_SCHEMA.md` had drifted behind the schema: the
+reservations and folios slices updated its Room/enum tables but never added
+their own entities or migrations. Backfilled, docs-only (no schema or code
+touched), now 1:1 with `schema.prisma` (22 models = 22 documented entities):
+
+- Added the six missing entity tables: `Guest`, `Reservation`,
+  `ReservationNight`, `Folio`, `FolioCharge`, `Payment`.
+- Added the two missing migration log entries: `20260904113021_reservations`
+  and `20260907044128_folios_payments`.
+- Refreshed the stale `## Scope` section (it still described bookings/payments
+  as "future modules") and the `## Relationships` diagram (booking chain,
+  folio 1:1, housekeeping/maintenance assignee SET-NULL, the Reservation
+  RESTRICT FKs).
+
+Verified by a count check: `grep -c "^model " schema.prisma` == `grep -c
+"^### " DATABASE_SCHEMA.md` == 22, and every migration directory now appears
+in the migration log. No verification gate run — this touches no code, tests
+or schema, only the human-readable mirror doc.
