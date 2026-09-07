@@ -347,6 +347,21 @@ describe('cross-organization isolation: reservations', () => {
     const stillThere = await request(app).get(`${base}/${reservationId}`).set(...authA);
     expect(stillThere.status).toBe(200);
     expect(stillThere.body.reservation.status).toBe('CONFIRMED');
+
+    // The availability grid for A's property is invisible to B too — the
+    // property is scoped out, so the read-only grid 404s rather than leaking
+    // A's inventory as an empty-but-200 grid.
+    const availability = await request(app)
+      .get(`/api/v1/properties/${propertyId}/availability?from=2026-10-10&to=2026-10-12`)
+      .set(...authHeader(orgB.token));
+    expect(availability.status).toBe(404);
+
+    // And still readable by A.
+    const availabilityForA = await request(app)
+      .get(`/api/v1/properties/${propertyId}/availability?from=2026-10-10&to=2026-10-12`)
+      .set(...authA);
+    expect(availabilityForA.status).toBe(200);
+    expect(availabilityForA.body.roomTypes).toHaveLength(1);
   });
 });
 

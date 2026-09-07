@@ -1,0 +1,184 @@
+/*
+ * Availability calendar: a room-type × night grid with per-cell free counts
+ * and a totals/occupancy footer. Shared primitives (buttons, empty/error
+ * states, fields) live in components/ui.css; only what's specific to this
+ * grid belongs here. Page chrome mirrors the reservations feature so the
+ * front-desk screens read as one product.
+ */
+
+.availability-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.availability-breadcrumb {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.availability-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.availability-header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.8px;
+}
+
+@media (max-width: 1024px) {
+  .availability-header h1 {
+    font-size: 26px;
+  }
+}
+
+.availability-subtitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+/* ---------- Week navigation ---------- */
+
+.availability-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.availability-range {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-h);
+  min-width: 12rem;
+  text-align: center;
+}
+
+/* ---------- Grid ---------- */
+
+.availability-grid-wrap {
+  overflow-x: auto;
+}
+
+.availability-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.availability-grid th,
+.availability-grid td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.6rem;
+  text-align: center;
+}
+
+.availability-corner {
+  text-align: left;
+  color: var(--text);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.availability-datecol {
+  min-width: 3.2rem;
+}
+
+.availability-date-day {
+  display: block;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.availability-date-weekday {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+}
+
+.availability-rowhead {
+  text-align: left;
+  min-width: 12rem;
+  background: var(--social-bg);
+}
+
+.availability-rt-name {
+  display: block;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.availability-rt-meta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+/* ---------- Cell tones ---------- */
+
+.availability-cell {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.availability-cell-open {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.availability-cell-soldout {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ---------- Totals / occupancy footer ---------- */
+
+.availability-totals .availability-rowhead {
+  background: var(--social-bg);
+}
+
+.availability-total-cell {
+  background: var(--code-bg);
+}
+
+.availability-occ-pct {
+  display: block;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.availability-occ-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.availability-total-cell.availability-cell-soldout .availability-occ-pct,
+.availability-total-cell.availability-cell-soldout .availability-occ-meta {
+  color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .availability-cell-open {
+    background: rgba(34, 197, 94, 0.18);
+    color: #86efac;
+  }
+  .availability-cell-soldout {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+  }
+  .availability-total-cell.availability-cell-soldout .availability-occ-pct,
+  .availability-total-cell.availability-cell-soldout .availability-occ-meta {
+    color: #fca5a5;
+  }
+}

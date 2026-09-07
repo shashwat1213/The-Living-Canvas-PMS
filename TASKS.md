@@ -810,6 +810,37 @@ done; **nothing below it has been started.**
   room picker asserting the POST body, occupied room non-selectable).
   typecheck/lint/build green both workspaces. See DECISIONS.md.
 
+- [x] **Availability calendar** (2026-09-07)
+  The Cloudbeds/Mews "heart of daily ops" screen: a room-type × date grid
+  showing free/booked rooms per night with property-wide occupancy.
+  Read-only and computed — **no schema, no migration, no new permission**
+  (reuses `reservations:read`). Built by two agents in parallel (backend +
+  frontend) against a contract locked by the orchestrator first, then
+  integrated and verified end-to-end here.
+
+  **Backend.** New `modules/availability/` (read-only: no writes, no audit).
+  `GET /properties/:propertyId/availability?from&to` — `from` inclusive,
+  `to` exclusive, span ≤ 62 nights (400 otherwise; `to<=from` also 400).
+  The grid is computed in TypeScript from a bounded query set (ACTIVE
+  room-type list + ACTIVE room counts grouped by type + occupying stays
+  overlapping the window), never one query per cell. `booked` per type/night
+  counts occupying reservations (CONFIRMED/CHECKED_IN/CHECKED_OUT) covering
+  that night; `available = max(0, totalRooms - booked)`; totals carry
+  `occupancyPct`. Tenant-scoped through the property (cross-org → 404).
+
+  **Frontend.** New `features/availability/` — a grid with a 7-night default
+  window, Previous/Next-week navigation, per-cell available counts toned by
+  state (free/sold-out), and a per-night occupancy summary row. Gated on
+  `reservations:read` (presentation only); linked from each property row.
+
+  Verified: typecheck/lint/build green both workspaces. Backend 252/252
+  (was 246 — 6 new + a cross-org case folded into `tenant-isolation.test.ts`).
+  Frontend 158/158 (was 153 — 5 new). Beyond the mocked/unit tests, a live
+  end-to-end probe against the built server on real PostgreSQL 16 confirmed
+  the grid for 3 rooms with 2 overlapping bookings (available 1 / 67% on the
+  booked nights, 3 / 0% on the free nights, `checkOut` correctly exclusive),
+  plus the 400/400/401 guards. See DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the

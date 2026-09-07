@@ -2289,3 +2289,45 @@ non-selectable). typecheck/lint/build green both workspaces. `ConfirmDialog`
 gained an optional `children` slot (non-breaking) so the check-out and
 cancel-reason flows reuse it rather than duplicating the dialog.
 
+## Availability calendar (2026-09-07)
+
+**Context.** With the booking core and check-in/out done, the next screen a
+front desk lives in is the availability calendar — "what's free, when" across
+room types. Benchmarked Cloudbeds and Mews: both centre daily operations on a
+room-type × date grid with per-night free/booked counts and an occupancy
+figure. This is that view.
+
+**Read-only, computed — no new state.** No schema, no migration, no audit, and
+deliberately **no new permission**: viewing availability is front-desk read
+work, so it reuses `reservations:read` rather than minting an `availability:*`
+pair nobody would hold independently. The grid is derived, not stored.
+
+**Contract locked before implementation, then built in parallel.** The
+orchestrator fixed the request/response contract up front
+(`GET /properties/:id/availability?from&to`, half-open window, ≤62 nights, the
+exact `{ dates, roomTypes[].days[], totals.days[] }` shape) and dispatched two
+isolated agents against it — one for `backend/src/modules/availability/`, one
+for `frontend/src/features/availability/`. Their file scopes were disjoint
+except for two shared wiring files (`AppRouter.tsx`, `PropertiesPage.tsx`),
+which integrated without conflict. Because both built to the same frozen shape,
+the frontend's mocked types matched the backend's real output field-for-field
+on first integration — no rework.
+
+**Computation.** `booked` for a room type on a night = occupying reservations
+(CONFIRMED/CHECKED_IN/CHECKED_OUT) whose stay covers it (`checkIn <= night AND
+checkOut > night`, the same half-open rule as the stay). `totalRooms` = ACTIVE
+rooms of the type (out-of-service rooms aren't sellable capacity).
+`available = max(0, totalRooms - booked)`. `occupancyPct = round(booked /
+totalRooms * 100)`, 0 when there are no rooms. The whole grid is built in one
+bounded query batch (type list + grouped room counts + overlapping stays), not
+a query per cell — it has to stay fast for a 62-night span across many types.
+
+**Verified end-to-end, not just by the agents' self-reports.** typecheck/lint/
+build green both workspaces; backend 252/252, frontend 158/158. Beyond that, a
+live probe against the *built* server on real PostgreSQL 16 exercised the real
+path: 3 rooms, 2 overlapping 3-night bookings → available 1 / 67% occupancy on
+the booked nights and 3 / 0% on the shoulder nights, with `checkOut` correctly
+excluded (the departure night reads free). The `to<=from` 400, the >62-night
+400, and the anonymous 401 were confirmed against the running server too.
+
+

@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom';
 import App from './App';
 import { RequireAuth } from './auth/RequireAuth';
 import { AuditPage } from './features/audit/AuditPage';
+import { AvailabilityPage } from './features/availability/AvailabilityPage';
 import { GuestsPage } from './features/guests/GuestsPage';
 import { PropertiesPage } from './features/properties/PropertiesPage';
 import { RatePlansPage } from './features/rate-plans/RatePlansPage';
@@ -33,6 +34,7 @@ export function AppRouter() {
         <Route path="properties" element={<PropertiesPage />} />
         <Route path="properties/:propertyId/rooms" element={<RoomsPage />} />
         <Route path="properties/:propertyId/reservations" element={<ReservationsPage />} />
+        <Route path="properties/:propertyId/availability" element={<AvailabilityPage />} />
         <Route path="properties/:propertyId/room-types" element={<RoomTypesPage />} />
         <Route path="properties/:propertyId/room-types/:roomTypeId/rate-plans" element={<RatePlansPage />} />
         <Route path="guests" element={<GuestsPage />} />

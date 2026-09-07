@@ -156,6 +156,14 @@ export function PropertiesPage() {
               Reservations
             </Link>
           )}
+          {/* The room-type × night occupancy grid; same read permission as
+              reservations. Presentation-only gating — the route and API
+              both enforce `reservations:read` themselves. */}
+          {mayReadReservations && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/availability`}>
+              Availability
+            </Link>
+          )}
           <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/rooms`}>
             Rooms
           </Link>
