@@ -44,6 +44,8 @@ export function PropertiesPage() {
   const mayReadRoomTypes = hasPermission(session, 'room-types:read');
   // Reservations live under a property and are the front desk's core screen.
   const mayReadReservations = hasPermission(session, 'reservations:read');
+  // Housekeeping lives under a property; same presentation-only gating.
+  const mayReadHousekeeping = hasPermission(session, 'housekeeping:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -162,6 +164,13 @@ export function PropertiesPage() {
           {mayReadReservations && (
             <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/availability`}>
               Availability
+            </Link>
+          )}
+          {/* Housekeeping board + cleaning tasks; presentation-only gating,
+              the route and API enforce `housekeeping:read` themselves. */}
+          {mayReadHousekeeping && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/housekeeping`}>
+              Housekeeping
             </Link>
           )}
           <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/rooms`}>
