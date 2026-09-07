@@ -2194,3 +2194,46 @@ Likewise, the regenerated client rejects `where: { roomTypeId: null }` at
 runtime now that the field is non-null — a whole-table null check has to
 drop to raw SQL.
 
+
+## 2026-09-04 — Booking core Slice A: Rate Plans + Rates
+
+**Context.** Start of the booking core (Phase 2, approved Option B: rates →
+reservations → availability, targeting the first real booking). Slice A is
+the pricing layer everything downstream quotes from.
+
+**Model.** `RatePlan` (per RoomType) + `RatePlanRate` (per plan, per date).
+Benchmarked against Mews/Cloudbeds/Stayntouch: a room type's price is not one
+number but a set of *plans* (BAR, Non-Refundable, Advance Purchase), each with
+its own per-date price and cancellation policy. Chose per-date rate rows over
+a rules engine — an arbitrary seasonal/weekend/demand calendar is
+representable directly, and a rules engine is a later optimization, not a
+foundation. `isRefundable` is the one policy bit modelled now; deadlines and
+penalties are deferred.
+
+**Money.** INR minor units (paise) as `amount_minor Int` — money is never a
+float, and INR-only per the initial-release decision means no currency column.
+
+**Scoping.** RatePlan reaches its tenant through `roomType → property`,
+RatePlanRate one deeper through `ratePlan → roomType → property`. Two new
+relation-scoping helpers in `scoped-prisma.ts` (`scopeByRoomTypeRelation`,
+`scopeByRatePlanRelation`), same pattern as the existing property-relation
+helper. Verified by the tenant-isolation suite: every verb on another org's
+plan (list/get/update/delete/read-rates/set-rates) 404s, not 403 — the parent
+property is invisible, so its existence is never disclosed.
+
+**Permissions.** New `rate-plans:read` (STAFF+) and `rate-plans:manage`
+(MANAGER+), deliberately not folded into `rooms:*` or `room-types:*`:
+repricing the hotel is revenue work, not front-desk work. A front-desk agent
+reads a rate to quote it. `db:seed` backfilled the mappings onto existing orgs.
+
+**Bulk rates.** `PUT .../rates` sets/clears many dates in one transaction
+(`amountMinor: null` clears a date). Audited as a single `rate_plan.rates_set`
+event over the range, not one entry per night — a month's repricing is one
+action a manager took, mirroring the room-cascade audit reasoning.
+
+**Verified.** Migration `20260904103803_rate_plans` applied to real
+PostgreSQL 16 (`prisma migrate status` clean). Backend 219/219 (was 208 — 11
+new: 9 in `rate-plans.test.ts` covering CRUD, bulk rate set/clear/read, window
+validation, audit, STAFF read-but-not-manage; 2 cross-org cases in
+`tenant-isolation.test.ts`). typecheck/lint/build green. Frontend follows in
+the same slice.

@@ -27,6 +27,7 @@ model Organization {
   properties Property[]
   roles      Role[]
   auditLogs  AuditLog[]
+  guests     Guest[]
 
   @@map("organizations")
 }
@@ -269,6 +270,7 @@ model Property {
   rooms          Room[]
   roomTypes      RoomType[]
   propertyAccess PropertyAccess[]
+  reservations   Reservation[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -301,13 +303,81 @@ model RoomType {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  rooms    Room[]
+  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rooms        Room[]
+  ratePlans    RatePlan[]
+  reservations Reservation[]
 
   @@unique([propertyId, name])
   @@unique([propertyId, code])
   @@index([propertyId])
   @@map("room_types")
+}
+
+/// A sellable rate for a RoomType — "Best Available Rate", "Non-Refundable",
+/// "Advance Purchase". The model every commercial PMS uses (Mews, Cloudbeds,
+/// Stayntouch): what a room type costs is not one number but a set of plans,
+/// each with its own price per date and its own cancellation policy.
+///
+/// Scoped to a RoomType (and thus transitively to a Property, then an
+/// Organization), never to the Organization directly: two hotels in one group
+/// price independently, and a plan belongs to exactly one sellable type. The
+/// per-date price lives on `RatePlanRate` rather than a single column here,
+/// because a hotel's price changes by season, weekend and demand — a flat
+/// nightly rate is the thing real revenue management exists to avoid.
+model RatePlan {
+  id           String   @id @default(uuid())
+  roomTypeId   String   @map("room_type_id")
+  name         String
+  /// Short operational code ("BAR", "NR"). Optional, upper-cased on input,
+  /// unique per room type — same treatment as RoomType.code.
+  code         String?
+  description  String?
+  /// Whether a booking on this plan can be cancelled for a refund. The one
+  /// policy bit every PMS models from day one (BAR is refundable,
+  /// "Non-Refundable"/"Advance Purchase" are not); richer cancellation rules
+  /// (deadlines, penalties) are a later slice.
+  isRefundable Boolean  @default(true) @map("is_refundable")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  roomType     RoomType       @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  rates        RatePlanRate[]
+  reservations Reservation[]
+
+  @@unique([roomTypeId, name])
+  @@unique([roomTypeId, code])
+  @@index([roomTypeId])
+  @@map("rate_plans")
+}
+
+/// The price of one RatePlan on one calendar date, in INR minor units
+/// (paise). One row per (plan, date): this is the room-night pricing grid a
+/// revenue manager edits, and storing it per-date rather than as a rule is
+/// what makes an arbitrary seasonal calendar representable without a rules
+/// engine.
+///
+/// `date` is date-only (a stay night, not an instant) — consistent with the
+/// project's date-only stay-date decision. Absence of a row for a date means
+/// "no price set / not sellable on this plan that night", which a booking
+/// treats as unavailable rather than free.
+model RatePlanRate {
+  id          String   @id @default(uuid())
+  ratePlanId  String   @map("rate_plan_id")
+  /// Stay night this price applies to. Stored at 00:00:00 UTC (date-only).
+  date        DateTime @db.Date
+  /// Price in INR minor units (paise). Integer on purpose: money is never a
+  /// float. INR-only per the initial-release decision — no currency column.
+  amountMinor Int      @map("amount_minor")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  ratePlan RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  @@unique([ratePlanId, date])
+  @@index([ratePlanId, date])
+  @@map("rate_plan_rates")
 }
 
 enum RoomStatus {
@@ -337,15 +407,167 @@ model Room {
   createdAt  DateTime   @default(now()) @map("created_at")
   updatedAt  DateTime   @updatedAt @map("updated_at")
 
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   /// Restrict, not SetNull: `roomTypeId` is now required, so a type still
   /// assigned to rooms must not be deletable out from under them. This is
   /// the database backstop for the 409 the room-types service already
   /// returns proactively (see `modules/room-types/service.ts`).
-  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  roomType     RoomType      @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  reservations Reservation[]
 
   @@unique([propertyId, name])
   @@index([propertyId])
   @@index([roomTypeId])
   @@map("rooms")
 }
+
+/// A person who stays (or has booked to stay) at one of an Organization's
+/// properties. Scoped to the Organization, not a single Property: a guest is
+/// a relationship the hospitality company owns — the same person can stay at
+/// several of its hotels, and their history should follow them. Tenancy is a
+/// real `organization_id` column, like `User` and `Property`.
+///
+/// Deliberately thin for the booking-core slice: enough to identify and
+/// contact a guest. A richer guest profile (loyalty, preferences, documents,
+/// GDPR consent) is a later module and attaches here without reshaping this.
+model Guest {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  /// Contact details are optional: a walk-in booked at the desk may give a
+  /// name and nothing else, and a PMS must still be able to house them.
+  email          String?
+  phone          String?
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@index([organizationId])
+  // Email is not globally unique — two organizations may each know the same
+  // person — but a partial guard against duplicate profiles within one
+  // organization is worth having. Enforced in application code rather than a
+  // DB constraint because email is nullable and duplicates from separate
+  // walk-ins are a legitimate reality, not an error to reject outright.
+  @@index([organizationId, email])
+  @@map("guests")
+}
+
+/// The lifecycle of a reservation.
+///
+/// This slice implements the booking half — a reservation is created
+/// CONFIRMED, and can move to CANCELLED (guest/hotel cancels) or NO_SHOW
+/// (never arrived). CHECKED_IN and COMPLETED belong to the check-in/out
+/// slice and are present in the enum from the start so arrivals and
+/// departures are a status transition, not a later migration on a live
+/// bookings table.
+enum ReservationStatus {
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+/// A booking: a guest, a room type, a rate plan, and a stay window. The
+/// central transactional record of the PMS — everything downstream (folios,
+/// housekeeping, reports) hangs off it.
+///
+/// ## What it references, and why those FKs are RESTRICT
+///
+/// A reservation books a *room type*, not a specific room — the industry
+/// model (Mews/Cloudbeds/Stayntouch): the guest buys "a Deluxe King", and
+/// which physical room they get is assigned at or before check-in (a later
+/// slice). `roomId` is therefore nullable and unset here.
+///
+/// `roomTypeId`, `ratePlanId` and `guestId` are `onDelete: Restrict`: a room
+/// type, rate plan or guest that a reservation refers to must not vanish out
+/// from under it. This is the database backstop for the delete-guards the
+/// services enforce proactively — the same pattern `Room → RoomType` already
+/// uses. The `property` cascade is the deliberate exception: deleting a whole
+/// property is tenant-level teardown, and its bookings go with it.
+///
+/// ## Money is snapshotted, not recomputed
+///
+/// `totalAmountMinor` is the price agreed at booking time, and the per-night
+/// breakdown lives in `ReservationNight`. A later change to a `RatePlanRate`
+/// must never silently re-price a booking a guest already holds — so the
+/// price is copied onto the reservation when it is made, not read back
+/// through the rate plan. Stored in INR minor units (paise), integer.
+model Reservation {
+  id               String            @id @default(uuid())
+  propertyId       String            @map("property_id")
+  roomTypeId       String            @map("room_type_id")
+  ratePlanId       String            @map("rate_plan_id")
+  guestId          String            @map("guest_id")
+  /// The specific room, once assigned. Null until room assignment (a
+  /// check-in-slice concern) — a booking is for a type, not a room.
+  roomId           String?           @map("room_id")
+  /// Human-friendly booking reference (e.g. "LC-3F9K2A"), unique per
+  /// property. Shown to staff and guests instead of the UUID.
+  reference        String
+  status           ReservationStatus @default(CONFIRMED)
+  /// Arrival date (date-only, the first stay night). Inclusive.
+  checkIn          DateTime          @map("check_in") @db.Date
+  /// Departure date (date-only). Exclusive — the guest does not stay this
+  /// night, matching how every PMS counts nights: nights = checkOut - checkIn.
+  checkOut         DateTime          @map("check_out") @db.Date
+  adults           Int               @default(1)
+  children         Int               @default(0)
+  /// Total price agreed at booking, in INR paise. Sum of the nights below.
+  totalAmountMinor Int               @map("total_amount_minor")
+  notes            String?
+  /// When and why a reservation left the active state — captured so a
+  /// cancelled/no-show booking explains itself without a separate lookup.
+  cancelledAt      DateTime?         @map("cancelled_at")
+  cancelReason     String?           @map("cancel_reason")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  property Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  ratePlan RatePlan           @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
+  guest    Guest              @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  room     Room?              @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  nights   ReservationNight[]
+
+  @@unique([propertyId, reference])
+  @@index([propertyId])
+  @@index([roomTypeId])
+  @@index([ratePlanId])
+  @@index([guestId])
+  // The query availability actually runs: "reservations at this property, of
+  // this type, overlapping these dates". A composite index on the columns
+  // that filter makes the overlap count cheap.
+  @@index([propertyId, roomTypeId, checkIn, checkOut])
+  @@map("reservations")
+}
+
+/// One night of a reservation, with the price locked in at booking time.
+///
+/// This is the snapshot that makes `Reservation.totalAmountMinor`
+/// trustworthy: the price of each night is copied from the rate plan when the
+/// booking is made, so a later repricing of the calendar leaves existing
+/// bookings untouched. It is also what a folio will bill from, and what a
+/// nightly revenue report will sum — the authoritative per-night ledger of
+/// what was actually sold.
+model ReservationNight {
+  id            String   @id @default(uuid())
+  reservationId String   @map("reservation_id")
+  /// The stay night (date-only). One row per night in [checkIn, checkOut).
+  date          DateTime @db.Date
+  /// Price for this night in INR paise, as agreed at booking time.
+  amountMinor   Int      @map("amount_minor")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@unique([reservationId, date])
+  @@index([reservationId])
+  @@map("reservation_nights")
+}
+
+/// A bookable unit (room) within a Property. This models the room's

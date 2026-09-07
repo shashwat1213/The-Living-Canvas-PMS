@@ -198,8 +198,8 @@ it transitively through `property_id`, and
 
 Deliberately thin: occupancy lives on `Room.capacity`, and a second copy
 here with no code to reconcile the two would be a silent source-of-truth
-conflict. Rate plans, availability and reservations attach to this model
-in later slices — none of them exist yet.
+conflict. Rate plans attach to this model (see `RatePlan` below);
+availability and reservations follow in later slices.
 
 **Catalogue-only.** Every `Room` references a `RoomType` at its own
 property through the **required** `room_type_id` FK — the model Mews,
@@ -210,6 +210,50 @@ backfilled into `room_types` and dropped (migrations
 `20260902000200_rooms_catalogue_only`). The FK is `ON DELETE RESTRICT`, so
 a type still assigned to rooms cannot be deleted out from under them — the
 database backstop for the 409 the room-types service returns proactively.
+
+### RatePlan
+
+A sellable rate for a `RoomType` — "Best Available Rate", "Non-Refundable",
+"Advance Purchase". The model every commercial PMS uses (Mews, Cloudbeds,
+Stayntouch): what a room type costs is not one number but a set of plans,
+each with its own price-per-date and cancellation policy.
+
+Scoped to a **RoomType** (transitively to Property, then Organization) — two
+hotels in one group price independently. No `organization_id` of its own;
+`src/platform/tenancy/scoped-prisma.ts` scopes it through
+`room_type → property`.
+
+| Column        | Type      | Notes                                             |
+|---------------|-----------|---------------------------------------------------|
+| id            | uuid      | PK                                                |
+| room_type_id  | uuid      | FK → room_types, cascade delete                   |
+| name          | text      | unique per room type                              |
+| code          | text?     | short code ("BAR", "NR"); unique per room type when present |
+| description   | text?     |                                                   |
+| is_refundable | boolean   | default true — the one cancellation-policy bit every PMS models from day one |
+| is_active     | boolean   | default true                                      |
+| created_at    | timestamp |                                                   |
+| updated_at    | timestamp |                                                   |
+
+### RatePlanRate
+
+The price of one `RatePlan` on one calendar date, in **INR minor units
+(paise)**, integer — money is never a float, and INR-only per the
+initial-release decision (no currency column). One row per `(plan, date)`:
+this is the room-night pricing grid a revenue manager edits, and storing it
+per-date rather than as a rule makes an arbitrary seasonal calendar
+representable without a rules engine. **Absence of a row for a date means
+"unpriced / not sellable that night"** — a booking treats it as unavailable,
+not free.
+
+| Column       | Type      | Notes                                       |
+|--------------|-----------|---------------------------------------------|
+| id           | uuid      | PK                                          |
+| rate_plan_id | uuid      | FK → rate_plans, cascade delete             |
+| date         | date      | stay night (date-only, UTC midnight); unique per plan |
+| amount_minor | int       | price in paise (INR minor units)            |
+| created_at   | timestamp |                                             |
+| updated_at   | timestamp |                                             |
 
 ### AuditLog
 
@@ -315,6 +359,9 @@ Migrations live in `backend/prisma/migrations/`:
   separately after it was verified, with explicit human approval for the
   destructive step. The label text survives on the linked `room_types`
   row, which is the point.
+- `20260904103803_rate_plans` — **additive**. Adds `rate_plans` (per room
+  type) and `rate_plan_rates` (per plan, per date; INR paise). No change to
+  any existing table. Applied and verified against real PostgreSQL 16.
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

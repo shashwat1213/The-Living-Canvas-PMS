@@ -35,6 +35,30 @@ export const ALL_PERMISSIONS = [
     key: 'room-types:manage',
     description: "Create, update and retire a property's room types.",
   },
+  {
+    key: 'rate-plans:read',
+    description: 'Read the rate plans and per-date rates of a room type.',
+  },
+  {
+    key: 'rate-plans:manage',
+    description: "Create, update, retire and price a room type's rate plans.",
+  },
+  {
+    key: 'guests:read',
+    description: "Read the organization's guest profiles.",
+  },
+  {
+    key: 'guests:manage',
+    description: "Create, update and delete guest profiles.",
+  },
+  {
+    key: 'reservations:read',
+    description: "Read a property's reservations.",
+  },
+  {
+    key: 'reservations:manage',
+    description: 'Create, cancel and mark no-show on reservations.',
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -80,6 +104,21 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // rename the catalogue every rate and reservation will hang off.
     'room-types:read',
     'room-types:manage',
+    // Rate plans are revenue configuration — the same "what a property sells
+    // and for how much" territory as the room-type catalogue — so MANAGER
+    // gets `manage` and STAFF (below) gets read only. A front-desk agent
+    // reads the rate to quote it; it does not reprice the hotel.
+    'rate-plans:read',
+    'rate-plans:manage',
+    // Guests are front-desk work: a manager (and staff, below) creates and
+    // edits guest profiles as part of taking a booking, so both read and
+    // manage sit at this level, unlike the revenue-config permissions above.
+    'guests:read',
+    'guests:manage',
+    // Reservations are the core front-desk workflow: managers and staff both
+    // take and cancel bookings, so both read and manage sit at this level.
+    'reservations:read',
+    'reservations:manage',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
@@ -91,7 +130,21 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // receive it via the PERMISSION_KEYS spread) is the intended scope,
     // not an oversight.
   ],
-  STAFF: ['organizations:read', 'properties:read', 'rooms:read', 'rooms:update', 'room-types:read'],
+  STAFF: [
+    'organizations:read',
+    'properties:read',
+    'rooms:read',
+    'rooms:update',
+    'room-types:read',
+    'rate-plans:read',
+    // The front desk creates and edits guest profiles when booking, so STAFF
+    // holds manage here — the one place STAFF gets a manage permission.
+    'guests:read',
+    'guests:manage',
+    // Taking and cancelling bookings is the front desk's core job.
+    'reservations:read',
+    'reservations:manage',
+  ],
 };
 
 /** Organization-wide roles bypass PropertyAccess grants entirely. */

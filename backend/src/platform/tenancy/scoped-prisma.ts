@@ -105,6 +105,86 @@ function scopeByPropertyRelation() {
 }
 
 /**
+ * Scoping for a model that reaches its tenant through `RoomType` — which
+ * itself reaches it through `Property`. `RatePlan` hangs off a room type, so
+ * its tenant filter is a nested `roomType.property.organizationId`.
+ *
+ * Same shape and same rationale as `scopeByPropertyRelation`: `create` is not
+ * injected (no `organizationId` column to set), and a create is made safe by
+ * the repository resolving its parent RoomType through the scoped client
+ * first.
+ */
+function scopeByRoomTypeRelation() {
+  return {
+    async $allOperations({
+      operation,
+      args,
+      query,
+    }: {
+      operation: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      args: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (args: any) => Promise<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }): Promise<any> {
+      const ctx = getRequestContext();
+      const a = args;
+      if (WHERE_OPERATIONS.has(operation)) {
+        a.where = {
+          ...a.where,
+          roomType: {
+            ...a.where?.roomType,
+            property: { ...a.where?.roomType?.property, organizationId: ctx.organizationId },
+          },
+        };
+      }
+      return query(a);
+    },
+  };
+}
+
+/**
+ * Scoping for `RatePlanRate`, which reaches its tenant one relation deeper
+ * still: rate → ratePlan → roomType → property → organizationId. The nesting
+ * is longer but the principle is identical — the filter is injected on every
+ * read/write so a repository can't forget it, and a create is guarded by the
+ * repository resolving the parent RatePlan through the scoped client first.
+ */
+function scopeByRatePlanRelation() {
+  return {
+    async $allOperations({
+      operation,
+      args,
+      query,
+    }: {
+      operation: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      args: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (args: any) => Promise<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }): Promise<any> {
+      const ctx = getRequestContext();
+      const a = args;
+      if (WHERE_OPERATIONS.has(operation)) {
+        a.where = {
+          ...a.where,
+          ratePlan: {
+            ...a.where?.ratePlan,
+            roomType: {
+              ...a.where?.ratePlan?.roomType,
+              property: { ...a.where?.ratePlan?.roomType?.property, organizationId: ctx.organizationId },
+            },
+          },
+        };
+      }
+      return query(a);
+    },
+  };
+}
+
+/**
  * The multi-tenancy enforcement mechanism (Phase 1 decision, see
  * ARCHITECTURE.md "Multi-tenancy enforcement"). Every query issued
  * through `scopedPrisma` for a tenant-scoped model gets its
@@ -150,7 +230,11 @@ export const scopedPrisma = prisma.$extends({
     property: scopeByOrganizationColumn(),
     user: scopeByOrganizationColumn(),
     auditLog: scopeByOrganizationColumn(),
+    guest: scopeByOrganizationColumn(),
     room: scopeByPropertyRelation(),
     roomType: scopeByPropertyRelation(),
+    reservation: scopeByPropertyRelation(),
+    ratePlan: scopeByRoomTypeRelation(),
+    ratePlanRate: scopeByRatePlanRelation(),
   },
 });
