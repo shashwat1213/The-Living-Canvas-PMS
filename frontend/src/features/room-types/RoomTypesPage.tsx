@@ -187,6 +187,12 @@ export function RoomTypesPage() {
       align: 'end',
       render: (roomType) => (
         <div className="table-actions">
+          <Link
+            to={`/app/properties/${propertyId}/room-types/${roomType.id}/rate-plans`}
+            className="btn btn-ghost btn-sm"
+          >
+            Rate plans
+          </Link>
           {mayManage && (
             <button
               type="button"

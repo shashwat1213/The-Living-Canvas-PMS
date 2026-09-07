@@ -21,6 +21,10 @@ export function listRoomTypes(propertyId: string, params: RoomTypeListParams = {
   return apiFetch<RoomTypeListResult>(`${base(propertyId)}${toQueryString({ ...params })}`);
 }
 
+export function getRoomType(propertyId: string, roomTypeId: string): Promise<RoomType> {
+  return apiFetch<{ roomType: RoomType }>(`${base(propertyId)}/${roomTypeId}`).then((res) => res.roomType);
+}
+
 export function createRoomType(propertyId: string, input: CreateRoomTypeInput): Promise<RoomType> {
   return apiFetch<{ roomType: RoomType }>(base(propertyId), { method: 'POST', body: input }).then(
     (res) => res.roomType,

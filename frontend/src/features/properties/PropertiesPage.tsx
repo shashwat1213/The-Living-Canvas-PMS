@@ -42,6 +42,8 @@ export function PropertiesPage() {
   // The catalogue is a separate permission pair from properties and rooms
   // — STAFF can read it, only MANAGER and above configure it.
   const mayReadRoomTypes = hasPermission(session, 'room-types:read');
+  // Reservations live under a property and are the front desk's core screen.
+  const mayReadReservations = hasPermission(session, 'reservations:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -146,6 +148,14 @@ export function PropertiesPage() {
       align: 'end',
       render: (property) => (
         <div className="table-actions">
+          {/* The front desk's core screen: bookings for this property.
+              Presentation-only gating; the route and API enforce
+              `reservations:read` themselves. */}
+          {mayReadReservations && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/reservations`}>
+              Reservations
+            </Link>
+          )}
           <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/rooms`}>
             Rooms
           </Link>

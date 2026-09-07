@@ -1,0 +1,105 @@
+/*
+ * Guests-management layout. Shared primitives (table, modal, badge, buttons,
+ * fields) live in components/ui.css; only what's specific to this feature
+ * belongs here. The page chrome mirrors the staff feature so the two read as
+ * one product.
+ */
+
+.guests-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.guests-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.guests-header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.8px;
+}
+
+@media (max-width: 1024px) {
+  .guests-header h1 {
+    font-size: 26px;
+  }
+}
+
+.guests-subtitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+/* ---------- Filters ---------- */
+
+.guests-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.guests-search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.guests-clear-filters {
+  margin-top: 0.75rem;
+}
+
+/* ---------- Table cells ---------- */
+
+.guest-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.guest-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.guest-email {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.guest-muted {
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.guest-danger-text {
+  color: #b91c1c;
+}
+
+.guest-danger-text:hover:not(:disabled) {
+  border-color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .guest-danger-text {
+    color: #fca5a5;
+  }
+  .guest-danger-text:hover:not(:disabled) {
+    border-color: #fca5a5;
+  }
+}
+
+/* ---------- Dialog form ---------- */
+
+.guest-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}

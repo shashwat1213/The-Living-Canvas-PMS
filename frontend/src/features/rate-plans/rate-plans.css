@@ -1,0 +1,263 @@
+/*
+ * Rate-plans layout + the per-night rate calendar. Shared primitives live in
+ * components/ui.css; only what's specific to this feature belongs here. The
+ * page chrome mirrors the room-types feature so the two read as one product.
+ */
+
+.rate-plans-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.rate-plans-breadcrumb {
+  font-size: 0.85rem;
+}
+
+.rate-plans-breadcrumb a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.rate-plans-breadcrumb a:hover {
+  color: var(--text-h);
+}
+
+.rate-plans-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.rate-plans-header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.8px;
+}
+
+@media (max-width: 1024px) {
+  .rate-plans-header h1 {
+    font-size: 26px;
+  }
+}
+
+.rate-plans-subtitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.rate-plans-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.rate-plans-filters .field {
+  min-width: 150px;
+}
+
+.rate-plans-search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.rate-plans-clear-filters {
+  margin-top: 0.75rem;
+}
+
+.rate-plan-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.rate-plan-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.rate-plan-code {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.rate-plan-muted {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.rate-plan-danger-text {
+  color: #b91c1c;
+}
+
+.rate-plan-danger-text:hover:not(:disabled) {
+  border-color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .rate-plan-danger-text {
+    color: #fca5a5;
+  }
+  .rate-plan-danger-text:hover:not(:disabled) {
+    border-color: #fca5a5;
+  }
+}
+
+.rate-plan-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rate-plan-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.rate-plan-checkbox input {
+  margin-top: 0.2rem;
+}
+
+.rate-plan-checkbox > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+/* ---- Rate calendar ---- */
+
+.rate-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rate-calendar-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.rate-calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rate-calendar-month {
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--text-h);
+  min-width: 11ch;
+  text-align: center;
+}
+
+.rate-calendar-bulk {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.rate-calendar-bulk label {
+  font-size: 0.75rem;
+  color: var(--text);
+  align-self: center;
+}
+
+.rate-calendar-bulk input {
+  width: 8rem;
+}
+
+.rate-calendar-loading {
+  color: var(--text);
+  padding: 2rem 0;
+  text-align: center;
+}
+
+.rate-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.rate-calendar-weekday {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  text-align: center;
+  padding-bottom: 0.25rem;
+}
+
+.rate-calendar-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 3.6rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.25));
+  border-radius: 8px;
+  background: var(--surface, rgba(255, 255, 255, 0.02));
+}
+
+.rate-calendar-cell-empty {
+  border: none;
+  background: transparent;
+}
+
+.rate-calendar-cell-dirty {
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 1px var(--accent, #6366f1) inset;
+}
+
+.rate-calendar-daynum {
+  font-size: 0.72rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.rate-calendar-input {
+  width: 100%;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.82rem;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.3));
+  border-radius: 5px;
+  background: var(--bg, transparent);
+  color: var(--text-h);
+  text-align: right;
+}
+
+.rate-calendar-input:focus {
+  outline: none;
+  border-color: var(--accent, #6366f1);
+}
+
+.rate-calendar-readonly {
+  font-size: 0.82rem;
+  color: var(--text-h);
+  text-align: right;
+  padding: 0.2rem 0.35rem;
+}
+
+@media (max-width: 640px) {
+  .rate-calendar-cell {
+    min-height: 3rem;
+  }
+  .rate-calendar-input,
+  .rate-calendar-readonly {
+    font-size: 0.72rem;
+  }
+}

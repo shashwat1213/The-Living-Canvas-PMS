@@ -3,7 +3,10 @@ import { Route, Routes } from 'react-router-dom';
 import App from './App';
 import { RequireAuth } from './auth/RequireAuth';
 import { AuditPage } from './features/audit/AuditPage';
+import { GuestsPage } from './features/guests/GuestsPage';
 import { PropertiesPage } from './features/properties/PropertiesPage';
+import { RatePlansPage } from './features/rate-plans/RatePlansPage';
+import { ReservationsPage } from './features/reservations/ReservationsPage';
 import { RoomTypesPage } from './features/room-types/RoomTypesPage';
 import { RoomsPage } from './features/rooms/RoomsPage';
 import { StaffPage } from './features/staff/StaffPage';
@@ -29,7 +32,10 @@ export function AppRouter() {
         <Route index element={<DashboardPage />} />
         <Route path="properties" element={<PropertiesPage />} />
         <Route path="properties/:propertyId/rooms" element={<RoomsPage />} />
+        <Route path="properties/:propertyId/reservations" element={<ReservationsPage />} />
         <Route path="properties/:propertyId/room-types" element={<RoomTypesPage />} />
+        <Route path="properties/:propertyId/room-types/:roomTypeId/rate-plans" element={<RatePlansPage />} />
+        <Route path="guests" element={<GuestsPage />} />
         <Route path="staff" element={<StaffPage />} />
         <Route path="audit" element={<AuditPage />} />
       </Route>
