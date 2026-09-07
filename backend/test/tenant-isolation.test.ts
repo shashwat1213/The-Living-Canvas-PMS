@@ -398,6 +398,21 @@ describe('cross-organization isolation: reservations', () => {
       .set(...authHeader(orgB.token))
       .send({ housekeepingStatus: 'DIRTY' });
     expect(condForB.status).toBe(404);
+
+    // Maintenance work orders for A's property are invisible to B too — the
+    // list and create both 404, so B can neither see A's engineering work nor
+    // inject a work order (or an out-of-service block) onto A's rooms.
+    const mxBase = `/api/v1/properties/${propertyId}/maintenance/work-orders`;
+    const mxListForB = await request(app).get(mxBase).set(...authHeader(orgB.token));
+    expect(mxListForB.status).toBe(404);
+    const mxCreateForB = await request(app)
+      .post(mxBase)
+      .set(...authHeader(orgB.token))
+      .send({ title: 'intrusion', roomId: roomIdA, takeRoomOutOfService: true });
+    expect(mxCreateForB.status).toBe(404);
+    // A can create its own work order fine.
+    const mxForA = await request(app).post(mxBase).set(...authA).send({ title: 'A work', roomId: roomIdA });
+    expect(mxForA.status).toBe(201);
   });
 });
 

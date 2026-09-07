@@ -10,6 +10,7 @@ import { authRouter } from './modules/auth/routes.js';
 import { availabilityRouter } from './modules/availability/routes.js';
 import { foliosRouter } from './modules/folios/routes.js';
 import { housekeepingRouter } from './modules/housekeeping/routes.js';
+import { maintenanceRouter } from './modules/maintenance/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { guestsRouter } from './modules/guests/routes.js';
 import { propertiesRouter } from './modules/properties/routes.js';
@@ -46,6 +47,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/reservations/:reservationId/folio', foliosRouter);
   v1.use('/properties/:propertyId/availability', availabilityRouter);
   v1.use('/properties/:propertyId/housekeeping', housekeepingRouter);
+  v1.use('/properties/:propertyId/maintenance/work-orders', maintenanceRouter);
   app.use('/api/v1', v1);
 
   // Nothing matched. Handing a NotFoundError to `errorHandler` rather than

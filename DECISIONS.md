@@ -2394,3 +2394,52 @@ back-filled by this slice.
 
 
 
+
+## Maintenance work orders (2026-09-07)
+
+The engineering side of daily operations, benchmarked against Cloudbeds, Mews
+and the hotel-CMMS category first.
+
+### Decision 1 — a work order can take a room out of service; a housekeeping task never does
+
+The defining difference from housekeeping: a maintenance issue can make a room
+unsellable. Rather than a new inventory flag, a work order with
+`takeRoomOutOfService` flips the existing `Room.status` to MAINTENANCE — the
+same axis availability/overbooking already excludes (countSellableRooms only
+counts ACTIVE rooms), so OOS rooms drop out of inventory with zero new wiring.
+`takesRoomOutOfService` is stored on the order so resolving it can return the
+room to ACTIVE. Housekeeping condition stays completely independent.
+
+### Decision 2 — return-to-service is guarded against multiple holds
+
+Resolving/cancelling an order that held its room out returns the room to
+ACTIVE only if no OTHER open order still holds it out (checked in-transaction).
+Two burst pipes on the same room: resolving the first leaves it out; resolving
+the second returns it. Prevents a premature return that re-sells a room still
+under active repair. Reopening a resolved order does NOT auto-re-block the room
+(an explicit decision — reopening is for record correction, not re-blocking).
+
+### Decision 3 — roomId is optional; tenancy is the direct property relation
+
+Not all maintenance is room-scoped (lobby lights, pool pumps, lifts), so
+`roomId` is nullable and a property-level order is first-class. WorkOrder
+carries `propertyId` directly and reuses the existing `scopeByPropertyRelation`
+tenancy helper — no new scoping code. room and assignee FKs are SET NULL so an
+order survives a room or staff deletion as history.
+
+### Decision 4 — permissions and audit
+
+New `maintenance:read` / `maintenance:manage` (MANAGER+STAFF, like
+housekeeping — logging an issue is front-line work). Audit distinguishes the
+inventory-affecting transitions (`room.out_of_service` /
+`room.returned_to_service`) from plain `work_order.updated`, so the trail shows
+exactly when a room left and re-entered sellable inventory and why.
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces; backend
+282/282 (+11), frontend 172/172 (+4), migrate status clean on real
+PostgreSQL 16. A live probe against the built server exercised the full path:
+lifecycle open/start/resolve, property-level order with no room, 400 on
+takeRoomOutOfService-without-room, room OUT on open + BACK on resolve, the
+multiple-hold guard (room stays out until the last holding order resolves),
+terminal-edit 409, cross-property-room 404, cross-tenant 404, no passwordHash
+leak.

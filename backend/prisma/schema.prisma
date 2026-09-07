@@ -64,12 +64,13 @@ model User {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sessions          Session[]
   roleAssignments   UserRoleAssignment[]
   propertyAccess    PropertyAccess[]
   auditEvents       AuditLog[]
-  housekeepingTasks HousekeepingTask[]   @relation("HousekeepingAssignee")
+  housekeepingTasks HousekeepingTask[]     @relation("HousekeepingAssignee")
+  workOrders        MaintenanceWorkOrder[] @relation("WorkOrderAssignee")
 
   @@index([organizationId])
   @@map("users")
@@ -267,11 +268,12 @@ model Property {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   rooms          Room[]
   roomTypes      RoomType[]
   propertyAccess PropertyAccess[]
   reservations   Reservation[]
+  workOrders     MaintenanceWorkOrder[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -434,14 +436,15 @@ model Room {
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  property          Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property          Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   /// Restrict, not SetNull: `roomTypeId` is now required, so a type still
   /// assigned to rooms must not be deletable out from under them. This is
   /// the database backstop for the 409 the room-types service already
   /// returns proactively (see `modules/room-types/service.ts`).
-  roomType          RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  roomType          RoomType               @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   reservations      Reservation[]
   housekeepingTasks HousekeepingTask[]
+  workOrders        MaintenanceWorkOrder[]
 
   @@unique([propertyId, name])
   @@index([propertyId])
@@ -739,4 +742,80 @@ model HousekeepingTask {
   @@index([assignedToId])
   @@index([status])
   @@map("housekeeping_tasks")
+}
+
+/// The lifecycle of a maintenance work order.
+enum WorkOrderStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+/// How urgent a work order is — the axis an engineering lead triages by.
+/// URGENT is a guest-affecting or safety issue (no hot water, a leak); LOW is
+/// cosmetic / can wait for a scheduled window.
+enum WorkOrderPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+/// The trade a work order falls under — used to route and report on
+/// engineering work. Deliberately a small fixed set covering the common
+/// hotel-maintenance categories; OTHER is the catch-all.
+enum WorkOrderCategory {
+  HVAC
+  PLUMBING
+  ELECTRICAL
+  APPLIANCE
+  FURNITURE
+  STRUCTURAL
+  SAFETY
+  OTHER
+}
+
+/// A maintenance work order — the engineering side of daily operations, the
+/// "reduce downtime and protect the guest experience" record every commercial
+/// PMS keeps. Unlike a housekeeping task (which never affects inventory), a
+/// work order MAY take a room out of service: `takesRoomOutOfService` records
+/// whether opening this order flipped the room's `status` to MAINTENANCE, so
+/// resolving/cancelling it can return the room to ACTIVE only when it was the
+/// order that removed it.
+///
+/// `roomId` is OPTIONAL: not all maintenance is room-scoped — a lobby light, a
+/// pool pump, a lift are property-level. Tenancy is a direct `propertyId`
+/// (scoped through Property, like Reservation), so a property-wide order needs
+/// no room. `assignedToId` names the engineer, kept on their deletion.
+model MaintenanceWorkOrder {
+  id                    String            @id @default(uuid())
+  propertyId            String            @map("property_id")
+  /// The room this order is about, if any. Null for property-level work
+  /// (common areas, plant, grounds).
+  roomId                String?           @map("room_id")
+  title                 String
+  description           String?
+  category              WorkOrderCategory @default(OTHER)
+  priority              WorkOrderPriority @default(MEDIUM)
+  status                WorkOrderStatus   @default(OPEN)
+  assignedToId          String?           @map("assigned_to_id")
+  /// True when opening this order put its room out of service (room.status →
+  /// MAINTENANCE). Drives whether resolving it returns the room to ACTIVE.
+  /// Always false for a property-level order (no room to block).
+  takesRoomOutOfService Boolean           @default(false) @map("takes_room_out_of_service")
+  /// When the order moved to RESOLVED. Null until resolved.
+  resolvedAt            DateTime?         @map("resolved_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  room       Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  assignedTo User?    @relation("WorkOrderAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId])
+  @@index([roomId])
+  @@index([assignedToId])
+  @@index([status])
+  @@map("maintenance_work_orders")
 }

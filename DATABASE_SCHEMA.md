@@ -281,6 +281,32 @@ there is no `organization_id` column of its own, and
 | created_at     | timestamp |                                             |
 | updated_at     | timestamp |                                             |
 
+### MaintenanceWorkOrder
+
+An engineering work order. Unlike a housekeeping task (which never affects
+inventory), a work order MAY take a room **out of service**:
+`takes_room_out_of_service` records whether opening it flipped the room's
+`status` to MAINTENANCE, so resolving/cancelling it returns the room to ACTIVE
+— but only if no other open order still holds the room out. `room_id` is
+**optional**: property-level work (lobby, plant, grounds) has no room. Tenancy
+is a direct `property_id` (scoped through Property, like Reservation).
+
+| Column                    | Type      | Notes                               |
+|---------------------------|-----------|-------------------------------------|
+| id                        | uuid      | PK                                  |
+| property_id               | uuid      | FK → properties, cascade delete     |
+| room_id                   | uuid?     | FK → rooms, `SET NULL`; null = property-level |
+| title                     | text      |                                     |
+| description               | text?     |                                     |
+| category                  | enum      | HVAC \| PLUMBING \| ELECTRICAL \| APPLIANCE \| FURNITURE \| STRUCTURAL \| SAFETY \| OTHER; default OTHER |
+| priority                  | enum      | LOW \| MEDIUM \| HIGH \| URGENT; default MEDIUM |
+| status                    | enum      | OPEN \| IN_PROGRESS \| RESOLVED \| CANCELLED; default OPEN |
+| assigned_to_id            | uuid?     | FK → users, `SET NULL` on delete    |
+| takes_room_out_of_service | boolean   | default false; true only with a room |
+| resolved_at               | timestamp?| set when status moves to RESOLVED   |
+| created_at                | timestamp |                                     |
+| updated_at                | timestamp |                                     |
+
 ### AuditLog
 
 Immutable record of a consequential action taken within an Organization.
@@ -396,6 +422,13 @@ Migrations live in `backend/prisma/migrations/`:
   on room/assignee/status). No existing column dropped, renamed or made
   NOT NULL. Applied and verified against real PostgreSQL 16 (`prisma migrate
   dev`), then exercised by the housekeeping test suite and a live e2e probe.
+- `20260907121848_maintenance_work_orders` — **additive / non-destructive**.
+  Adds the `WorkOrderStatus`, `WorkOrderPriority` and `WorkOrderCategory`
+  enums and the `maintenance_work_orders` table (FK → properties cascade,
+  FK → rooms set-null, FK → users set-null, indexed on property/room/assignee/
+  status). No existing table touched. Applied and verified against real
+  PostgreSQL 16 (`prisma migrate dev`), then exercised by the maintenance test
+  suite and a live e2e probe (including the room out-of-service/return flow).
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

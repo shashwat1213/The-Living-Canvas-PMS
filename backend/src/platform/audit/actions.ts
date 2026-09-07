@@ -78,6 +78,14 @@ export const AUDIT_ACTIONS = {
   HOUSEKEEPING_TASK_CREATED: 'housekeeping_task.created',
   HOUSEKEEPING_TASK_UPDATED: 'housekeeping_task.updated',
   HOUSEKEEPING_TASK_COMPLETED: 'housekeeping_task.completed',
+  // Maintenance: work-order lifecycle. Taking a room out of service and
+  // returning it are consequential (they change sellable inventory), so they
+  // are audited distinctly from a plain status/detail update.
+  WORK_ORDER_CREATED: 'work_order.created',
+  WORK_ORDER_UPDATED: 'work_order.updated',
+  WORK_ORDER_RESOLVED: 'work_order.resolved',
+  ROOM_OUT_OF_SERVICE: 'room.out_of_service',
+  ROOM_RETURNED_TO_SERVICE: 'room.returned_to_service',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -98,6 +106,7 @@ export const AUDIT_ENTITY_TYPES = {
   RESERVATION: 'reservation',
   FOLIO: 'folio',
   HOUSEKEEPING_TASK: 'housekeeping_task',
+  WORK_ORDER: 'work_order',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

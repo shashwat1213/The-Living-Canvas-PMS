@@ -75,6 +75,14 @@ export const ALL_PERMISSIONS = [
     key: 'housekeeping:manage',
     description: "Set a room's cleaning condition and create, assign and complete housekeeping tasks.",
   },
+  {
+    key: 'maintenance:read',
+    description: "Read a property's maintenance work orders.",
+  },
+  {
+    key: 'maintenance:manage',
+    description: 'Create, assign, update and resolve maintenance work orders, and take rooms out of service.',
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -145,6 +153,11 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // manage sit at the front-line level.
     'housekeeping:read',
     'housekeeping:manage',
+    // Maintenance is daily engineering ops: logging an issue, assigning it,
+    // and taking a room out of service are front-line actions, so MANAGER and
+    // STAFF both get read + manage.
+    'maintenance:read',
+    'maintenance:manage',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
@@ -176,6 +189,9 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // Running the cleaning board is core daily operations for the front line.
     'housekeeping:read',
     'housekeeping:manage',
+    // Logging and working maintenance issues is core daily ops too.
+    'maintenance:read',
+    'maintenance:manage',
   ],
 };
 
