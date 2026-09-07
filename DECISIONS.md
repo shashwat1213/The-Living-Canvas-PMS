@@ -2331,3 +2331,66 @@ excluded (the departure night reads free). The `to<=from` 400, the >62-night
 400, and the anonymous 401 were confirmed against the running server too.
 
 
+## Housekeeping (2026-09-07)
+
+The daily-operations module: room cleaning conditions + a cleaning-task board.
+Benchmarked against Cloudbeds, Mews and Stayntouch first.
+
+### Decision 1 — cleanliness is a SEPARATE axis from inventory status
+
+Every commercial PMS models a room's housekeeping condition (dirty → cleaning
+→ clean → inspected) as **distinct** from its inventory/service status. A
+dirty room is still bookable; only "out of service" removes it from sellable
+inventory. So rather than overloading `Room.status` (ACTIVE/INACTIVE/
+MAINTENANCE), housekeeping got its own `Room.housekeeping_status` enum
+(DIRTY/CLEANING/CLEAN/INSPECTED). The two never interfere: availability and
+overbooking math still read `status` only; the housekeeping board reads
+`housekeeping_status`. Default is INSPECTED — a freshly created room has not
+been slept in, so it's ready to sell with no backfill on migration day.
+
+### Decision 2 — tasks reach tenancy through room, and survive assignee loss
+
+`HousekeepingTask` has no `organization_id`; it's scoped through
+`room → property → organization_id`, via a new `scopeByRoomRelation()` helper
+matching the existing relation-scoping pattern. `assigned_to_id` is FK → users
+with `SET NULL` (not cascade): deactivating a housekeeper must not delete the
+history of work they did — the task survives as an unassigned record. Task
+lifecycle is PENDING → IN_PROGRESS → DONE (or CANCELLED); a terminal task is
+locked to editing except to reopen it, and DONE stamps/clears `completed_at`.
+
+### Decision 3 — check-out marks the room dirty and opens a departure task
+
+The one cross-module hook: checking a guest out (reservations service) now
+also — if a physical room was assigned — flips that room to DIRTY and opens a
+DEPARTURE task, in the **same transaction** as the status change, with audit
+entries for both. This is standard PMS behaviour and is what feeds the board
+its daily turnover work. A checkout with no assigned room does nothing extra.
+
+### Decision 4 — permissions at the front-line level
+
+New `housekeeping:read` / `housekeeping:manage`, held by MANAGER **and** STAFF
+(running the cleaning board is core daily ops, like taking a booking or
+settling a folio), plus OWNER/ADMIN via the full spread. Seed re-run
+backfilled the mappings onto existing organizations.
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces; backend
+271/271 (+10), frontend 168/168 (+5), migrate status clean on real
+PostgreSQL 16. A live probe against the built server exercised the full path:
+fresh room INSPECTED/vacant → condition transitions → invalid-condition 400 →
+task create/start/complete → terminal-edit 409 → cross-property-room 404 →
+check-out auto-marking the room DIRTY and creating a PENDING DEPARTURE task →
+cross-tenant board/condition/tasks all 404 → no `passwordHash` in any payload.
+
+### Known documentation debt found en route (not introduced here)
+
+`DATABASE_SCHEMA.md` was already missing the `Reservation`, `ReservationNight`,
+`Folio`, `FolioCharge` and `Payment` entities and their migrations — the
+reservations and folios slices updated the schema file's Room/enum tables but
+not its entity list or migration log. This housekeeping entry added the Room
+`housekeeping_status` column, the `HousekeepingTask` entity, and the
+`20260907115046_housekeeping` migration; the pre-existing reservations/folios
+gaps are flagged here for a Documentation-role pass rather than silently
+back-filled by this slice.
+
+
+

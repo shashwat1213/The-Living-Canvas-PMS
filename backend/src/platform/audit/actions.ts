@@ -71,6 +71,13 @@ export const AUDIT_ACTIONS = {
   FOLIO_PAYMENT_RECORDED: 'folio.payment_recorded',
   FOLIO_CLOSED: 'folio.closed',
   FOLIO_REOPENED: 'folio.reopened',
+  // Housekeeping: a room's cleaning condition changing, and the lifecycle of
+  // a cleaning task, are both audited — "who marked 204 clean / who left it
+  // dirty" is a real accountability question on the housekeeping floor.
+  ROOM_HOUSEKEEPING_CHANGED: 'room.housekeeping_changed',
+  HOUSEKEEPING_TASK_CREATED: 'housekeeping_task.created',
+  HOUSEKEEPING_TASK_UPDATED: 'housekeeping_task.updated',
+  HOUSEKEEPING_TASK_COMPLETED: 'housekeeping_task.completed',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -90,6 +97,7 @@ export const AUDIT_ENTITY_TYPES = {
   GUEST: 'guest',
   RESERVATION: 'reservation',
   FOLIO: 'folio',
+  HOUSEKEEPING_TASK: 'housekeeping_task',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

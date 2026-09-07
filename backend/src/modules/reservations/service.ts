@@ -446,6 +446,12 @@ export async function checkIn(propertyId: string, id: string, input: CheckInInpu
  * Check a guest out. Only a CHECKED_IN booking can be checked out. The room
  * assignment is kept as a record of where they stayed; releasing it is implicit
  * in the status leaving the occupying set for future dates (the stay is over).
+ *
+ * A departure leaves the room to be turned over, so — if a physical room was
+ * assigned — check-out also flips that room's housekeeping condition to DIRTY
+ * and opens a DEPARTURE cleaning task, all in the same transaction as the
+ * status change. This is the standard PMS behaviour (Cloudbeds/Mews/Stayntouch
+ * all mark a room dirty on checkout) and is what feeds the housekeeping board.
  */
 export async function checkOut(propertyId: string, id: string): Promise<ReservationView> {
   const before = await getReservation(propertyId, id);
@@ -464,6 +470,34 @@ export async function checkOut(propertyId: string, id: string): Promise<Reservat
       },
       tx,
     );
+
+    // Turn the departed room over: mark it dirty and open a cleaning task so it
+    // surfaces on the housekeeping board. Only when a physical room was held —
+    // a checkout without an assigned room has nothing to clean.
+    if (before.roomId) {
+      await tx.room.update({ where: { id: before.roomId }, data: { housekeepingStatus: 'DIRTY' } });
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.ROOM_HOUSEKEEPING_CHANGED,
+          entityType: AUDIT_ENTITY_TYPES.ROOM,
+          entityId: before.roomId,
+          metadata: { to: 'DIRTY', reason: 'checkout', reference: before.reference },
+        },
+        tx,
+      );
+      const task = await tx.housekeepingTask.create({
+        data: { roomId: before.roomId, type: 'DEPARTURE', status: 'PENDING' },
+      });
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.HOUSEKEEPING_TASK_CREATED,
+          entityType: AUDIT_ENTITY_TYPES.HOUSEKEEPING_TASK,
+          entityId: task.id,
+          metadata: { roomId: before.roomId, type: 'DEPARTURE', reason: 'checkout', reference: before.reference },
+        },
+        tx,
+      );
+    }
   });
 
   return getReservation(propertyId, id);

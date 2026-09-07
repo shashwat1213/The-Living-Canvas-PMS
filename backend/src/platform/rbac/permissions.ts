@@ -67,6 +67,14 @@ export const ALL_PERMISSIONS = [
     key: 'payments:manage',
     description: 'Post charges and record payments on a folio, and close it.',
   },
+  {
+    key: 'housekeeping:read',
+    description: "Read a property's housekeeping board and cleaning tasks.",
+  },
+  {
+    key: 'housekeeping:manage',
+    description: "Set a room's cleaning condition and create, assign and complete housekeeping tasks.",
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -132,6 +140,11 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // read and manage sit here (and for STAFF below).
     'payments:read',
     'payments:manage',
+    // Housekeeping is daily operations: a manager (and staff, below) runs the
+    // cleaning board, sets room conditions and assigns tasks. Both read and
+    // manage sit at the front-line level.
+    'housekeeping:read',
+    'housekeeping:manage',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
@@ -160,6 +173,9 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // Settling the bill and taking payment at check-out is core desk work.
     'payments:read',
     'payments:manage',
+    // Running the cleaning board is core daily operations for the front line.
+    'housekeeping:read',
+    'housekeeping:manage',
   ],
 };
 

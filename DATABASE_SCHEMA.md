@@ -157,9 +157,12 @@ A single physical venue belonging to an Organization.
 
 ### Room
 
-A bookable unit within a Property. Models **operational** status only
-(is this room in service?) — occupancy/booking state belongs to the future
-bookings module, not here.
+A bookable unit within a Property. Carries **two independent status axes**:
+`status` is its inventory/service state (is this room sellable?), while
+`housekeeping_status` is its physical-cleanliness state (is it ready to hand
+over the key?). They are deliberately separate — a DIRTY room is still
+bookable; only `status` (INACTIVE/MAINTENANCE) removes a room from sellable
+inventory. This mirrors every commercial PMS (Cloudbeds, Mews, Stayntouch).
 
 | Column       | Type      | Notes                                       |
 |--------------|-----------|-----------------------------------------------|
@@ -170,6 +173,7 @@ bookings module, not here.
 | floor        | text?     |                                                |
 | capacity     | int       | default 1                                     |
 | status       | enum      | ACTIVE \| INACTIVE \| MAINTENANCE             |
+| housekeeping_status | enum | DIRTY \| CLEANING \| CLEAN \| INSPECTED; default INSPECTED |
 | notes        | text?     |                                                |
 | created_at   | timestamp |                                                |
 | updated_at   | timestamp |                                                |
@@ -254,6 +258,28 @@ not free.
 | amount_minor | int       | price in paise (INR minor units)            |
 | created_at   | timestamp |                                             |
 | updated_at   | timestamp |                                             |
+
+### HousekeepingTask
+
+A unit of housekeeping work on a room — the task board a supervisor runs the
+day from. Created automatically when a departure leaves a room to be turned
+over (the check-out flow in `modules/reservations/service.ts` marks the room
+DIRTY and opens a DEPARTURE task), or manually for a stayover / deep clean.
+Tenancy reaches it transitively through `room → property → organization_id`;
+there is no `organization_id` column of its own, and
+`src/platform/tenancy/scoped-prisma.ts` scopes it through the `room` relation.
+
+| Column         | Type      | Notes                                       |
+|----------------|-----------|---------------------------------------------|
+| id             | uuid      | PK                                          |
+| room_id        | uuid      | FK → rooms, cascade delete                  |
+| type           | enum      | DEPARTURE \| STAYOVER \| TURNDOWN \| OTHER; default DEPARTURE |
+| status         | enum      | PENDING \| IN_PROGRESS \| DONE \| CANCELLED; default PENDING |
+| assigned_to_id | uuid?     | FK → users, `SET NULL` on delete (history survives) |
+| notes          | text?     |                                             |
+| completed_at   | timestamp?| set when status moves to DONE, cleared on reopen |
+| created_at     | timestamp |                                             |
+| updated_at     | timestamp |                                             |
 
 ### AuditLog
 
@@ -362,6 +388,14 @@ Migrations live in `backend/prisma/migrations/`:
 - `20260904103803_rate_plans` — **additive**. Adds `rate_plans` (per room
   type) and `rate_plan_rates` (per plan, per date; INR paise). No change to
   any existing table. Applied and verified against real PostgreSQL 16.
+- `20260907115046_housekeeping` — **additive / non-destructive**. Adds the
+  `HousekeepingStatus`, `HousekeepingTaskStatus` and `HousekeepingTaskType`
+  enums, a `rooms.housekeeping_status` column (NOT NULL, default `INSPECTED`
+  — no backfill needed, every existing room becomes ready), and the
+  `housekeeping_tasks` table (FK → rooms cascade, FK → users set-null, indexed
+  on room/assignee/status). No existing column dropped, renamed or made
+  NOT NULL. Applied and verified against real PostgreSQL 16 (`prisma migrate
+  dev`), then exercised by the housekeeping test suite and a live e2e probe.
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

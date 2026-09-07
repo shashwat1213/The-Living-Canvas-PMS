@@ -262,6 +262,45 @@ function scopeByFolioRelation() {
 }
 
 /**
+ * Scoping for `HousekeepingTask`, which reaches its tenant through
+ * `room → property → organizationId` — the same one-relation-deep shape as
+ * `scopeByPropertyRelation`, just anchored on `room` instead of `property`.
+ * The filter is injected on every read/write so the repository can't forget
+ * it, and a create is guarded by the repository resolving the parent Room
+ * through the scoped client first (there is no `organizationId` column to
+ * inject on create).
+ */
+function scopeByRoomRelation() {
+  return {
+    async $allOperations({
+      operation,
+      args,
+      query,
+    }: {
+      operation: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      args: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (args: any) => Promise<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }): Promise<any> {
+      const ctx = getRequestContext();
+      const a = args;
+      if (WHERE_OPERATIONS.has(operation)) {
+        a.where = {
+          ...a.where,
+          room: {
+            ...a.where?.room,
+            property: { ...a.where?.room?.property, organizationId: ctx.organizationId },
+          },
+        };
+      }
+      return query(a);
+    },
+  };
+}
+
+/**
  * The multi-tenancy enforcement mechanism (Phase 1 decision, see
  * ARCHITECTURE.md "Multi-tenancy enforcement"). Every query issued
  * through `scopedPrisma` for a tenant-scoped model gets its
@@ -316,5 +355,6 @@ export const scopedPrisma = prisma.$extends({
     folio: scopeByReservationRelation(),
     folioCharge: scopeByFolioRelation(),
     payment: scopeByFolioRelation(),
+    housekeepingTask: scopeByRoomRelation(),
   },
 });

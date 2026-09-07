@@ -379,6 +379,25 @@ describe('cross-organization isolation: reservations', () => {
     const folioForA = await request(app).get(folioBase).set(...authA);
     expect(folioForA.status).toBe(200);
     expect(folioForA.body.folio.charges.length).toBeGreaterThan(0);
+
+    // The housekeeping board and tasks for A's property are invisible to B —
+    // reading the board, listing tasks, and setting a room's condition all
+    // 404, so B can neither see A's cleaning state nor mutate A's rooms.
+    const hkBase = `/api/v1/properties/${propertyId}/housekeeping`;
+    const boardForB = await request(app).get(`${hkBase}/board`).set(...authHeader(orgB.token));
+    expect(boardForB.status).toBe(404);
+    const tasksForB = await request(app).get(`${hkBase}/tasks`).set(...authHeader(orgB.token));
+    expect(tasksForB.status).toBe(404);
+    // A reads its own board fine (one room, INSPECTED by default).
+    const boardForA = await request(app).get(`${hkBase}/board`).set(...authA);
+    expect(boardForA.status).toBe(200);
+    expect(boardForA.body.board.summary.totalRooms).toBe(1);
+    const roomIdA = boardForA.body.board.rooms[0].id as string;
+    const condForB = await request(app)
+      .put(`${hkBase}/rooms/${roomIdA}/condition`)
+      .set(...authHeader(orgB.token))
+      .send({ housekeepingStatus: 'DIRTY' });
+    expect(condForB.status).toBe(404);
   });
 });
 
