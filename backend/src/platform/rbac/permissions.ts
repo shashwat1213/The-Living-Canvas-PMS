@@ -59,6 +59,14 @@ export const ALL_PERMISSIONS = [
     key: 'reservations:manage',
     description: 'Create, cancel and mark no-show on reservations.',
   },
+  {
+    key: 'payments:read',
+    description: "Read a reservation's folio, charges and payments.",
+  },
+  {
+    key: 'payments:manage',
+    description: 'Post charges and record payments on a folio, and close it.',
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -119,6 +127,11 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // take and cancel bookings, so both read and manage sit at this level.
     'reservations:read',
     'reservations:manage',
+    // Billing is front-desk work too: settling the folio and taking payment
+    // at check-out is the same daily desk job as taking the booking, so both
+    // read and manage sit here (and for STAFF below).
+    'payments:read',
+    'payments:manage',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
@@ -144,6 +157,9 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // Taking and cancelling bookings is the front desk's core job.
     'reservations:read',
     'reservations:manage',
+    // Settling the bill and taking payment at check-out is core desk work.
+    'payments:read',
+    'payments:manage',
   ],
 };
 

@@ -362,6 +362,23 @@ describe('cross-organization isolation: reservations', () => {
       .set(...authA);
     expect(availabilityForA.status).toBe(200);
     expect(availabilityForA.body.roomTypes).toHaveLength(1);
+
+    // The booking's folio (guest bill) is likewise invisible to B: viewing it
+    // and posting a payment to it both 404, so B can neither read A's charges
+    // nor inject a payment onto A's account.
+    const folioBase = `${base}/${reservationId}/folio`;
+    const folioForB = await request(app).get(folioBase).set(...authHeader(orgB.token));
+    expect(folioForB.status).toBe(404);
+    const payForB = await request(app)
+      .post(`${folioBase}/payments`)
+      .set(...authHeader(orgB.token))
+      .send({ method: 'CASH', amountMinor: 100 });
+    expect(payForB.status).toBe(404);
+
+    // A can open and read its own folio.
+    const folioForA = await request(app).get(folioBase).set(...authA);
+    expect(folioForA.status).toBe(200);
+    expect(folioForA.body.folio.charges.length).toBeGreaterThan(0);
   });
 });
 

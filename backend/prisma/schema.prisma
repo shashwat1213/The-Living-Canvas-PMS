@@ -533,6 +533,7 @@ model Reservation {
   guest    Guest              @relation(fields: [guestId], references: [id], onDelete: Restrict)
   room     Room?              @relation(fields: [roomId], references: [id], onDelete: SetNull)
   nights   ReservationNight[]
+  folio    Folio?
 
   @@unique([propertyId, reference])
   @@index([propertyId])
@@ -568,6 +569,94 @@ model ReservationNight {
   @@unique([reservationId, date])
   @@index([reservationId])
   @@map("reservation_nights")
+}
+
+/// The guest bill for a reservation — one folio per booking (1:1). A folio is
+/// the running account of what the guest owes (charges) against what they have
+/// paid (payments); its balance is charges minus payments.
+///
+/// Money model: every amount is INR minor units (paise), integer — never a
+/// float, matching the rest of the system. There is no currency column
+/// (INR-only per the initial-release decision). The folio does NOT store a
+/// cached balance; balance is derived from its charges and payments so it can
+/// never drift out of sync with the rows that justify it.
+///
+/// Tenancy reaches the folio transitively through `reservation → property`,
+/// exactly as ReservationNight does. Deleting a reservation cascades its folio
+/// (and the folio's charges/payments) — the bill has no meaning without the
+/// booking it belongs to.
+model Folio {
+  id            String      @id @default(uuid())
+  reservationId String      @unique @map("reservation_id")
+  status        FolioStatus @default(OPEN)
+  /// When the folio was settled and closed (balance zero, no further posting).
+  closedAt      DateTime?   @map("closed_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  reservation Reservation    @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  charges     FolioCharge[]
+  payments    Payment[]
+
+  @@index([reservationId])
+  @@map("folios")
+}
+
+/// A single line item on a folio — a room charge auto-posted from the
+/// reservation's nightly total when the folio opens, or a manually added
+/// extra (minibar, late checkout, damage). `amountMinor` is positive for a
+/// charge the guest owes; a correction is a separate negative line rather than
+/// an edit, so the ledger is append-only and auditable.
+model FolioCharge {
+  id          String   @id @default(uuid())
+  folioId     String   @map("folio_id")
+  description String
+  /// Charge amount in INR paise. Positive owes the guest; negative is a
+  /// correction/discount line.
+  amountMinor Int      @map("amount_minor")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  folio Folio @relation(fields: [folioId], references: [id], onDelete: Cascade)
+
+  @@index([folioId])
+  @@map("folio_charges")
+}
+
+/// A payment recorded against a folio. This is a manual-entry model: the front
+/// desk records that a payment was taken (cash, card, UPI, bank transfer),
+/// with an optional external reference — it is NOT a live payment-gateway
+/// integration and holds no gateway credentials. `amountMinor` is the amount
+/// received in INR paise (positive); a refund is a separate negative row so
+/// the payment history stays append-only.
+model Payment {
+  id          String        @id @default(uuid())
+  folioId     String        @map("folio_id")
+  method      PaymentMethod
+  /// Amount received in INR paise (positive); a refund is a negative row.
+  amountMinor Int           @map("amount_minor")
+  /// Optional external reference — a card auth code, UPI transaction id, or
+  /// cheque number. Free text; never a stored credential.
+  reference   String?
+  note        String?
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  folio Folio @relation(fields: [folioId], references: [id], onDelete: Cascade)
+
+  @@index([folioId])
+  @@map("payments")
+}
+
+enum FolioStatus {
+  OPEN
+  CLOSED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  BANK_TRANSFER
+  OTHER
 }
 
 /// A bookable unit (room) within a Property. This models the room's

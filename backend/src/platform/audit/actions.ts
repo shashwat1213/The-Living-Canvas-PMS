@@ -66,6 +66,11 @@ export const AUDIT_ACTIONS = {
   RESERVATION_ROOM_ASSIGNED: 'reservation.room_assigned',
   RESERVATION_CHECKED_IN: 'reservation.checked_in',
   RESERVATION_CHECKED_OUT: 'reservation.checked_out',
+  FOLIO_OPENED: 'folio.opened',
+  FOLIO_CHARGE_ADDED: 'folio.charge_added',
+  FOLIO_PAYMENT_RECORDED: 'folio.payment_recorded',
+  FOLIO_CLOSED: 'folio.closed',
+  FOLIO_REOPENED: 'folio.reopened',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -84,6 +89,7 @@ export const AUDIT_ENTITY_TYPES = {
   RATE_PLAN: 'rate_plan',
   GUEST: 'guest',
   RESERVATION: 'reservation',
+  FOLIO: 'folio',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

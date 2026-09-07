@@ -8,6 +8,7 @@ import { errorHandler } from './middleware/error-handler.js';
 import { auditRouter } from './modules/audit/routes.js';
 import { authRouter } from './modules/auth/routes.js';
 import { availabilityRouter } from './modules/availability/routes.js';
+import { foliosRouter } from './modules/folios/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { guestsRouter } from './modules/guests/routes.js';
 import { propertiesRouter } from './modules/properties/routes.js';
@@ -41,6 +42,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/room-types', roomTypesRouter);
   v1.use('/properties/:propertyId/room-types/:roomTypeId/rate-plans', ratePlansRouter);
   v1.use('/properties/:propertyId/reservations', reservationsRouter);
+  v1.use('/properties/:propertyId/reservations/:reservationId/folio', foliosRouter);
   v1.use('/properties/:propertyId/availability', availabilityRouter);
   app.use('/api/v1', v1);
 
