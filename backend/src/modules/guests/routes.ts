@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { createGuestSchema, listGuestsQuerySchema, updateGuestSchema } from './schemas.js';
+import { createGuestSchema, listGuestsQuerySchema, setGuestTagsSchema, updateGuestSchema } from './schemas.js';
 import * as guestsService from './service.js';
 
 /**
@@ -32,6 +32,27 @@ guestsRouter.get(
   requirePermission('guests:read'),
   asyncHandler(async (req, res) => {
     const guest = await guestsService.getGuest(req.params.guestId as string);
+    res.json({ guest });
+  }),
+);
+
+// The guest-360 view: profile + computed stay history and lifetime value.
+guestsRouter.get(
+  '/guests/:guestId/profile',
+  requirePermission('guests:read'),
+  asyncHandler(async (req, res) => {
+    const profile = await guestsService.getGuestProfile(req.params.guestId as string);
+    res.json(profile);
+  }),
+);
+
+// Replace the guest's segmentation tags as a set.
+guestsRouter.put(
+  '/guests/:guestId/tags',
+  requirePermission('guests:manage'),
+  asyncHandler(async (req, res) => {
+    const input = setGuestTagsSchema.parse(req.body);
+    const guest = await guestsService.setGuestTags(req.params.guestId as string, input);
     res.json({ guest });
   }),
 );

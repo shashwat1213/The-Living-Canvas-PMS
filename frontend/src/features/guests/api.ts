@@ -1,6 +1,6 @@
 import { apiFetch } from '../../lib/api';
 import { toQueryString, type PageMeta } from '../../lib/pagination';
-import type { CreateGuestInput, Guest, GuestListParams, UpdateGuestInput } from './types';
+import type { CreateGuestInput, Guest, GuestListParams, GuestProfile, UpdateGuestInput } from './types';
 
 /**
  * The only place guest endpoints are named. Guests are organization-scoped
@@ -32,4 +32,12 @@ export function updateGuest(guestId: string, input: UpdateGuestInput): Promise<G
 
 export function deleteGuest(guestId: string): Promise<void> {
   return apiFetch<void>(`${base}/${guestId}`, { method: 'DELETE' });
+}
+
+export function getGuestProfile(guestId: string): Promise<GuestProfile> {
+  return apiFetch<GuestProfile>(`${base}/${guestId}/profile`);
+}
+
+export function setGuestTags(guestId: string, tags: string[]): Promise<Guest> {
+  return apiFetch<{ guest: Guest }>(`${base}/${guestId}/tags`, { method: 'PUT', body: { tags } }).then((res) => res.guest);
 }

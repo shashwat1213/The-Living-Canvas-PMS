@@ -38,6 +38,7 @@ function guest(overrides: Partial<Guest> = {}): Guest {
     email: 'asha@example.com',
     phone: '+91 98765 43210',
     notes: null,
+    tags: [],
     reservationCount: 0,
     createdAt: '2026-09-01T00:00:00.000Z',
     updatedAt: '2026-09-01T00:00:00.000Z',

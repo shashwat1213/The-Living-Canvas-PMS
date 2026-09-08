@@ -56,6 +56,7 @@ export const AUDIT_ACTIONS = {
   GUEST_CREATED: 'guest.created',
   GUEST_UPDATED: 'guest.updated',
   GUEST_DELETED: 'guest.deleted',
+  GUEST_TAGS_CHANGED: 'guest.tags_changed',
 
   // A reservation is the central transactional record, so its creation and
   // every lifecycle transition are audited — "who booked this / who cancelled

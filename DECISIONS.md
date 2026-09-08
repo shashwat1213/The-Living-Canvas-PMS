@@ -2627,3 +2627,55 @@ page, +2 route registration); migrate status clean on real PostgreSQL 16. A
 oversell 409 + void-restock, cannot-void-paid 409, a room-charge posting
 +90000 to the folio with a linked folioChargeId, cross-outlet product 404, no
 passwordHash leak, anonymous 401 and cross-tenant 404.
+
+
+## Guest CRM / guest-360 (2026-09-08)
+
+**Context.** The `Guest` model always carried a note that "a richer guest
+profile is a later module and attaches here without reshaping this." This is
+that module: segmentation tags plus a computed guest-360 view (stay history,
+lifetime value, repeat-guest detection). It reuses everything already built —
+reservations, folios, POS charges all roll up here — with a single additive
+column, no new relations.
+
+**Tags are a Postgres `text[]`, not a join table.** Tags are a small,
+unordered label set read together with the guest and never queried on their
+own, so an array is the right weight — a `GuestTag` join table would be
+ceremony for nothing. Additive column defaulted to `{}`, so existing rows need
+no backfill. Service upper-cases, trims and de-duplicates, so "vip", "VIP" and
+a repeated "VIP" collapse to one; the list filter upper-cases to match with
+`has` (exact membership, not substring — a tag is a label). Set-replace
+semantics via `PUT /guests/:id/tags`; a no-op change writes no audit entry, and
+the `guest.tags_changed` audit records the before/after sets in full (labels
+are not personal data, unlike the contact fields the existing guest audit
+deliberately keeps out of metadata).
+
+**The profile is derived, never stored.** `GET /guests/:id/profile` computes
+everything from the guest's reservations and their folios in one query + a
+fold: stay history (newest-first), nights stayed, booked value (non-cancelled
+reservations' agreed totals), and charged/paid/balance from the folios so the
+figures reflect what was actually billed and collected — room + POS + extras,
+automatically, because POS room-charges already post to the folio. No stored
+aggregate means nothing to drift out of sync. `isRepeatGuest` is true once the
+guest has more than one *realised* stay (CHECKED_IN/CHECKED_OUT), not just
+bookings — a guest who booked twice and cancelled both is not a repeat guest.
+
+**Permissioning reuses `guests:read`/`guests:manage`.** Reading the profile is
+`guests:read`; editing tags is `guests:manage` — both already held by STAFF
+and up (front-desk work), so no new permission and no seed change. The profile
+is read-only; tags are the only writable surface.
+
+**Frontend.** `GuestProfileDialog` — lifetime stat grid, a repeat-guest badge,
+an inline tag editor (add/remove chips, save the set), and the full stay
+history table. Tags also show as chips on the guest directory rows, and the
+list gains a tag filter. Money formatted from paise at the edge; every figure
+computed server-side.
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces; backend
+311/311 (+7 guest-crm), frontend 197/197 (+3 GuestProfileDialog); migrate
+status clean on real PostgreSQL 16. An 18-assertion live probe against the
+built server confirmed tag upper-casing/de-dup, tag filter include/exclude,
+and the aggregation for two realised stays (totalStays 2, nightsStayed 3,
+bookedValue 1.2M, isRepeatGuest true, charged matching the opened folio,
+first/last stay dates, stays newest-first), plus no passwordHash leak,
+anonymous 401, nonexistent-guest 404 and cross-tenant 404.

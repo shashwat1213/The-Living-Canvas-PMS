@@ -473,6 +473,12 @@ model Guest {
   email          String?
   phone          String?
   notes          String?
+  /// Free-form segmentation labels (e.g. "VIP", "Corporate", "Repeat"),
+  /// upper-trimmed and de-duplicated in the service. A Postgres text array
+  /// rather than a join table: tags are a small, unordered set read together
+  /// with the guest, never queried on their own, so an array is the right
+  /// weight. Additive and defaulted to empty, so existing rows need no backfill.
+  tags           String[] @default([])
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
