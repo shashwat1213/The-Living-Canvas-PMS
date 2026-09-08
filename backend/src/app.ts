@@ -17,6 +17,7 @@ import { guestsRouter } from './modules/guests/routes.js';
 import { propertiesRouter } from './modules/properties/routes.js';
 import { ratePlansRouter } from './modules/rate-plans/routes.js';
 import { reservationsRouter } from './modules/reservations/routes.js';
+import { reportsRouter } from './modules/reports/routes.js';
 import { roomTypesRouter } from './modules/room-types/routes.js';
 import { roomsRouter } from './modules/rooms/routes.js';
 import { staffRouter } from './modules/staff/routes.js';
@@ -48,6 +49,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/reservations/:reservationId/folio', foliosRouter);
   v1.use('/properties/:propertyId/availability', availabilityRouter);
   v1.use('/properties/:propertyId/dashboard', dashboardRouter);
+  v1.use('/properties/:propertyId/reports', reportsRouter);
   v1.use('/properties/:propertyId/housekeeping', housekeepingRouter);
   v1.use('/properties/:propertyId/maintenance/work-orders', maintenanceRouter);
   app.use('/api/v1', v1);

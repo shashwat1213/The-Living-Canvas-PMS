@@ -884,6 +884,43 @@ done; **nothing below it has been started.**
   payment, the 401/400 guards, no passwordHash leak, and a cross-tenant 404.
   See DECISIONS.md.
 
+- [x] **Reports — revenue & occupancy** (2026-09-08)
+  The manager's daily revenue / flash report, the analytics view every
+  commercial PMS (Cloudbeds, Mews) centres on: room revenue, occupancy, ADR
+  and RevPAR by night with a window total, plus payments collected by method.
+
+  **Read-only, computed — no schema, no migration, no audit.** `GET
+  /properties/:propertyId/reports/revenue?from&to` (half-open window, ≤ 366
+  nights), behind `requirePropertyAccess`; cross-org property 404s. Three
+  bounded grouped queries, never a query per night. Revenue is read from the
+  authoritative per-night ledger (`ReservationNight`), so it lands on the night
+  earned and a stay straddling the window edge counts only its in-window
+  nights; only occupying statuses count. This registered `reservationNight` in
+  the tenancy extension (reused `scopeByReservationRelation`, no new scoping
+  code). Room revenue (accrual) and payments collected (cash-basis on
+  `Payment.createdAt`) are reported as two deliberately separate axes.
+
+  **New permission `reports:read`, management-scoped** — OWNER/ADMIN/MANAGER,
+  not STAFF (financial analysis is management work, not front-desk). Tested:
+  MANAGER 200, STAFF 403. `npm run db:seed -w backend` run for real (41730
+  mappings backfilled). ADR/RevPAR integer-paise, zero-safe (no
+  divide-by-zero); the client never computes money.
+
+  **Frontend.** New `features/reports/` module (`types`/`api`/`permissions`/
+  `ReportsPage`/css): metric strip (revenue, occupancy, ADR, RevPAR, payments),
+  per-night table with totals footer, payments-by-method aside, 30-night
+  default window with earlier/later navigation + explicit date inputs. Linked
+  from each property row after Dashboard, gated on `reports:read`.
+
+  Verified: typecheck/lint/build green both workspaces; backend 294/294 (+6
+  reports, +1 cross-org tenant-isolation case), frontend 187/187 (+5 page, +2
+  route registration); `prisma migrate status` clean on real PostgreSQL 16. A
+  22-assertion live probe against the built server confirmed a 2-night booking
+  → revenue 9000 over 3 nights, occupancy 2/12 = 17%, ADR 4500, RevPAR 750, a
+  zero-filled empty night, payments 8000 grouped/sorted by method, the
+  400/400/401 guards, no passwordHash leak, and a cross-tenant 404. See
+  DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the

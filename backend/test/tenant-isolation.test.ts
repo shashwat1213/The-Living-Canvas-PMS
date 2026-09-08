@@ -377,6 +377,20 @@ describe('cross-organization isolation: reservations', () => {
     expect(dashboardForA.status).toBe(200);
     expect(dashboardForA.body.summary.sellableRooms).toBe(1);
 
+    // The revenue report for A's property is invisible to B for the same
+    // reason: the property is scoped out, so the read-only analytics 404
+    // rather than leaking A's revenue, occupancy or payments.
+    const reportForB = await request(app)
+      .get(`/api/v1/properties/${propertyId}/reports/revenue?from=2026-10-10&to=2026-10-12`)
+      .set(...authHeader(orgB.token));
+    expect(reportForB.status).toBe(404);
+
+    const reportForA = await request(app)
+      .get(`/api/v1/properties/${propertyId}/reports/revenue?from=2026-10-10&to=2026-10-12`)
+      .set(...authA);
+    expect(reportForA.status).toBe(200);
+    expect(reportForA.body.summary.roomRevenueMinor).toBeGreaterThan(0);
+
     // The booking's folio (guest bill) is likewise invisible to B: viewing it
     // and posting a payment to it both 404, so B can neither read A's charges
     // nor inject a payment onto A's account.

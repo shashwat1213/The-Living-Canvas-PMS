@@ -51,6 +51,8 @@ export function PropertiesPage() {
   // The operational dashboard (cockpit) lives under a property; same
   // presentation-only gating, its own read permission.
   const mayReadDashboard = hasPermission(session, 'dashboard:read');
+  // Revenue/occupancy reports live under a property too — management-only.
+  const mayReadReports = hasPermission(session, 'reports:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -163,6 +165,13 @@ export function PropertiesPage() {
           {mayReadDashboard && (
             <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/dashboard`}>
               Dashboard
+            </Link>
+          )}
+          {/* Revenue & occupancy reports — management analytics, gated on
+              reports:read (presentation only; route and API enforce it). */}
+          {mayReadReports && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/reports`}>
+              Reports
             </Link>
           )}
           {/* The front desk's core screen: bookings for this property.

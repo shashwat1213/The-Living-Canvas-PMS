@@ -87,6 +87,10 @@ export const ALL_PERMISSIONS = [
     key: 'dashboard:read',
     description: "Read a property's operational dashboard (arrivals, occupancy, housekeeping, maintenance, unsettled folios).",
   },
+  {
+    key: 'reports:read',
+    description: "Read a property's revenue and occupancy reports (room revenue, occupancy, ADR, RevPAR, payments collected).",
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -167,6 +171,11 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // property at a glance. Read-only; its own permission rather than an
     // overload of any single module's.
     'dashboard:read',
+    // Revenue and occupancy reporting is management work: a manager reviews
+    // room revenue, occupancy, ADR and RevPAR for their property. STAFF is
+    // deliberately excluded below — the front desk takes bookings and money,
+    // it does not analyse the property's financial performance.
+    'reports:read',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
