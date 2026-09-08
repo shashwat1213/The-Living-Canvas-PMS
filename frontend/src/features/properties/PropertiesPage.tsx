@@ -48,6 +48,9 @@ export function PropertiesPage() {
   const mayReadHousekeeping = hasPermission(session, 'housekeeping:read');
   // Maintenance work orders live under a property too.
   const mayReadMaintenance = hasPermission(session, 'maintenance:read');
+  // The operational dashboard (cockpit) lives under a property; same
+  // presentation-only gating, its own read permission.
+  const mayReadDashboard = hasPermission(session, 'dashboard:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -152,6 +155,16 @@ export function PropertiesPage() {
       align: 'end',
       render: (property) => (
         <div className="table-actions">
+          {/* The operational cockpit for this property — arrivals, occupancy,
+              housekeeping and maintenance load at a glance. First action
+              because it's the front desk's daily landing screen.
+              Presentation-only gating; the route and API enforce
+              `dashboard:read` themselves. */}
+          {mayReadDashboard && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/dashboard`}>
+              Dashboard
+            </Link>
+          )}
           {/* The front desk's core screen: bookings for this property.
               Presentation-only gating; the route and API enforce
               `reservations:read` themselves. */}

@@ -2443,3 +2443,67 @@ takeRoomOutOfService-without-room, room OUT on open + BACK on resolve, the
 multiple-hold guard (room stays out until the last holding order resolves),
 terminal-edit 409, cross-property-room 404, cross-tenant 404, no passwordHash
 leak.
+
+
+## Operational dashboard (2026-09-08)
+
+**Context.** Every commercial PMS (Mews, Cloudbeds, Stayntouch) opens the
+front desk's day on a single operational cockpit: today's arrivals and
+departures, who's in-house, occupancy, housekeeping and maintenance load, and
+outstanding balances. With the booking core, folios, housekeeping and
+maintenance all shipped, this is the screen that ties them together. The
+backend service/repository for it were already drafted on this branch
+(uncommitted); this task finished the slice — wiring, permission, tests, and
+the full frontend.
+
+**Per-property, not organization-wide.** The dashboard mounts at
+`/properties/:propertyId/dashboard`, behind `requirePropertyAccess`, exactly
+like availability/housekeeping/maintenance. A hotel group's night manager runs
+one property's desk; a per-property cockpit matches how the work is actually
+done, and tenancy falls out of the property scope for free (cross-org → 404).
+The `/app` landing `DashboardPage` (org-level welcome) is untouched — this is a
+distinct property-scoped screen (`PropertyDashboardPage`).
+
+**Its own permission, not a reuse.** New `dashboard:read`, granted to
+MANAGER and STAFF (OWNER/ADMIN get it via the full-permission spread). Reusing
+`reservations:read` was rejected: the cockpit also surfaces housekeeping,
+maintenance and folio balances, so a role that can read the cockpit is a
+distinct capability from one that can read the booking list. Read-only, so
+there is no matching `manage`. `npm run db:seed` run for real backfilled the
+new mapping onto existing organizations (53276 mappings).
+
+**Read-only and computed — no schema, no migration, no audit.** The view is
+derived from a bounded batch of parallel queries (arrivals/departures/in-house
+reservation lists, sellable + occupied room counts, housekeeping condition
+group-by, open housekeeping tasks, maintenance counts, and open folio balances)
+— never a query per metric. Classification mirrors the rest of the system's
+half-open stay convention: arrivals = `checkIn === date` (CONFIRMED/CHECKED_IN),
+departures = `checkOut === date` (CHECKED_IN/CHECKED_OUT), in-house = CHECKED_IN
+with `checkIn <= date < checkOut`.
+
+**Unsettled folios are derived, not stored.** A folio is "unsettled" when its
+OPEN and `charges − payments > 0`; the balance is summed server-side from
+integer paise and the list is sorted by amount owed. A zero or credit balance
+is not chased. The client never does money math — it formats the paise it's
+given.
+
+**Frontend.** New `features/dashboard/` module on the established shape:
+`types`/`api`/`permissions`/`PropertyDashboardPage`/css. A KPI strip (arrivals,
+departures, in-house, occupancy, rooms-to-clean, open work orders, unsettled
+folios) with warn/danger toning driven by the numbers (urgent work orders →
+danger, outstanding balance → warn), three guest lists reusing the shared
+`Badge` for status, and housekeeping/maintenance/folio panels that deep-link to
+their full screens. Date navigation (prev/next/today) refetches server-side —
+the cockpit can be read for any day, not just today. Gated on `dashboard:read`
+(presentation only; the route and API enforce it). Linked as the first action
+on each property row.
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces; backend
+288/288 (+6 dashboard-api, +1 cross-org case in tenant-isolation), frontend
+180/180 (+6 page, +2 route registration), migrate status clean on real
+PostgreSQL 16. A 28-assertion live probe against the built server on real
+PostgreSQL 16 exercised the full path: a booking classified as arrival →
+in-house → departure across its stay, occupancy 1/3 = 33% mid-stay, an
+unsettled folio appearing with a balance matching the folio's own and then
+dropping off once paid in full, the anonymous 401, the malformed-date 400, no
+passwordHash in the payload, and a cross-tenant 404.

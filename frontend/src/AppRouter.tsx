@@ -4,6 +4,7 @@ import App from './App';
 import { RequireAuth } from './auth/RequireAuth';
 import { AuditPage } from './features/audit/AuditPage';
 import { AvailabilityPage } from './features/availability/AvailabilityPage';
+import { PropertyDashboardPage } from './features/dashboard/PropertyDashboardPage';
 import { GuestsPage } from './features/guests/GuestsPage';
 import { HousekeepingPage } from './features/housekeeping/HousekeepingPage';
 import { MaintenancePage } from './features/maintenance/MaintenancePage';
@@ -37,6 +38,7 @@ export function AppRouter() {
         <Route path="properties/:propertyId/rooms" element={<RoomsPage />} />
         <Route path="properties/:propertyId/reservations" element={<ReservationsPage />} />
         <Route path="properties/:propertyId/availability" element={<AvailabilityPage />} />
+        <Route path="properties/:propertyId/dashboard" element={<PropertyDashboardPage />} />
         <Route path="properties/:propertyId/housekeeping" element={<HousekeepingPage />} />
         <Route path="properties/:propertyId/maintenance" element={<MaintenancePage />} />
         <Route path="properties/:propertyId/room-types" element={<RoomTypesPage />} />

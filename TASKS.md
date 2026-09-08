@@ -841,6 +841,49 @@ done; **nothing below it has been started.**
   booked nights, 3 / 0% on the free nights, `checkOut` correctly exclusive),
   plus the 400/400/401 guards. See DECISIONS.md.
 
+- [x] **Operational dashboard** (2026-09-08)
+  The front desk's daily cockpit: one property's arrivals, departures,
+  in-house guests, occupancy, housekeeping and maintenance load, and
+  unsettled folios for a given date (default today). The Mews/Cloudbeds/
+  Stayntouch "morning operations" screen that ties the shipped modules
+  together. The backend service/repository were already drafted on this
+  branch (uncommitted); this task finished the slice.
+
+  **Read-only and computed — no schema, no migration, no audit.** Derived
+  from a bounded batch of parallel queries across reservations, rooms,
+  housekeeping, maintenance and folios — never a query per metric. Mounted
+  at `GET /properties/:propertyId/dashboard?date=` behind
+  `requirePropertyAccess`, so a cross-org property 404s like every other
+  property sub-route. Classification follows the half-open stay convention:
+  arrivals = `checkIn === date`, departures = `checkOut === date`, in-house =
+  `checkIn <= date < checkOut`. Unsettled folios are OPEN folios with
+  `charges − payments > 0`, summed server-side from integer paise.
+
+  **New permission, not a reuse.** `dashboard:read` (MANAGER + STAFF; OWNER/
+  ADMIN via the full spread) — the cockpit spans housekeeping, maintenance
+  and folio balances, so it's a distinct capability from `reservations:read`.
+  Read-only, no matching `manage`. `npm run db:seed -w backend` run for real
+  (backfilled 53276 mappings onto existing organizations).
+
+  **Frontend.** New `features/dashboard/` module (`types`/`api`/`permissions`/
+  `PropertyDashboardPage`/css) on the established shape — a KPI strip with
+  warn/danger toning driven by the numbers, three guest lists reusing the
+  shared `Badge`, housekeeping/maintenance/folio panels deep-linking to their
+  full screens, and prev/next/today date navigation that refetches
+  server-side. Linked as the first action on each property row, gated on
+  `dashboard:read` (presentation only). The org-level `/app` landing
+  `DashboardPage` is untouched — this is a distinct property-scoped screen.
+
+  Verified: typecheck/lint/build green both workspaces; backend 288/288 (was
+  252 for availability; +6 dashboard-api + 1 cross-org case in
+  tenant-isolation, and the intervening housekeeping/maintenance slices),
+  frontend 180/180 (+6 page, +2 route registration). `prisma migrate status`
+  clean on real PostgreSQL 16. A 28-assertion live probe against the built
+  server exercised a booking across arrival → in-house → departure,
+  occupancy 1/3 = 33% mid-stay, an unsettled folio appearing and clearing on
+  payment, the 401/400 guards, no passwordHash leak, and a cross-tenant 404.
+  See DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the

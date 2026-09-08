@@ -363,6 +363,20 @@ describe('cross-organization isolation: reservations', () => {
     expect(availabilityForA.status).toBe(200);
     expect(availabilityForA.body.roomTypes).toHaveLength(1);
 
+    // The operational dashboard for A's property is invisible to B for the
+    // same reason: the property is scoped out, so the read-only cockpit 404s
+    // rather than leaking A's arrivals, occupancy or unsettled folios.
+    const dashboardForB = await request(app)
+      .get(`/api/v1/properties/${propertyId}/dashboard`)
+      .set(...authHeader(orgB.token));
+    expect(dashboardForB.status).toBe(404);
+
+    const dashboardForA = await request(app)
+      .get(`/api/v1/properties/${propertyId}/dashboard`)
+      .set(...authA);
+    expect(dashboardForA.status).toBe(200);
+    expect(dashboardForA.body.summary.sellableRooms).toBe(1);
+
     // The booking's folio (guest bill) is likewise invisible to B: viewing it
     // and posting a payment to it both 404, so B can neither read A's charges
     // nor inject a payment onto A's account.

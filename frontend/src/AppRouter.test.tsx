@@ -29,7 +29,7 @@ function renderAt(path: string, status: AuthContextValue['status']) {
             makeToken({
               sub: 'user-1',
               organizationId: 'org-1',
-              permissions: ['properties:read', 'room-types:read', 'room-types:manage'],
+              permissions: ['properties:read', 'room-types:read', 'room-types:manage', 'dashboard:read'],
               roleNames: ['OWNER'],
               grantedPropertyIds: ['prop-1'],
             }),
@@ -84,5 +84,60 @@ describe('AppRouter — room-type catalogue route', () => {
 
     expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Room types/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('AppRouter — property dashboard route', () => {
+  it('renders the cockpit at /app/properties/:propertyId/dashboard', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              url.includes('/dashboard')
+                ? {
+                    date: '2026-10-10',
+                    summary: {
+                      arrivals: 0,
+                      departures: 0,
+                      inHouse: 0,
+                      occupancyPct: 0,
+                      sellableRooms: 0,
+                      occupiedRooms: 0,
+                      roomsToClean: 0,
+                      roomsOutOfService: 0,
+                      openWorkOrders: 0,
+                      urgentWorkOrders: 0,
+                      unsettledFolios: 0,
+                      unsettledBalanceMinor: 0,
+                    },
+                    arrivals: [],
+                    departures: [],
+                    inHouse: [],
+                    housekeeping: { dirty: 0, cleaning: 0, clean: 0, inspected: 0, openTasks: 0 },
+                    maintenance: { open: 0, urgent: 0, roomsOutOfService: 0 },
+                    unsettledFolioList: [],
+                  }
+                : { property: { id: 'prop-1', name: 'Seaside Villa' } },
+            ),
+        } as Response),
+      ),
+    );
+
+    renderAt('/app/properties/prop-1/dashboard', 'authenticated');
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard — Seaside Villa' })).toBeInTheDocument();
+  });
+
+  it('sends an anonymous visitor to login instead of the cockpit', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response));
+
+    renderAt('/app/properties/prop-1/dashboard', 'anonymous');
+
+    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Dashboard/ })).not.toBeInTheDocument();
   });
 });
