@@ -1,0 +1,273 @@
+/*
+ * Revenue & occupancy report: a metric strip, a per-night table (sold,
+ * occupancy, ADR, RevPAR, room revenue) with a totals footer, and a
+ * payments-by-method aside. Shared primitives (buttons, empty/error states)
+ * live in components/ui.css; page chrome mirrors the availability and
+ * dashboard features so the management screens read as one product.
+ */
+
+.reports-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.reports-breadcrumb {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.reports-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.reports-header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.8px;
+}
+
+@media (max-width: 1024px) {
+  .reports-header h1 {
+    font-size: 26px;
+  }
+}
+
+.reports-subtitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+/* ---------- Range navigation ---------- */
+
+.reports-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.reports-range {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-h);
+  min-width: 12rem;
+  text-align: center;
+}
+
+.reports-daterow {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.reports-daterow label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.reports-daterow input {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+/* ---------- Metric strip ---------- */
+
+.reports-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.report-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--social-bg);
+}
+
+.report-metric-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-h);
+}
+
+.report-metric-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.report-metric-hint {
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+/* ---------- Body: table + payments aside ---------- */
+
+.reports-body {
+  display: grid;
+  grid-template-columns: minmax(0, 2.5fr) minmax(15rem, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .reports-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reports-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.reports-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.reports-table th,
+.reports-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.reports-table thead th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text);
+  background: var(--code-bg);
+}
+
+.report-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-revenue {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.report-night {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.report-night-day {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.report-night-weekday {
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.reports-total th,
+.reports-total td {
+  font-weight: 700;
+  color: var(--text-h);
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+  background: var(--social-bg);
+}
+
+/* ---------- Payments aside ---------- */
+
+.reports-payments {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.reports-payments h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text-h);
+}
+
+.reports-payments-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.reports-payment-rows {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.reports-payment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.reports-payment-row:first-child {
+  border-top: none;
+}
+
+.reports-payment-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.reports-payment-method {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.reports-payment-count {
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+.reports-payment-amount {
+  font-weight: 600;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reports-payment-total {
+  border-top: 2px solid var(--border);
+  font-weight: 700;
+}

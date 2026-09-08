@@ -350,6 +350,7 @@ export const scopedPrisma = prisma.$extends({
     room: scopeByPropertyRelation(),
     roomType: scopeByPropertyRelation(),
     reservation: scopeByPropertyRelation(),
+    reservationNight: scopeByReservationRelation(),
     ratePlan: scopeByRoomTypeRelation(),
     ratePlanRate: scopeByRatePlanRelation(),
     folio: scopeByReservationRelation(),

@@ -29,7 +29,7 @@ function renderAt(path: string, status: AuthContextValue['status']) {
             makeToken({
               sub: 'user-1',
               organizationId: 'org-1',
-              permissions: ['properties:read', 'room-types:read', 'room-types:manage', 'dashboard:read'],
+              permissions: ['properties:read', 'room-types:read', 'room-types:manage', 'dashboard:read', 'reports:read'],
               roleNames: ['OWNER'],
               grantedPropertyIds: ['prop-1'],
             }),
@@ -139,5 +139,66 @@ describe('AppRouter — property dashboard route', () => {
 
     expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Dashboard/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('AppRouter — reports route', () => {
+  it('renders the revenue report at /app/properties/:propertyId/reports', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              url.includes('/reports/revenue')
+                ? {
+                    from: '2026-10-01',
+                    to: '2026-10-02',
+                    nights: 1,
+                    sellableRooms: 2,
+                    summary: {
+                      roomRevenueMinor: 0,
+                      roomsSold: 0,
+                      roomNightsAvailable: 2,
+                      occupancyPct: 0,
+                      adrMinor: 0,
+                      revparMinor: 0,
+                      paymentsCollectedMinor: 0,
+                    },
+                    days: [
+                      {
+                        date: '2026-10-01',
+                        roomRevenueMinor: 0,
+                        roomsSold: 0,
+                        roomsAvailable: 2,
+                        occupancyPct: 0,
+                        adrMinor: 0,
+                        revparMinor: 0,
+                      },
+                    ],
+                    paymentsByMethod: [],
+                  }
+                : { property: { id: 'prop-1', name: 'Seaside Villa' } },
+            ),
+        } as Response),
+      ),
+    );
+
+    renderAt('/app/properties/prop-1/reports', 'authenticated');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Revenue & occupancy — Seaside Villa' }),
+    ).toBeInTheDocument();
+  });
+
+  it('sends an anonymous visitor to login instead of the report', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response));
+
+    renderAt('/app/properties/prop-1/reports', 'anonymous');
+
+    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Revenue/ })).not.toBeInTheDocument();
   });
 });

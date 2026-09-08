@@ -2507,3 +2507,63 @@ in-house → departure across its stay, occupancy 1/3 = 33% mid-stay, an
 unsettled folio appearing with a balance matching the folio's own and then
 dropping off once paid in full, the anonymous 401, the malformed-date 400, no
 passwordHash in the payload, and a cross-tenant 404.
+
+
+## Reports — revenue and occupancy (2026-09-08)
+
+**Context.** With operational modules shipped, the next screen a manager (not
+the front desk) needs is the analytics view every commercial PMS centres on:
+the daily revenue / manager-flash report. Benchmarked Cloudbeds and Mews —
+both standardize on room revenue, occupancy, ADR (avg daily rate = room
+revenue / rooms sold) and RevPAR (revenue per available room = room revenue /
+rooms available), all USALI-aligned. This slice is that report.
+
+**Read-only, computed — no schema, no migration, no audit.** The report is
+derived from three bounded grouped queries (per-night room revenue + rooms
+sold from `ReservationNight`; ACTIVE room count; payments grouped by method),
+never a query per night. Mounted at
+`GET /properties/:propertyId/reports/revenue?from&to` behind
+`requirePropertyAccess`; a cross-org property 404s like every sub-route.
+
+**`ReservationNight` is the revenue source, deliberately — not the
+reservation total.** Revenue must land on the night it was earned, so a
+multi-night stay straddling the window edge is counted only for the nights
+inside it. The per-night ledger locks the price at booking time, so a later
+repricing of the calendar never rewrites historical revenue. This required
+registering `reservationNight` in the tenancy extension
+(`scopeByReservationRelation`, reused — night to reservation to property to
+org, no new scoping code). Only OCCUPYING_STATUSES count; a cancelled/no-show
+booking earned nothing.
+
+**Accrual vs. cash are separate axes, never conflated.** Room revenue is
+accrual-based (earned per stay night); payments collected is cash-based
+(grouped by `Payment.createdAt`, i.e. when money was taken). A guest may pay
+before or after they stay, so these are reported as two distinct figures, not
+reconciled into one — surfacing the difference is the point of the report.
+
+**Its own permission, management-scoped.** New `reports:read`, granted to
+OWNER/ADMIN/MANAGER but NOT STAFF — analysing a property's financial
+performance is management work, distinct from the front desk taking bookings
+and money. Enforced and tested: a MANAGER gets 200, a STAFF on the same
+property gets 403. `npm run db:seed` run for real (backfilled 41730 mappings).
+
+**Integer-paise math throughout; zero-safe.** ADR/RevPAR use integer division
+rounded to the nearest paisa, returning 0 when the divisor is 0 (a night with
+nothing sold has no ADR rather than a divide-by-zero). The client never
+computes money — every figure is server-side; the UI only formats paise.
+
+**Frontend.** New `features/reports/` module (`types`/`api`/`permissions`/
+`ReportsPage`/css): a metric strip (room revenue, occupancy, ADR, RevPAR,
+payments collected), a per-night table with a totals footer, and a
+payments-by-method aside. A 30-night default window with earlier/later
+navigation and explicit from/to date inputs. Gated on `reports:read`
+(presentation only); linked from each property row after Dashboard.
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces; backend
+294/294 (+6 reports, +1 cross-org case in tenant-isolation), frontend 187/187
+(+5 page, +2 route registration); migrate status clean on real PostgreSQL 16.
+A 22-assertion live probe against the built server exercised a 2-night booking
+producing revenue 9000 over 3 window nights, occupancy 2/12 = 17%, ADR 4500,
+RevPAR 750, a zero-filled empty night with no divide-by-zero, payments
+collected 8000 grouped and sorted by method, the 400/400/401 guards, no
+passwordHash leak, and a cross-tenant 404.
