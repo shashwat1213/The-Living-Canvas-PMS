@@ -921,6 +921,43 @@ done; **nothing below it has been started.**
   400/400/401 guards, no passwordHash leak, and a cross-tenant 404. See
   DECISIONS.md.
 
+- [x] **POS & inventory** (2026-09-08)
+  Point of sale: outlets (restaurant/bar/spa/minibar/etc), a per-outlet
+  product catalogue with optional stock tracking, and orders that settle
+  either to a guest's room folio or by direct payment. The revenue stream that
+  connects a stay to its bill; benchmarked against how Mews/Cloudbeds model
+  outlets + folio posting. Kept in-house (no external POS/gateway).
+
+  **Additive migration on real PostgreSQL 16** (`20260908085605_pos_inventory`):
+  four models — `PosOutlet`, `PosProduct`, `PosOrder`, `PosOrderItem` — plus
+  three enums, no existing table touched. Two new tenancy relation helpers;
+  all four models registered in the scoped client.
+
+  **Backend.** Outlet + product CRUD, order create + void, under
+  `/properties/:propertyId/pos`. Order creation runs Serializable: products
+  resolved from the order's own outlet (cross-outlet/cross-tenant → 404), name
+  + price snapshotted per line, tracked stock decremented (oversell → 409),
+  then settled — ROOM_CHARGE posts one linked `FolioCharge`, DIRECT records
+  the tender. Order + items + stock + folio charge + audit commit together.
+  Void is OPEN-only and restocks; a settled order must be reversed via its
+  folio. Permissions `pos:read` / `pos:operate` / `pos:manage` (STAFF reads +
+  operates, MANAGER also manages); eight audit actions. Seed backfilled.
+
+  **Frontend.** New `features/pos/` till screen: outlet tabs, tappable product
+  grid → cart with per-line qty, direct-pay-or-charge-to-room settlement, and
+  a recent-orders table with inline void; OutletDialog + ProductDialog
+  (rupee↔paise entry, opt-in stock). Gated on `pos:read`, operate/manage
+  controls gated too. Linked from each property row.
+
+  Verified: typecheck/lint/build green both workspaces; backend 304/304 (+10
+  pos, +1 cross-org tenant-isolation case), frontend 194/194 (+5 page, +2
+  route registration); `prisma migrate status` clean on real PostgreSQL 16. A
+  19-assertion live probe against the built server confirmed outlet dup-name
+  409, sku upper-casing, a direct order 60000/PAID, stock
+  decrement/oversell/void-restock, cannot-void-paid 409, a room-charge posting
+  +90000 to the folio with a linked folioChargeId, cross-outlet product 404,
+  no passwordHash leak, anonymous 401 and cross-tenant 404. See DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the
