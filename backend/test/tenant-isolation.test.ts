@@ -391,6 +391,19 @@ describe('cross-organization isolation: reservations', () => {
     expect(reportForA.status).toBe(200);
     expect(reportForA.body.summary.roomRevenueMinor).toBeGreaterThan(0);
 
+    // POS is scoped through the property too: B can neither list A's outlets/
+    // orders nor create an order against A's property — all 404 (property is
+    // invisible), so B can't ring up a sale on A's books.
+    const outletsForB = await request(app)
+      .get(`/api/v1/properties/${propertyId}/pos/outlets`)
+      .set(...authHeader(orgB.token));
+    expect(outletsForB.status).toBe(404);
+
+    const ordersForB = await request(app)
+      .get(`/api/v1/properties/${propertyId}/pos/orders`)
+      .set(...authHeader(orgB.token));
+    expect(ordersForB.status).toBe(404);
+
     // The booking's folio (guest bill) is likewise invisible to B: viewing it
     // and posting a payment to it both 404, so B can neither read A's charges
     // nor inject a payment onto A's account.

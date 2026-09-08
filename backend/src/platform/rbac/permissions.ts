@@ -91,6 +91,18 @@ export const ALL_PERMISSIONS = [
     key: 'reports:read',
     description: "Read a property's revenue and occupancy reports (room revenue, occupancy, ADR, RevPAR, payments collected).",
   },
+  {
+    key: 'pos:read',
+    description: "Read a property's point-of-sale outlets, product catalogue and orders.",
+  },
+  {
+    key: 'pos:operate',
+    description: 'Create point-of-sale orders and settle them to a room folio or by direct payment, and void them.',
+  },
+  {
+    key: 'pos:manage',
+    description: "Create and update a property's point-of-sale outlets and their product catalogue.",
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -176,6 +188,13 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // deliberately excluded below — the front desk takes bookings and money,
     // it does not analyse the property's financial performance.
     'reports:read',
+    // Point of sale: a manager configures outlets and the product catalogue
+    // (manage) and can also take and settle orders (operate + read). STAFF
+    // below gets read + operate but not manage — the front line rings up
+    // sales, it does not reconfigure the menu or open new outlets.
+    'pos:read',
+    'pos:operate',
+    'pos:manage',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
@@ -213,6 +232,11 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // The dashboard is the front desk's first screen every shift — today's
     // arrivals and departures, who's in-house, rooms to clean, open issues.
     'dashboard:read',
+    // Point of sale is front-line work: the desk and outlet staff ring up
+    // sales and settle them to a room or by direct payment (read + operate).
+    // Configuring outlets and the menu (manage) stays with MANAGER and above.
+    'pos:read',
+    'pos:operate',
   ],
 };
 
