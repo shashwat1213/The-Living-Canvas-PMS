@@ -1,0 +1,331 @@
+/*
+ * Reservations layout: the list page, the booking dialog quote panel, and the
+ * read-only detail with its per-night breakdown. Shared primitives (table,
+ * modal, badge, buttons, fields) live in components/ui.css; only what's
+ * specific to this feature belongs here. Page chrome mirrors the rate-plans
+ * feature so the booking core reads as one product.
+ */
+
+.reservations-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.reservations-breadcrumb {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.reservations-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.reservations-header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.8px;
+}
+
+@media (max-width: 1024px) {
+  .reservations-header h1 {
+    font-size: 26px;
+  }
+}
+
+.reservations-subtitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+/* ---------- Filters ---------- */
+
+.reservations-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.reservations-search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.reservations-clear-filters {
+  margin-top: 0.75rem;
+}
+
+/* ---------- Table cells ---------- */
+
+.reservation-identity,
+.reservation-stay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.reservation-ref {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.reservation-ref:hover {
+  text-decoration: underline;
+}
+
+.reservation-guest {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.reservation-muted {
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.reservation-total {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.reservation-danger-text {
+  color: #b91c1c;
+}
+
+.reservation-danger-text:hover:not(:disabled) {
+  border-color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .reservation-danger-text {
+    color: #fca5a5;
+  }
+  .reservation-danger-text:hover:not(:disabled) {
+    border-color: #fca5a5;
+  }
+}
+
+.reservation-cancel-reason {
+  margin-top: 0.5rem;
+}
+
+/* ---------- Booking dialog ---------- */
+
+.booking-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.booking-notice {
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.booking-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.booking-quote-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.booking-quote-status,
+.booking-quote-error {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.booking-quote-error {
+  color: #b91c1c;
+}
+
+.booking-total {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text-h);
+}
+
+.booking-ok {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.booking-bad {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+@media (prefers-color-scheme: dark) {
+  .booking-quote-error,
+  .booking-bad {
+    color: #fca5a5;
+  }
+  .booking-ok {
+    color: #86efac;
+  }
+}
+
+/* ---------- Detail dialog ---------- */
+
+.reservation-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.reservation-detail-loading {
+  color: var(--text);
+}
+
+.reservation-detail-status {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.reservation-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .reservation-facts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reservation-facts dt,
+.reservation-detail-notes dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  margin-bottom: 0.2rem;
+}
+
+.reservation-facts dd,
+.reservation-detail-notes dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.reservation-nights h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.5rem;
+}
+
+.reservation-nights-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.reservation-nights-table th,
+.reservation-nights-table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.reservation-nights-table .col-end {
+  text-align: right;
+}
+
+.reservation-nights-table tfoot th,
+.reservation-nights-table tfoot td {
+  border-bottom: none;
+  border-top: 2px solid var(--border);
+  font-weight: 600;
+}
+
+/* ---------- Room assignment picker ---------- */
+
+.room-choice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.room-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.room-choice:hover {
+  background: var(--social-bg);
+}
+
+.room-choice input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.room-choice-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.room-choice-disabled:hover {
+  background: none;
+}
+
+.room-choice-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.room-choice-tag {
+  margin-left: auto;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.room-choice-tag-busy {
+  color: var(--text);
+}

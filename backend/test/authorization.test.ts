@@ -57,10 +57,15 @@ async function createProperty(token: string, name: string) {
 }
 
 async function createRoom(token: string, propertyId: string, name: string) {
+  const typeRes = await request(app)
+    .post(`/api/v1/properties/${propertyId}/room-types`)
+    .set(...authHeader(token))
+    .send({ name: `Type ${name}` });
+  if (typeRes.status !== 201) throw new Error(`room-type setup failed: ${typeRes.status}`);
   const res = await request(app)
     .post(`/api/v1/properties/${propertyId}/rooms`)
     .set(...authHeader(token))
-    .send({ name, roomType: 'Standard' });
+    .send({ name, roomTypeId: typeRes.body.roomType.id });
   if (res.status !== 201) throw new Error(`room setup failed: ${res.status}`);
   return res.body.room.id as string;
 }
@@ -153,7 +158,7 @@ describe('B. unauthorized role, same organization — rejected', () => {
     const create = await request(app)
       .post(`/api/v1/properties/${fx.granted}/rooms`)
       .set(...authHeader(fx.staffToken))
-      .send({ name: '999', roomType: 'Ghost' });
+      .send({ name: '999', roomTypeId: randomUUID() });
     expect(create.status).toBe(403);
 
     const remove = await request(app)
@@ -205,7 +210,7 @@ describe('C. correct role, wrong property — rejected', () => {
       request(app)
         .post(`/api/v1/properties/${fx.ungranted}/rooms`)
         .set(...authHeader(fx.managerToken))
-        .send({ name: '888', roomType: 'Ghost' }),
+        .send({ name: '888', roomTypeId: randomUUID() }),
       request(app)
         .get(`/api/v1/properties/${fx.ungranted}/rooms/${fx.ungrantedRoom}`)
         .set(...authHeader(fx.managerToken)),

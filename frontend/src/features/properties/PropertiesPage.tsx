@@ -42,6 +42,15 @@ export function PropertiesPage() {
   // The catalogue is a separate permission pair from properties and rooms
   // — STAFF can read it, only MANAGER and above configure it.
   const mayReadRoomTypes = hasPermission(session, 'room-types:read');
+  // Reservations live under a property and are the front desk's core screen.
+  const mayReadReservations = hasPermission(session, 'reservations:read');
+  // Housekeeping lives under a property; same presentation-only gating.
+  const mayReadHousekeeping = hasPermission(session, 'housekeeping:read');
+  // Maintenance work orders live under a property too.
+  const mayReadMaintenance = hasPermission(session, 'maintenance:read');
+  // The operational dashboard (cockpit) lives under a property; same
+  // presentation-only gating, its own read permission.
+  const mayReadDashboard = hasPermission(session, 'dashboard:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -146,6 +155,46 @@ export function PropertiesPage() {
       align: 'end',
       render: (property) => (
         <div className="table-actions">
+          {/* The operational cockpit for this property — arrivals, occupancy,
+              housekeeping and maintenance load at a glance. First action
+              because it's the front desk's daily landing screen.
+              Presentation-only gating; the route and API enforce
+              `dashboard:read` themselves. */}
+          {mayReadDashboard && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/dashboard`}>
+              Dashboard
+            </Link>
+          )}
+          {/* The front desk's core screen: bookings for this property.
+              Presentation-only gating; the route and API enforce
+              `reservations:read` themselves. */}
+          {mayReadReservations && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/reservations`}>
+              Reservations
+            </Link>
+          )}
+          {/* The room-type × night occupancy grid; same read permission as
+              reservations. Presentation-only gating — the route and API
+              both enforce `reservations:read` themselves. */}
+          {mayReadReservations && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/availability`}>
+              Availability
+            </Link>
+          )}
+          {/* Housekeeping board + cleaning tasks; presentation-only gating,
+              the route and API enforce `housekeeping:read` themselves. */}
+          {mayReadHousekeeping && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/housekeeping`}>
+              Housekeeping
+            </Link>
+          )}
+          {/* Maintenance work orders; presentation-only gating, the route and
+              API enforce `maintenance:read` themselves. */}
+          {mayReadMaintenance && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/maintenance`}>
+              Maintenance
+            </Link>
+          )}
           <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/rooms`}>
             Rooms
           </Link>

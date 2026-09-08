@@ -102,15 +102,14 @@ describe('RoomType is tenant-scoped through its property', () => {
   });
 });
 
-describe('the migration backfill left rooms and room types consistent', () => {
-  it('every linked room points at a type in its own property', async () => {
+describe('the room ↔ room-type relationship is consistent and mandatory', () => {
+  it('every room points at a type in its own property', async () => {
     // Asserted across the whole table rather than a fixture: this is a
-    // permanent integrity rule, not a migration artifact. A room must
-    // never reference a type belonging to another property — that is the
-    // guarantee `rooms/service.ts` enforces on create and update, and a
-    // whole-table check is what would catch any future path that wrote
-    // the FK without going through it. A room created after the migration
-    // may simply have no type, which is why the join is on non-null only.
+    // permanent integrity rule. A room must never reference a type
+    // belonging to another property — the guarantee `rooms/service.ts`
+    // enforces on create and update — and a whole-table check is what
+    // would catch any future path that wrote the FK without going through
+    // it.
     const mismatches = await prisma.$queryRawUnsafe<{ n: number }[]>(`
       SELECT count(*)::int AS n
       FROM rooms r
@@ -119,26 +118,29 @@ describe('the migration backfill left rooms and room types consistent', () => {
     `);
 
     expect(mismatches[0]?.n).toBe(0);
-
-    // NOTE: this assertion deliberately no longer requires
-    // `rt.name = r.room_type`. That equality was true of the backfill's
-    // output, but it was never a rule of the system, and task 2c made the
-    // difference visible: the rooms API still accepts a free-text
-    // `roomType` update on a linked room (every pre-existing room is
-    // linked, so refusing it would break exactly the legacy clients the
-    // transition promises not to break). Label derivation is now covered
-    // where it actually belongs, against the API rather than the table,
-    // in `rooms-room-types.test.ts`. See DECISIONS.md 2026-08-22.
   });
 
-  it('the legacy free-text column still exists and still carries every label', async () => {
-    // The point of the slice: nothing was dropped. If a later change ever
-    // removes `rooms.room_type` before the API stops reading it, this
-    // fails rather than the rooms API failing in production.
-    const blanks = await prisma.$queryRawUnsafe<{ n: number }[]>(`
-      SELECT count(*)::int AS n FROM rooms WHERE room_type IS NULL OR btrim(room_type) = ''
-    `);
+  it('no room is untyped: every row has a room_type_id', async () => {
+    // Catalogue-only: a room is always a bookable unit of some type. The
+    // legacy free-text `room_type` column was dropped once every room was
+    // linked; this is the standing guarantee that replaced it. Raw SQL
+    // because the typed client no longer permits a null `roomTypeId` even
+    // in a filter.
+    const orphans = await prisma.$queryRawUnsafe<{ n: number }[]>(
+      `SELECT count(*)::int AS n FROM rooms WHERE room_type_id IS NULL`,
+    );
+    expect(orphans[0]?.n).toBe(0);
+  });
 
-    expect(blanks[0]?.n).toBe(0);
+  it('the legacy free-text room_type column no longer exists', async () => {
+    // The destructive half of the transition: if a later change ever
+    // re-introduces a free-text category column, that is a regression to
+    // the pre-catalogue model and should fail here.
+    const cols = await prisma.$queryRawUnsafe<{ n: number }[]>(`
+      SELECT count(*)::int AS n
+      FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'rooms' AND column_name = 'room_type'
+    `);
+    expect(cols[0]?.n).toBe(0);
   });
 });

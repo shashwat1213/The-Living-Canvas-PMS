@@ -1,4 +1,4 @@
-import type { Prisma, Room } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 
 import { NotFoundError } from '../../lib/http-errors.js';
 import { buildPageMeta, toSkipTake, type PageMeta } from '../../lib/pagination.js';
@@ -7,8 +7,23 @@ import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
 import type { CreateRoomInput, ListRoomsQuery, UpdateRoomInput } from './schemas.js';
 
 /**
+ * Every room is returned with its type embedded — id, name and code —
+ * rather than a free-text label. This is the shape rates and availability
+ * will consume, and it means a rename of a room type is reflected on every
+ * room without a second write.
+ */
+const withType = {
+  roomType: { select: { id: true, name: true, code: true } },
+} satisfies Prisma.RoomInclude;
+
+export type RoomWithType = Prisma.RoomGetPayload<{ include: typeof withType }>;
+
+/**
  * `propertyId` is always present; tenancy is enforced separately by the
  * scoping extension, which reaches Room through its `property` relation.
+ * Search spans the room's own fields and its type's name/code, so a
+ * front-desk search for "deluxe" finds rooms by category even though the
+ * category now lives on the related row.
  */
 function buildWhere(propertyId: string, query: ListRoomsQuery): Prisma.RoomWhereInput {
   const conditions: Prisma.RoomWhereInput[] = [{ propertyId }];
@@ -21,8 +36,9 @@ function buildWhere(propertyId: string, query: ListRoomsQuery): Prisma.RoomWhere
       conditions.push({
         OR: [
           { name: { contains: term, mode: 'insensitive' } },
-          { roomType: { contains: term, mode: 'insensitive' } },
           { floor: { contains: term, mode: 'insensitive' } },
+          { roomType: { name: { contains: term, mode: 'insensitive' } } },
+          { roomType: { code: { contains: term, mode: 'insensitive' } } },
         ],
       });
     }
@@ -38,15 +54,6 @@ function buildWhere(propertyId: string, query: ListRoomsQuery): Prisma.RoomWhere
  */
 export type RoomsDb = Pick<typeof scopedPrisma, 'room' | 'property' | 'roomType'>;
 
-/**
- * What a room is actually written with. `roomType` is optional on the
- * request (a caller may send `roomTypeId` instead) but not on the row —
- * the column is NOT NULL — so the service resolves one before reaching
- * here, and this type is what makes that a compile-time obligation rather
- * than a convention.
- */
-export type CreateRoomData = CreateRoomInput & { roomType: string };
-
 export const roomsRepository = {
   /**
    * Verifies the parent Property exists (within the caller's org) before
@@ -60,7 +67,7 @@ export const roomsRepository = {
    * order a property's rooms are actually thought about, and pagination
    * makes that ordering visible in a way an unpaginated list didn't.
    */
-  async list(propertyId: string, query: ListRoomsQuery): Promise<{ items: Room[]; page: PageMeta }> {
+  async list(propertyId: string, query: ListRoomsQuery): Promise<{ items: RoomWithType[]; page: PageMeta }> {
     const property = await scopedPrisma.property.findFirst({ where: { id: propertyId } });
     if (!property) {
       throw new NotFoundError('Property not found.');
@@ -73,6 +80,7 @@ export const roomsRepository = {
       scopedPrisma.room.count({ where }),
       scopedPrisma.room.findMany({
         where,
+        include: withType,
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
         skip,
         take,
@@ -82,12 +90,12 @@ export const roomsRepository = {
     return { items, page: buildPageMeta(query, totalItems) };
   },
 
-  findById(propertyId: string, id: string): Promise<Room | null> {
-    return scopedPrisma.room.findFirst({ where: { id, propertyId } });
+  findById(propertyId: string, id: string): Promise<RoomWithType | null> {
+    return scopedPrisma.room.findFirst({ where: { id, propertyId }, include: withType });
   },
 
-  findByName(propertyId: string, name: string): Promise<Room | null> {
-    return scopedPrisma.room.findFirst({ where: { propertyId, name } });
+  findByName(propertyId: string, name: string): Promise<RoomWithType | null> {
+    return scopedPrisma.room.findFirst({ where: { propertyId, name }, include: withType });
   },
 
   /**
@@ -98,17 +106,17 @@ export const roomsRepository = {
    * cross-organization `propertyId` resolves to nothing here and throws
    * `NotFoundError` before any room row is ever written.
    */
-  async create(propertyId: string, data: CreateRoomData, db: RoomsDb = scopedPrisma): Promise<Room> {
+  async create(propertyId: string, data: CreateRoomInput, db: RoomsDb = scopedPrisma): Promise<RoomWithType> {
     const property = await db.property.findFirst({ where: { id: propertyId } });
     if (!property) {
       throw new NotFoundError('Property not found.');
     }
-    return db.room.create({ data: { ...data, propertyId } });
+    return db.room.create({ data: { ...data, propertyId }, include: withType });
   },
 
-  async update(propertyId: string, id: string, data: UpdateRoomInput, db: RoomsDb = scopedPrisma): Promise<Room> {
+  async update(propertyId: string, id: string, data: UpdateRoomInput, db: RoomsDb = scopedPrisma): Promise<RoomWithType> {
     try {
-      return await db.room.update({ where: { id, propertyId }, data });
+      return await db.room.update({ where: { id, propertyId }, data, include: withType });
     } catch (error) {
       if (isRecordNotFoundError(error)) {
         throw new NotFoundError('Room not found.');

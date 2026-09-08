@@ -1,11 +1,11 @@
 /**
- * Rooms ↔ RoomType integration (Phase 2 task 2c — see TASKS.md).
+ * Rooms ↔ RoomType integration (catalogue-only model — see TASKS.md
+ * task 2e / the rooms-catalogue-only slice).
  *
- * The load-bearing rule here is that a room can only ever reference a
- * room type belonging to its *own* property, in its own tenant. The
- * legacy free-text `roomType` keeps working untouched — every case that
- * passed before this slice must still pass, which is what the
- * backward-compatibility block at the bottom exists to prove.
+ * The load-bearing rule here is that a room can only ever reference a room
+ * type belonging to its *own* property, in its own tenant. Since the
+ * legacy free-text path was removed, every room create/update names a type
+ * by id, and the response carries that type embedded.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -33,7 +33,7 @@ async function createRoomType(token: string, propertyId: string, name = 'Deluxe 
 }
 
 describe('creating a room with a room type', () => {
-  it('links the room and fills the legacy label in from the type', async () => {
+  it('links the room and embeds the type in the response', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
     const propertyId = await createProperty(token);
@@ -46,41 +46,10 @@ describe('creating a room with a room type', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.room.roomTypeId).toBe(roomTypeId);
-    // The legacy column is still what the list searches and the audit
-    // trail records, so it must not be left empty or stale.
-    expect(res.body.room.roomType).toBe('Deluxe King');
+    expect(res.body.room.roomType).toMatchObject({ id: roomTypeId, name: 'Deluxe King' });
   });
 
-  it('keeps an explicitly supplied label rather than overwriting it', async () => {
-    const { token } = await loginAsNewOwner();
-    const propertyId = await createProperty(token);
-    const roomTypeId = await createRoomType(token, propertyId, 'Deluxe King');
-
-    const res = await request(app)
-      .post(`/api/v1/properties/${propertyId}/rooms`)
-      .set(...authHeader(token))
-      .send({ name: '102', roomTypeId, roomType: 'Deluxe King (accessible)' });
-
-    expect(res.status).toBe(201);
-    expect(res.body.room.roomTypeId).toBe(roomTypeId);
-    expect(res.body.room.roomType).toBe('Deluxe King (accessible)');
-  });
-
-  it('still accepts the legacy free-text form with no room type at all', async () => {
-    const { token } = await loginAsNewOwner();
-    const propertyId = await createProperty(token);
-
-    const res = await request(app)
-      .post(`/api/v1/properties/${propertyId}/rooms`)
-      .set(...authHeader(token))
-      .send({ name: '103', roomType: 'Standard Twin', capacity: 2 });
-
-    expect(res.status).toBe(201);
-    expect(res.body.room.roomType).toBe('Standard Twin');
-    expect(res.body.room.roomTypeId).toBeNull();
-  });
-
-  it('rejects a body with neither roomType nor roomTypeId', async () => {
+  it('rejects a body with no room type at all', async () => {
     const { token } = await loginAsNewOwner();
     const propertyId = await createProperty(token);
 
@@ -94,28 +63,29 @@ describe('creating a room with a room type', () => {
 });
 
 describe('updating a room with a room type', () => {
-  it('links an existing room and refreshes the legacy label', async () => {
+  it('re-assigns the type and reflects it in the response', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
     const propertyId = await createProperty(token);
-    const roomTypeId = await createRoomType(token, propertyId, 'Suite');
+    const standard = await createRoomType(token, propertyId, 'Standard');
+    const suite = await createRoomType(token, propertyId, 'Suite');
 
     const room = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...auth)
-      .send({ name: '201', roomType: 'Standard' });
+      .send({ name: '201', roomTypeId: standard });
 
     const res = await request(app)
       .patch(`/api/v1/properties/${propertyId}/rooms/${room.body.room.id}`)
       .set(...auth)
-      .send({ roomTypeId });
+      .send({ roomTypeId: suite });
 
     expect(res.status).toBe(200);
-    expect(res.body.room.roomTypeId).toBe(roomTypeId);
-    expect(res.body.room.roomType).toBe('Suite');
+    expect(res.body.room.roomTypeId).toBe(suite);
+    expect(res.body.room.roomType.name).toBe('Suite');
   });
 
-  it('clears the link when roomTypeId is null, leaving the label alone', async () => {
+  it('leaves the type untouched when the update does not mention it', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
     const propertyId = await createProperty(token);
@@ -129,32 +99,11 @@ describe('updating a room with a room type', () => {
     const res = await request(app)
       .patch(`/api/v1/properties/${propertyId}/rooms/${room.body.room.id}`)
       .set(...auth)
-      .send({ roomTypeId: null });
+      .send({ status: 'MAINTENANCE' });
 
     expect(res.status).toBe(200);
-    expect(res.body.room.roomTypeId).toBeNull();
-    expect(res.body.room.roomType).toBe('Suite');
-  });
-
-  it('still accepts a legacy free-text update, leaving the link untouched', async () => {
-    const { token } = await loginAsNewOwner();
-    const auth = authHeader(token);
-    const propertyId = await createProperty(token);
-    const roomTypeId = await createRoomType(token, propertyId, 'Suite');
-
-    const room = await request(app)
-      .post(`/api/v1/properties/${propertyId}/rooms`)
-      .set(...auth)
-      .send({ name: '203', roomTypeId });
-
-    const res = await request(app)
-      .patch(`/api/v1/properties/${propertyId}/rooms/${room.body.room.id}`)
-      .set(...auth)
-      .send({ roomType: 'Renamed By Hand' });
-
-    expect(res.status).toBe(200);
-    expect(res.body.room.roomType).toBe('Renamed By Hand');
     expect(res.body.room.roomTypeId).toBe(roomTypeId);
+    expect(res.body.room.status).toBe('MAINTENANCE');
   });
 });
 
@@ -188,11 +137,12 @@ describe('a room can only reference a room type from its own property and tenant
     expect(res.status).toBe(400);
   });
 
-  it("rejects a room type from another property in the SAME organization", async () => {
+  it('rejects a room type from another property in the SAME organization', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
     const propertyA = await createProperty(token);
     const propertyB = await createProperty(token);
+    const typeAtA = await createRoomType(token, propertyA, 'A Type');
     const typeAtB = await createRoomType(token, propertyB, 'B Only');
 
     const create = await request(app)
@@ -206,7 +156,7 @@ describe('a room can only reference a room type from its own property and tenant
     const room = await request(app)
       .post(`/api/v1/properties/${propertyA}/rooms`)
       .set(...auth)
-      .send({ name: '304', roomType: 'Standard' });
+      .send({ name: '304', roomTypeId: typeAtA });
     const update = await request(app)
       .patch(`/api/v1/properties/${propertyA}/rooms/${room.body.room.id}`)
       .set(...auth)
@@ -214,11 +164,10 @@ describe('a room can only reference a room type from its own property and tenant
     expect(update.status).toBe(404);
 
     const untouched = await prisma.room.findUnique({ where: { id: room.body.room.id } });
-    expect(untouched?.roomTypeId).toBeNull();
-    expect(untouched?.roomType).toBe('Standard');
+    expect(untouched?.roomTypeId).toBe(typeAtA);
   });
 
-  it("rejects a room type from another ORGANIZATION", async () => {
+  it('rejects a room type from another ORGANIZATION', async () => {
     const orgA = await loginAsNewOwner('Rooms RT Org A');
     const orgB = await loginAsNewOwner('Rooms RT Org B');
     const propertyA = await createProperty(orgA.token);
@@ -239,7 +188,7 @@ describe('a room can only reference a room type from its own property and tenant
     expect(survivor?.propertyId).toBe(propertyB);
   });
 
-  it('still requires authentication and permission', async () => {
+  it('still requires authentication', async () => {
     const { token } = await loginAsNewOwner();
     const propertyId = await createProperty(token);
     const roomTypeId = await createRoomType(token, propertyId);
@@ -252,29 +201,30 @@ describe('a room can only reference a room type from its own property and tenant
 });
 
 describe('the room type change is audited', () => {
-  it('records roomTypeId in the update diff', async () => {
+  it('records the type change in the update diff', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
     const propertyId = await createProperty(token);
-    const roomTypeId = await createRoomType(token, propertyId, 'Audited Suite');
+    const standard = await createRoomType(token, propertyId, 'Standard');
+    const suite = await createRoomType(token, propertyId, 'Audited Suite');
 
     const room = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...auth)
-      .send({ name: '401', roomType: 'Standard' });
+      .send({ name: '401', roomTypeId: standard });
     const roomId = room.body.room.id as string;
 
     await request(app)
       .patch(`/api/v1/properties/${propertyId}/rooms/${roomId}`)
       .set(...auth)
-      .send({ roomTypeId });
+      .send({ roomTypeId: suite });
 
     const trail = await request(app)
       .get(`/api/v1/audit-logs?entityId=${roomId}&action=room.updated`)
       .set(...auth);
 
     const changed = trail.body.auditLogs[0]?.metadata?.changed as Record<string, { from: unknown; to: unknown }>;
-    expect(changed.roomTypeId).toMatchObject({ from: null, to: roomTypeId });
+    expect(changed.roomTypeId).toMatchObject({ from: standard, to: suite });
     expect(changed.roomType).toMatchObject({ from: 'Standard', to: 'Audited Suite' });
   });
 
@@ -283,12 +233,13 @@ describe('the room type change is audited', () => {
     const auth = authHeader(token);
     const propertyA = await createProperty(token);
     const propertyB = await createProperty(token);
+    const typeAtA = await createRoomType(token, propertyA, 'A Standard');
     const typeAtB = await createRoomType(token, propertyB, 'Elsewhere');
 
     const room = await request(app)
       .post(`/api/v1/properties/${propertyA}/rooms`)
       .set(...auth)
-      .send({ name: '402', roomType: 'Standard' });
+      .send({ name: '402', roomTypeId: typeAtA });
     const roomId = room.body.room.id as string;
 
     const before = await request(app)
@@ -305,5 +256,28 @@ describe('the room type change is audited', () => {
       .set(...auth);
 
     expect(after.body.page.totalItems).toBe(before.body.page.totalItems);
+  });
+});
+
+describe('a room type in use cannot be deleted (database backstop)', () => {
+  it('the API refuses with 409 while rooms still reference it', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const propertyId = await createProperty(token);
+    const roomTypeId = await createRoomType(token, propertyId, 'In Use');
+
+    await request(app)
+      .post(`/api/v1/properties/${propertyId}/rooms`)
+      .set(...auth)
+      .send({ name: '501', roomTypeId });
+
+    const refused = await request(app)
+      .delete(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}`)
+      .set(...auth);
+    expect(refused.status).toBe(409);
+
+    // The room is untouched: its type must still be set.
+    const survivor = await prisma.room.findFirst({ where: { propertyId, name: '501' } });
+    expect(survivor?.roomTypeId).toBe(roomTypeId);
   });
 });

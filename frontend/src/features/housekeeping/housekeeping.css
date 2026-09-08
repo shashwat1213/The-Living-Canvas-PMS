@@ -1,0 +1,279 @@
+/*
+ * Housekeeping board + task list. Shared primitives (buttons, badges, empty/
+ * loading states) live in components/ui.css; only housekeeping-specific layout
+ * is here. Uses the same CSS variables as the other feature files.
+ */
+
+.housekeeping-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.hk-breadcrumb {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.hk-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.hk-header h1 {
+  margin: 0;
+}
+
+.hk-subtitle {
+  margin: 0.25rem 0 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  max-width: 60ch;
+}
+
+.hk-tabs {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* ---------- Board controls / summary ---------- */
+
+.hk-board-controls,
+.hk-task-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.hk-date-label,
+.hk-filter-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.hk-date-label input,
+.hk-filter-label select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--social-bg);
+  color: var(--text-h);
+  font-size: 0.9rem;
+}
+
+.hk-summary {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.hk-chip {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--code-bg);
+  color: var(--text-h);
+}
+
+.hk-chip-dirty {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.hk-chip-cleaning {
+  background: #fef3c7;
+  color: #b45309;
+}
+.hk-chip-clean {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.hk-chip-inspected {
+  background: #dcfce7;
+  color: #15803d;
+}
+.hk-chip-dep {
+  background: var(--code-bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  .hk-chip-dirty {
+    background: #451a1a;
+    color: #fca5a5;
+  }
+  .hk-chip-cleaning {
+    background: #422006;
+    color: #fcd34d;
+  }
+  .hk-chip-clean {
+    background: #082f49;
+    color: #7dd3fc;
+  }
+  .hk-chip-inspected {
+    background: #052e16;
+    color: #86efac;
+  }
+}
+
+/* ---------- Board grid of room cards ---------- */
+
+.hk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.hk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 8px;
+  background: var(--social-bg);
+}
+
+/* Left accent tracks the condition so the board scans at a glance. */
+.hk-card-dirty {
+  border-left-color: #ef4444;
+}
+.hk-card-cleaning {
+  border-left-color: #f59e0b;
+}
+.hk-card-clean {
+  border-left-color: #0ea5e9;
+}
+.hk-card-inspected {
+  border-left-color: #22c55e;
+}
+
+.hk-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.hk-card-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text-h);
+}
+
+.hk-card-meta {
+  font-size: 0.85rem;
+  color: var(--text-h);
+}
+
+.hk-muted {
+  color: var(--text);
+}
+
+.hk-card-flags {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 1.4rem;
+}
+
+.hk-tasks-badge {
+  font-size: 0.78rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text-h);
+}
+
+.hk-card-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+
+/* ---------- Task list ---------- */
+
+.hk-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hk-task {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--social-bg);
+}
+
+.hk-task-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.hk-task-room {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.hk-task-notes {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.hk-task-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.hk-task-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ---------- Task dialog form ---------- */
+
+.hk-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.hk-field select,
+.hk-field textarea {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--social-bg);
+  color: var(--text-h);
+  font-size: 0.9rem;
+  font-family: inherit;
+}

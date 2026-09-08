@@ -35,6 +35,58 @@ export const ALL_PERMISSIONS = [
     key: 'room-types:manage',
     description: "Create, update and retire a property's room types.",
   },
+  {
+    key: 'rate-plans:read',
+    description: 'Read the rate plans and per-date rates of a room type.',
+  },
+  {
+    key: 'rate-plans:manage',
+    description: "Create, update, retire and price a room type's rate plans.",
+  },
+  {
+    key: 'guests:read',
+    description: "Read the organization's guest profiles.",
+  },
+  {
+    key: 'guests:manage',
+    description: "Create, update and delete guest profiles.",
+  },
+  {
+    key: 'reservations:read',
+    description: "Read a property's reservations.",
+  },
+  {
+    key: 'reservations:manage',
+    description: 'Create, cancel and mark no-show on reservations.',
+  },
+  {
+    key: 'payments:read',
+    description: "Read a reservation's folio, charges and payments.",
+  },
+  {
+    key: 'payments:manage',
+    description: 'Post charges and record payments on a folio, and close it.',
+  },
+  {
+    key: 'housekeeping:read',
+    description: "Read a property's housekeeping board and cleaning tasks.",
+  },
+  {
+    key: 'housekeeping:manage',
+    description: "Set a room's cleaning condition and create, assign and complete housekeeping tasks.",
+  },
+  {
+    key: 'maintenance:read',
+    description: "Read a property's maintenance work orders.",
+  },
+  {
+    key: 'maintenance:manage',
+    description: 'Create, assign, update and resolve maintenance work orders, and take rooms out of service.',
+  },
+  {
+    key: 'dashboard:read',
+    description: "Read a property's operational dashboard (arrivals, occupancy, housekeeping, maintenance, unsettled folios).",
+  },
   { key: 'staff:read', description: "Read the organization's staff members." },
   {
     key: 'staff:manage',
@@ -80,6 +132,41 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // rename the catalogue every rate and reservation will hang off.
     'room-types:read',
     'room-types:manage',
+    // Rate plans are revenue configuration — the same "what a property sells
+    // and for how much" territory as the room-type catalogue — so MANAGER
+    // gets `manage` and STAFF (below) gets read only. A front-desk agent
+    // reads the rate to quote it; it does not reprice the hotel.
+    'rate-plans:read',
+    'rate-plans:manage',
+    // Guests are front-desk work: a manager (and staff, below) creates and
+    // edits guest profiles as part of taking a booking, so both read and
+    // manage sit at this level, unlike the revenue-config permissions above.
+    'guests:read',
+    'guests:manage',
+    // Reservations are the core front-desk workflow: managers and staff both
+    // take and cancel bookings, so both read and manage sit at this level.
+    'reservations:read',
+    'reservations:manage',
+    // Billing is front-desk work too: settling the folio and taking payment
+    // at check-out is the same daily desk job as taking the booking, so both
+    // read and manage sit here (and for STAFF below).
+    'payments:read',
+    'payments:manage',
+    // Housekeeping is daily operations: a manager (and staff, below) runs the
+    // cleaning board, sets room conditions and assigns tasks. Both read and
+    // manage sit at the front-line level.
+    'housekeeping:read',
+    'housekeeping:manage',
+    // Maintenance is daily engineering ops: logging an issue, assigning it,
+    // and taking a room out of service are front-line actions, so MANAGER and
+    // STAFF both get read + manage.
+    'maintenance:read',
+    'maintenance:manage',
+    // The operational dashboard is the manager's daily cockpit: arrivals,
+    // occupancy, housekeeping load, maintenance and unsettled folios for one
+    // property at a glance. Read-only; its own permission rather than an
+    // overload of any single module's.
+    'dashboard:read',
     // Read-only: a manager can see who works in the organization, but
     // `staff:manage` (create / role-change / deactivate) stays with
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
@@ -91,7 +178,33 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // receive it via the PERMISSION_KEYS spread) is the intended scope,
     // not an oversight.
   ],
-  STAFF: ['organizations:read', 'properties:read', 'rooms:read', 'rooms:update', 'room-types:read'],
+  STAFF: [
+    'organizations:read',
+    'properties:read',
+    'rooms:read',
+    'rooms:update',
+    'room-types:read',
+    'rate-plans:read',
+    // The front desk creates and edits guest profiles when booking, so STAFF
+    // holds manage here — the one place STAFF gets a manage permission.
+    'guests:read',
+    'guests:manage',
+    // Taking and cancelling bookings is the front desk's core job.
+    'reservations:read',
+    'reservations:manage',
+    // Settling the bill and taking payment at check-out is core desk work.
+    'payments:read',
+    'payments:manage',
+    // Running the cleaning board is core daily operations for the front line.
+    'housekeeping:read',
+    'housekeeping:manage',
+    // Logging and working maintenance issues is core daily ops too.
+    'maintenance:read',
+    'maintenance:manage',
+    // The dashboard is the front desk's first screen every shift — today's
+    // arrivals and departures, who's in-house, rooms to clean, open issues.
+    'dashboard:read',
+  ],
 };
 
 /** Organization-wide roles bypass PropertyAccess grants entirely. */

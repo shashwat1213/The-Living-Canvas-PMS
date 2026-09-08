@@ -159,12 +159,17 @@ describe('a failed audit write rolls the mutation back', () => {
       .set(...authHeader(owner.token))
       .send({ name: 'Room Host', slug: `rollback-r-${randomUUID().slice(0, 8)}` });
     const propertyId = property.body.property.id as string;
+    const roomType = await request(app)
+      .post(`/api/v1/properties/${propertyId}/room-types`)
+      .set(...authHeader(owner.token))
+      .send({ name: 'Ghost Type' });
+    const roomTypeId = roomType.body.roomType.id as string;
 
     failNextAuditWrite();
     const res = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...authHeader(owner.token))
-      .send({ name: '999', roomType: 'Ghost' });
+      .send({ name: '999', roomTypeId });
 
     expect(res.status).toBe(500);
     expect(await prisma.room.findFirst({ where: { propertyId, name: '999' } })).toBeNull();

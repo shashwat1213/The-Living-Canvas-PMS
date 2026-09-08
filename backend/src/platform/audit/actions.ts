@@ -38,6 +38,54 @@ export const AUDIT_ACTIONS = {
   ROOM_TYPE_CREATED: 'room_type.created',
   ROOM_TYPE_UPDATED: 'room_type.updated',
   ROOM_TYPE_DELETED: 'room_type.deleted',
+
+  // Rate plans drive what a booking costs, so creating, repricing or
+  // retiring one is a revenue-consequential act worth an audit trail. The
+  // per-date price grid is audited as a single "rates set" event over a
+  // range rather than one entry per night — N entries for one bulk edit
+  // would bury the action that caused them, the same reasoning used for the
+  // room cascade on property deletion.
+  RATE_PLAN_CREATED: 'rate_plan.created',
+  RATE_PLAN_UPDATED: 'rate_plan.updated',
+  RATE_PLAN_DELETED: 'rate_plan.deleted',
+  RATE_PLAN_RATES_SET: 'rate_plan.rates_set',
+
+  // Guest profiles carry personal data, so their creation, edit and removal
+  // are auditable — "who changed this guest's contact details" is a real
+  // question a hotel (and a data-protection regime) will ask.
+  GUEST_CREATED: 'guest.created',
+  GUEST_UPDATED: 'guest.updated',
+  GUEST_DELETED: 'guest.deleted',
+
+  // A reservation is the central transactional record, so its creation and
+  // every lifecycle transition are audited — "who booked this / who cancelled
+  // it and why" is a question a hotel asks constantly.
+  RESERVATION_CREATED: 'reservation.created',
+  RESERVATION_CANCELLED: 'reservation.cancelled',
+  RESERVATION_NO_SHOW: 'reservation.no_show',
+  RESERVATION_ROOM_ASSIGNED: 'reservation.room_assigned',
+  RESERVATION_CHECKED_IN: 'reservation.checked_in',
+  RESERVATION_CHECKED_OUT: 'reservation.checked_out',
+  FOLIO_OPENED: 'folio.opened',
+  FOLIO_CHARGE_ADDED: 'folio.charge_added',
+  FOLIO_PAYMENT_RECORDED: 'folio.payment_recorded',
+  FOLIO_CLOSED: 'folio.closed',
+  FOLIO_REOPENED: 'folio.reopened',
+  // Housekeeping: a room's cleaning condition changing, and the lifecycle of
+  // a cleaning task, are both audited — "who marked 204 clean / who left it
+  // dirty" is a real accountability question on the housekeeping floor.
+  ROOM_HOUSEKEEPING_CHANGED: 'room.housekeeping_changed',
+  HOUSEKEEPING_TASK_CREATED: 'housekeeping_task.created',
+  HOUSEKEEPING_TASK_UPDATED: 'housekeeping_task.updated',
+  HOUSEKEEPING_TASK_COMPLETED: 'housekeeping_task.completed',
+  // Maintenance: work-order lifecycle. Taking a room out of service and
+  // returning it are consequential (they change sellable inventory), so they
+  // are audited distinctly from a plain status/detail update.
+  WORK_ORDER_CREATED: 'work_order.created',
+  WORK_ORDER_UPDATED: 'work_order.updated',
+  WORK_ORDER_RESOLVED: 'work_order.resolved',
+  ROOM_OUT_OF_SERVICE: 'room.out_of_service',
+  ROOM_RETURNED_TO_SERVICE: 'room.returned_to_service',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -53,6 +101,12 @@ export const AUDIT_ENTITY_TYPES = {
   PROPERTY: 'property',
   ROOM: 'room',
   ROOM_TYPE: 'room_type',
+  RATE_PLAN: 'rate_plan',
+  GUEST: 'guest',
+  RESERVATION: 'reservation',
+  FOLIO: 'folio',
+  HOUSEKEEPING_TASK: 'housekeeping_task',
+  WORK_ORDER: 'work_order',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

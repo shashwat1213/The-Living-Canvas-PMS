@@ -141,7 +141,9 @@ export function RoomsPage() {
       render: (room) => (
         <div className="room-identity">
           <span className="room-name">{room.name}</span>
-          <span className="room-muted">{room.roomType}</span>
+          <span className="room-muted">
+            {room.roomType.code ? `${room.roomType.name} (${room.roomType.code})` : room.roomType.name}
+          </span>
         </div>
       ),
     },

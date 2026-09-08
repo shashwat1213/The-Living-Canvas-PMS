@@ -28,6 +28,14 @@ async function createProperty(token: string, name = 'Main House', slug = 'main-h
   return res.body.property.id as string;
 }
 
+async function createRoomType(token: string, propertyId: string, name = 'Standard') {
+  const res = await request(app)
+    .post(`/api/v1/properties/${propertyId}/room-types`)
+    .set(...authHeader(token))
+    .send({ name });
+  return res.body.roomType.id as string;
+}
+
 describe('cross-organization isolation', () => {
   it('a property created in org A is invisible to org B: list, get, update, delete', async () => {
     const orgA = await loginAsNewOwner('Org A');
@@ -67,10 +75,11 @@ describe('cross-organization isolation', () => {
     const orgA = await loginAsNewOwner('Org A');
     const orgB = await loginAsNewOwner('Org B');
     const propertyId = await createProperty(orgA.token);
+    const roomTypeId = await createRoomType(orgA.token, propertyId);
     const room = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...authHeader(orgA.token))
-      .send({ name: '101', roomType: 'Standard' });
+      .send({ name: '101', roomTypeId });
     const roomId = room.body.room.id as string;
 
     const list = await request(app)
@@ -86,7 +95,7 @@ describe('cross-organization isolation', () => {
     const create = await request(app)
       .post(`/api/v1/properties/${propertyId}/rooms`)
       .set(...authHeader(orgB.token))
-      .send({ name: '999', roomType: 'Should not be created' });
+      .send({ name: '999', roomTypeId: randomUUID() });
     expect(create.status).toBe(404);
 
     const update = await request(app)
@@ -179,6 +188,245 @@ describe('cross-organization isolation: room types', () => {
     const a = await createRoomType(orgA.token, propertyA, 'Deluxe King');
     const b = await createRoomType(orgB.token, propertyB, 'Deluxe King');
     expect(a).not.toBe(b);
+  });
+});
+
+describe('cross-organization isolation: rate plans', () => {
+  async function createRoomType(token: string, propertyId: string, name: string) {
+    const res = await request(app)
+      .post(`/api/v1/properties/${propertyId}/room-types`)
+      .set(...authHeader(token))
+      .send({ name });
+    return res.body.roomType.id as string;
+  }
+
+  async function createRatePlan(token: string, propertyId: string, roomTypeId: string, name: string) {
+    const res = await request(app)
+      .post(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}/rate-plans`)
+      .set(...authHeader(token))
+      .send({ name });
+    if (res.status !== 201) {
+      throw new Error(`rate plan creation failed: ${res.status} ${JSON.stringify(res.body)}`);
+    }
+    return res.body.ratePlan.id as string;
+  }
+
+  it("a rate plan (and its rates) in org A is invisible to org B: list, get, update, delete, rates", async () => {
+    const orgA = await loginAsNewOwner('RP Isolation A');
+    const orgB = await loginAsNewOwner('RP Isolation B');
+    const propertyA = await createProperty(orgA.token, 'A House', `rp-a-${randomUUID().slice(0, 8)}`);
+    const roomTypeId = await createRoomType(orgA.token, propertyA, 'A Deluxe');
+    const planId = await createRatePlan(orgA.token, propertyA, roomTypeId, 'A BAR');
+    const b = `/api/v1/properties/${propertyA}/room-types/${roomTypeId}/rate-plans`;
+
+    // Org A's property is invisible to B, so every verb must 404 (not 403):
+    // B must not learn the property, type or plan exists at all.
+    for (const call of [
+      request(app).get(b).set(...authHeader(orgB.token)),
+      request(app).get(`${b}/${planId}`).set(...authHeader(orgB.token)),
+      request(app).patch(`${b}/${planId}`).set(...authHeader(orgB.token)).send({ name: 'B' }),
+      request(app).delete(`${b}/${planId}`).set(...authHeader(orgB.token)),
+      request(app).get(`${b}/${planId}/rates?from=2026-10-01&to=2026-10-05`).set(...authHeader(orgB.token)),
+      request(app)
+        .put(`${b}/${planId}/rates`)
+        .set(...authHeader(orgB.token))
+        .send({ rates: [{ date: '2026-10-01', amountMinor: 100000 }] }),
+    ]) {
+      const res = await call;
+      expect(res.status).toBe(404);
+    }
+
+    // None of the refusals took effect: A's plan is intact and unpriced.
+    const stillThere = await request(app).get(`${b}/${planId}`).set(...authHeader(orgA.token));
+    expect(stillThere.status).toBe(200);
+    expect(stillThere.body.ratePlan.name).toBe('A BAR');
+    expect(stillThere.body.ratePlan.pricedDates).toBe(0);
+  });
+
+  it('two organizations can independently use the same rate-plan name under their own room types', async () => {
+    const orgA = await loginAsNewOwner('RP Name A');
+    const orgB = await loginAsNewOwner('RP Name B');
+    const propertyA = await createProperty(orgA.token, 'A House', `rp-na-${randomUUID().slice(0, 8)}`);
+    const propertyB = await createProperty(orgB.token, 'B House', `rp-nb-${randomUUID().slice(0, 8)}`);
+    const rtA = await createRoomType(orgA.token, propertyA, 'Deluxe');
+    const rtB = await createRoomType(orgB.token, propertyB, 'Deluxe');
+
+    const a = await createRatePlan(orgA.token, propertyA, rtA, 'Best Available Rate');
+    const b = await createRatePlan(orgB.token, propertyB, rtB, 'Best Available Rate');
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('cross-organization isolation: guests', () => {
+  async function createGuest(token: string, firstName: string, lastName: string) {
+    const res = await request(app)
+      .post('/api/v1/guests')
+      .set(...authHeader(token))
+      .send({ firstName, lastName });
+    return res.body.guest.id as string;
+  }
+
+  it("a guest in org A is invisible to org B: list, get, update, delete", async () => {
+    const orgA = await loginAsNewOwner('Guest Isolation A');
+    const orgB = await loginAsNewOwner('Guest Isolation B');
+    const guestId = await createGuest(orgA.token, 'Ada', 'Lovelace');
+
+    // Org B's guest list never contains org A's people.
+    const list = await request(app).get('/api/v1/guests').set(...authHeader(orgB.token));
+    expect(list.status).toBe(200);
+    expect(list.body.guests.map((g: { id: string }) => g.id)).not.toContain(guestId);
+
+    // Every verb on org A's real guest id 404s for B — the guest is scoped
+    // out entirely, so it reads as nonexistent, not forbidden.
+    for (const call of [
+      request(app).get(`/api/v1/guests/${guestId}`).set(...authHeader(orgB.token)),
+      request(app).patch(`/api/v1/guests/${guestId}`).set(...authHeader(orgB.token)).send({ notes: 'B' }),
+      request(app).delete(`/api/v1/guests/${guestId}`).set(...authHeader(orgB.token)),
+    ]) {
+      const res = await call;
+      expect(res.status).toBe(404);
+    }
+
+    // Untouched for A.
+    const stillThere = await request(app).get(`/api/v1/guests/${guestId}`).set(...authHeader(orgA.token));
+    expect(stillThere.status).toBe(200);
+    expect(stillThere.body.guest.firstName).toBe('Ada');
+  });
+
+  it("search cannot be used to probe another organization's guests", async () => {
+    const orgA = await loginAsNewOwner('Guest Probe A');
+    const orgB = await loginAsNewOwner('Guest Probe B');
+    await createGuest(orgA.token, 'Confidential', 'Person');
+
+    const probe = await request(app).get('/api/v1/guests?search=confidential').set(...authHeader(orgB.token));
+    expect(probe.status).toBe(200);
+    expect(probe.body.guests).toHaveLength(0);
+    expect(probe.body.page.totalItems).toBe(0);
+  });
+});
+
+describe('cross-organization isolation: reservations', () => {
+  it("a reservation at org A's property is invisible to org B: list, get, cancel, no-show", async () => {
+    const orgA = await loginAsNewOwner('Resv Isolation A');
+    const orgB = await loginAsNewOwner('Resv Isolation B');
+    const authA = authHeader(orgA.token);
+
+    // Build a bookable property for org A and make one booking.
+    const property = await request(app).post('/api/v1/properties').set(...authA).send({ name: 'A Hotel', slug: `resv-a-${randomUUID().slice(0, 8)}` });
+    const propertyId = property.body.property.id as string;
+    const roomType = await request(app).post(`/api/v1/properties/${propertyId}/room-types`).set(...authA).send({ name: 'Deluxe' });
+    const roomTypeId = roomType.body.roomType.id as string;
+    await request(app).post(`/api/v1/properties/${propertyId}/rooms`).set(...authA).send({ name: '101', roomTypeId });
+    const ratePlan = await request(app).post(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}/rate-plans`).set(...authA).send({ name: 'BAR' });
+    const ratePlanId = ratePlan.body.ratePlan.id as string;
+    await request(app)
+      .put(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}/rate-plans/${ratePlanId}/rates`)
+      .set(...authA)
+      .send({ rates: [{ date: '2026-10-10', amountMinor: 400000 }, { date: '2026-10-11', amountMinor: 400000 }] });
+    const guest = await request(app).post('/api/v1/guests').set(...authA).send({ firstName: 'A', lastName: 'Guest' });
+    const booking = await request(app)
+      .post(`/api/v1/properties/${propertyId}/reservations`)
+      .set(...authA)
+      .send({ guestId: guest.body.guest.id, roomTypeId, ratePlanId, checkIn: '2026-10-10', checkOut: '2026-10-12' });
+    expect(booking.status).toBe(201);
+    const reservationId = booking.body.reservation.id as string;
+
+    // Org A's property is invisible to B — every verb 404s (not 403).
+    const base = `/api/v1/properties/${propertyId}/reservations`;
+    for (const call of [
+      request(app).get(base).set(...authHeader(orgB.token)),
+      request(app).get(`${base}/${reservationId}`).set(...authHeader(orgB.token)),
+      request(app).post(`${base}/${reservationId}/cancel`).set(...authHeader(orgB.token)).send({}),
+      request(app).post(`${base}/${reservationId}/no-show`).set(...authHeader(orgB.token)),
+    ]) {
+      const res = await call;
+      expect(res.status).toBe(404);
+    }
+
+    // The booking is untouched and still CONFIRMED for A.
+    const stillThere = await request(app).get(`${base}/${reservationId}`).set(...authA);
+    expect(stillThere.status).toBe(200);
+    expect(stillThere.body.reservation.status).toBe('CONFIRMED');
+
+    // The availability grid for A's property is invisible to B too — the
+    // property is scoped out, so the read-only grid 404s rather than leaking
+    // A's inventory as an empty-but-200 grid.
+    const availability = await request(app)
+      .get(`/api/v1/properties/${propertyId}/availability?from=2026-10-10&to=2026-10-12`)
+      .set(...authHeader(orgB.token));
+    expect(availability.status).toBe(404);
+
+    // And still readable by A.
+    const availabilityForA = await request(app)
+      .get(`/api/v1/properties/${propertyId}/availability?from=2026-10-10&to=2026-10-12`)
+      .set(...authA);
+    expect(availabilityForA.status).toBe(200);
+    expect(availabilityForA.body.roomTypes).toHaveLength(1);
+
+    // The operational dashboard for A's property is invisible to B for the
+    // same reason: the property is scoped out, so the read-only cockpit 404s
+    // rather than leaking A's arrivals, occupancy or unsettled folios.
+    const dashboardForB = await request(app)
+      .get(`/api/v1/properties/${propertyId}/dashboard`)
+      .set(...authHeader(orgB.token));
+    expect(dashboardForB.status).toBe(404);
+
+    const dashboardForA = await request(app)
+      .get(`/api/v1/properties/${propertyId}/dashboard`)
+      .set(...authA);
+    expect(dashboardForA.status).toBe(200);
+    expect(dashboardForA.body.summary.sellableRooms).toBe(1);
+
+    // The booking's folio (guest bill) is likewise invisible to B: viewing it
+    // and posting a payment to it both 404, so B can neither read A's charges
+    // nor inject a payment onto A's account.
+    const folioBase = `${base}/${reservationId}/folio`;
+    const folioForB = await request(app).get(folioBase).set(...authHeader(orgB.token));
+    expect(folioForB.status).toBe(404);
+    const payForB = await request(app)
+      .post(`${folioBase}/payments`)
+      .set(...authHeader(orgB.token))
+      .send({ method: 'CASH', amountMinor: 100 });
+    expect(payForB.status).toBe(404);
+
+    // A can open and read its own folio.
+    const folioForA = await request(app).get(folioBase).set(...authA);
+    expect(folioForA.status).toBe(200);
+    expect(folioForA.body.folio.charges.length).toBeGreaterThan(0);
+
+    // The housekeeping board and tasks for A's property are invisible to B —
+    // reading the board, listing tasks, and setting a room's condition all
+    // 404, so B can neither see A's cleaning state nor mutate A's rooms.
+    const hkBase = `/api/v1/properties/${propertyId}/housekeeping`;
+    const boardForB = await request(app).get(`${hkBase}/board`).set(...authHeader(orgB.token));
+    expect(boardForB.status).toBe(404);
+    const tasksForB = await request(app).get(`${hkBase}/tasks`).set(...authHeader(orgB.token));
+    expect(tasksForB.status).toBe(404);
+    // A reads its own board fine (one room, INSPECTED by default).
+    const boardForA = await request(app).get(`${hkBase}/board`).set(...authA);
+    expect(boardForA.status).toBe(200);
+    expect(boardForA.body.board.summary.totalRooms).toBe(1);
+    const roomIdA = boardForA.body.board.rooms[0].id as string;
+    const condForB = await request(app)
+      .put(`${hkBase}/rooms/${roomIdA}/condition`)
+      .set(...authHeader(orgB.token))
+      .send({ housekeepingStatus: 'DIRTY' });
+    expect(condForB.status).toBe(404);
+
+    // Maintenance work orders for A's property are invisible to B too — the
+    // list and create both 404, so B can neither see A's engineering work nor
+    // inject a work order (or an out-of-service block) onto A's rooms.
+    const mxBase = `/api/v1/properties/${propertyId}/maintenance/work-orders`;
+    const mxListForB = await request(app).get(mxBase).set(...authHeader(orgB.token));
+    expect(mxListForB.status).toBe(404);
+    const mxCreateForB = await request(app)
+      .post(mxBase)
+      .set(...authHeader(orgB.token))
+      .send({ title: 'intrusion', roomId: roomIdA, takeRoomOutOfService: true });
+    expect(mxCreateForB.status).toBe(404);
+    // A can create its own work order fine.
+    const mxForA = await request(app).post(mxBase).set(...authA).send({ title: 'A work', roomId: roomIdA });
+    expect(mxForA.status).toBe(201);
   });
 });
 

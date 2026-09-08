@@ -157,20 +157,23 @@ A single physical venue belonging to an Organization.
 
 ### Room
 
-A bookable unit within a Property. Models **operational** status only
-(is this room in service?) — occupancy/booking state belongs to the future
-bookings module, not here.
+A bookable unit within a Property. Carries **two independent status axes**:
+`status` is its inventory/service state (is this room sellable?), while
+`housekeeping_status` is its physical-cleanliness state (is it ready to hand
+over the key?). They are deliberately separate — a DIRTY room is still
+bookable; only `status` (INACTIVE/MAINTENANCE) removes a room from sellable
+inventory. This mirrors every commercial PMS (Cloudbeds, Mews, Stayntouch).
 
 | Column       | Type      | Notes                                       |
 |--------------|-----------|-----------------------------------------------|
 | id           | uuid      | PK                                            |
 | property_id  | uuid      | FK → properties, cascade delete               |
 | name         | text      | unique per property (e.g. "101", "Suite A")   |
-| room_type    | text      | **legacy** free-text category — still what the API reads/writes |
-| room_type_id | uuid?     | FK → room_types, `SET NULL` on delete          |
+| room_type_id | uuid      | **required** FK → room_types, `RESTRICT` on delete |
 | floor        | text?     |                                                |
 | capacity     | int       | default 1                                     |
 | status       | enum      | ACTIVE \| INACTIVE \| MAINTENANCE             |
+| housekeeping_status | enum | DIRTY \| CLEANING \| CLEAN \| INSPECTED; default INSPECTED |
 | notes        | text?     |                                                |
 | created_at   | timestamp |                                                |
 | updated_at   | timestamp |                                                |
@@ -199,15 +202,110 @@ it transitively through `property_id`, and
 
 Deliberately thin: occupancy lives on `Room.capacity`, and a second copy
 here with no code to reconcile the two would be a silent source-of-truth
-conflict. Rate plans, availability and reservations attach to this model
-in later slices — none of them exist yet.
+conflict. Rate plans attach to this model (see `RatePlan` below);
+availability and reservations follow in later slices.
 
-**Transitional state.** `Room` currently carries *both* `room_type` (the
-original free text, still what the rooms API accepts, searches and
-audits) and `room_type_id` (the new FK, backfilled from it). The FK is
-nullable because rooms created through the API before the RoomType API
-slice lands have no type yet. The free-text column is dropped only once
-the API and UI read the relation instead — see TASKS.md 2b/2c.
+**Catalogue-only.** Every `Room` references a `RoomType` at its own
+property through the **required** `room_type_id` FK — the model Mews,
+Cloudbeds and Stayntouch all use: rooms are assigned a type from a managed
+catalogue, never free text. The original free-text `room_type` column was
+backfilled into `room_types` and dropped (migrations
+`20260902000100_rooms_backfill_types` then
+`20260902000200_rooms_catalogue_only`). The FK is `ON DELETE RESTRICT`, so
+a type still assigned to rooms cannot be deleted out from under them — the
+database backstop for the 409 the room-types service returns proactively.
+
+### RatePlan
+
+A sellable rate for a `RoomType` — "Best Available Rate", "Non-Refundable",
+"Advance Purchase". The model every commercial PMS uses (Mews, Cloudbeds,
+Stayntouch): what a room type costs is not one number but a set of plans,
+each with its own price-per-date and cancellation policy.
+
+Scoped to a **RoomType** (transitively to Property, then Organization) — two
+hotels in one group price independently. No `organization_id` of its own;
+`src/platform/tenancy/scoped-prisma.ts` scopes it through
+`room_type → property`.
+
+| Column        | Type      | Notes                                             |
+|---------------|-----------|---------------------------------------------------|
+| id            | uuid      | PK                                                |
+| room_type_id  | uuid      | FK → room_types, cascade delete                   |
+| name          | text      | unique per room type                              |
+| code          | text?     | short code ("BAR", "NR"); unique per room type when present |
+| description   | text?     |                                                   |
+| is_refundable | boolean   | default true — the one cancellation-policy bit every PMS models from day one |
+| is_active     | boolean   | default true                                      |
+| created_at    | timestamp |                                                   |
+| updated_at    | timestamp |                                                   |
+
+### RatePlanRate
+
+The price of one `RatePlan` on one calendar date, in **INR minor units
+(paise)**, integer — money is never a float, and INR-only per the
+initial-release decision (no currency column). One row per `(plan, date)`:
+this is the room-night pricing grid a revenue manager edits, and storing it
+per-date rather than as a rule makes an arbitrary seasonal calendar
+representable without a rules engine. **Absence of a row for a date means
+"unpriced / not sellable that night"** — a booking treats it as unavailable,
+not free.
+
+| Column       | Type      | Notes                                       |
+|--------------|-----------|---------------------------------------------|
+| id           | uuid      | PK                                          |
+| rate_plan_id | uuid      | FK → rate_plans, cascade delete             |
+| date         | date      | stay night (date-only, UTC midnight); unique per plan |
+| amount_minor | int       | price in paise (INR minor units)            |
+| created_at   | timestamp |                                             |
+| updated_at   | timestamp |                                             |
+
+### HousekeepingTask
+
+A unit of housekeeping work on a room — the task board a supervisor runs the
+day from. Created automatically when a departure leaves a room to be turned
+over (the check-out flow in `modules/reservations/service.ts` marks the room
+DIRTY and opens a DEPARTURE task), or manually for a stayover / deep clean.
+Tenancy reaches it transitively through `room → property → organization_id`;
+there is no `organization_id` column of its own, and
+`src/platform/tenancy/scoped-prisma.ts` scopes it through the `room` relation.
+
+| Column         | Type      | Notes                                       |
+|----------------|-----------|---------------------------------------------|
+| id             | uuid      | PK                                          |
+| room_id        | uuid      | FK → rooms, cascade delete                  |
+| type           | enum      | DEPARTURE \| STAYOVER \| TURNDOWN \| OTHER; default DEPARTURE |
+| status         | enum      | PENDING \| IN_PROGRESS \| DONE \| CANCELLED; default PENDING |
+| assigned_to_id | uuid?     | FK → users, `SET NULL` on delete (history survives) |
+| notes          | text?     |                                             |
+| completed_at   | timestamp?| set when status moves to DONE, cleared on reopen |
+| created_at     | timestamp |                                             |
+| updated_at     | timestamp |                                             |
+
+### MaintenanceWorkOrder
+
+An engineering work order. Unlike a housekeeping task (which never affects
+inventory), a work order MAY take a room **out of service**:
+`takes_room_out_of_service` records whether opening it flipped the room's
+`status` to MAINTENANCE, so resolving/cancelling it returns the room to ACTIVE
+— but only if no other open order still holds the room out. `room_id` is
+**optional**: property-level work (lobby, plant, grounds) has no room. Tenancy
+is a direct `property_id` (scoped through Property, like Reservation).
+
+| Column                    | Type      | Notes                               |
+|---------------------------|-----------|-------------------------------------|
+| id                        | uuid      | PK                                  |
+| property_id               | uuid      | FK → properties, cascade delete     |
+| room_id                   | uuid?     | FK → rooms, `SET NULL`; null = property-level |
+| title                     | text      |                                     |
+| description               | text?     |                                     |
+| category                  | enum      | HVAC \| PLUMBING \| ELECTRICAL \| APPLIANCE \| FURNITURE \| STRUCTURAL \| SAFETY \| OTHER; default OTHER |
+| priority                  | enum      | LOW \| MEDIUM \| HIGH \| URGENT; default MEDIUM |
+| status                    | enum      | OPEN \| IN_PROGRESS \| RESOLVED \| CANCELLED; default OPEN |
+| assigned_to_id            | uuid?     | FK → users, `SET NULL` on delete    |
+| takes_room_out_of_service | boolean   | default false; true only with a room |
+| resolved_at               | timestamp?| set when status moves to RESOLVED   |
+| created_at                | timestamp |                                     |
+| updated_at                | timestamp |                                     |
 
 ### AuditLog
 
@@ -251,7 +349,7 @@ tenant filter, so a tenant-first index is the one that gets used.
 
 ```
 Organization 1──* User 1──* Session
-Organization 1──* Property 1──* Room *──0..1 RoomType
+Organization 1──* Property 1──* Room *──1 RoomType
 Organization 1──* Property 1──* RoomType
 Organization 1──* Property 1──* PropertyAccess *──1 User
 Organization 1──* Role *──* Permission   (through RolePermission)
@@ -270,9 +368,10 @@ intentional exception, not a tenancy gap.
 user nulls the actor reference instead of deleting their audit history,
 which is why `actor_email` is captured on the row.
 
-`Room.room_type_id` is the second: deleting a RoomType nulls the
-reference rather than deleting the rooms that used it. Rooms are physical
-and outlive a catalogue decision; `room_type` still holds the label.
+`Room.room_type_id` goes the other way — `ON DELETE RESTRICT`: a
+RoomType still assigned to rooms cannot be deleted, because a room must
+always have a type. Retire the type (`is_active = false`) instead; the
+rooms keep their classification.
 
 ## Migrations
 
@@ -290,16 +389,46 @@ Migrations live in `backend/prisma/migrations/`:
   (`postgres:16-alpine`), then exercised by the audit test suite against
   that same database.
 - `20260821174800_room_type` — adds the `room_types` table and the
-  nullable `rooms.room_type_id` FK, plus a **data backfill**: one
+  (then nullable) `rooms.room_type_id` FK, plus a **data backfill**: one
   `room_types` row per distinct `(property_id, room_type)` pair, then
-  every room pointed at its own. Strictly additive — no column is
-  dropped, renamed or made NOT NULL, and `rooms.room_type` is read but
-  never written, so the migration cannot lose data. Applied with
-  `prisma migrate dev` against real PostgreSQL 16.15
-  (`postgres:16-alpine`); verified afterwards that the 1069 existing
-  rooms were byte-identical (same `md5` fingerprint of
-  `id:room_type` across all rows), 900 types were created, all 1069
-  rooms linked, and zero label/property mismatches.
+  every room pointed at its own. Strictly additive at the time — no column
+  dropped, renamed or made NOT NULL. Applied with `prisma migrate dev`
+  against real PostgreSQL 16.15 (`postgres:16-alpine`); verified afterwards
+  that the existing rooms were byte-identical, one type per distinct pair
+  was created, every room linked, and zero label/property mismatches.
+- `20260902000100_rooms_backfill_types` — **safe / non-destructive** first
+  half of the catalogue-only transition. Creates a `room_types` row for
+  any `(property, label)` pair that still had unlinked rooms and no
+  matching type, links every remaining orphan, and relaxes the legacy
+  `rooms.room_type` NOT NULL so catalogue-only writes succeed while the
+  column still exists. Deterministic: a room's type is its own label at
+  its own property — nothing invented or merged across casing. Applied and
+  verified against real PostgreSQL 16 (501 orphans → 0).
+- `20260902000200_rooms_catalogue_only` — **destructive / irreversible**
+  second half. Sets `rooms.room_type_id` NOT NULL, switches its FK from
+  `SET NULL` to `RESTRICT`, and drops the legacy `rooms.room_type` column.
+  Preconditioned on the backfill above (every room linked) and applied
+  separately after it was verified, with explicit human approval for the
+  destructive step. The label text survives on the linked `room_types`
+  row, which is the point.
+- `20260904103803_rate_plans` — **additive**. Adds `rate_plans` (per room
+  type) and `rate_plan_rates` (per plan, per date; INR paise). No change to
+  any existing table. Applied and verified against real PostgreSQL 16.
+- `20260907115046_housekeeping` — **additive / non-destructive**. Adds the
+  `HousekeepingStatus`, `HousekeepingTaskStatus` and `HousekeepingTaskType`
+  enums, a `rooms.housekeeping_status` column (NOT NULL, default `INSPECTED`
+  — no backfill needed, every existing room becomes ready), and the
+  `housekeeping_tasks` table (FK → rooms cascade, FK → users set-null, indexed
+  on room/assignee/status). No existing column dropped, renamed or made
+  NOT NULL. Applied and verified against real PostgreSQL 16 (`prisma migrate
+  dev`), then exercised by the housekeeping test suite and a live e2e probe.
+- `20260907121848_maintenance_work_orders` — **additive / non-destructive**.
+  Adds the `WorkOrderStatus`, `WorkOrderPriority` and `WorkOrderCategory`
+  enums and the `maintenance_work_orders` table (FK → properties cascade,
+  FK → rooms set-null, FK → users set-null, indexed on property/room/assignee/
+  status). No existing table touched. Applied and verified against real
+  PostgreSQL 16 (`prisma migrate dev`), then exercised by the maintenance test
+  suite and a live e2e probe (including the room out-of-service/return flow).
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

@@ -724,28 +724,165 @@ done; **nothing below it has been started.**
   build pass. Frontend 132/132 unchanged (no frontend file touched). Scope
   stayed inside `modules/room-types/`. See DECISIONS.md.
 
-- [ ] **2e. Database — drop the legacy `Room.roomType` column**
-  Only after 2c and 2d ship and no code reads it. Make `roomTypeId` NOT
-  NULL in the same migration. This is the one destructive step in the
-  sequence, which is exactly why it is last and separate.
+- [x] **2e. Rooms → catalogue-only: drop the legacy `Room.roomType` column** (2026-09-02)
+  The last step of the RoomType sequence, and the one destructive one.
+  Reframed after research + data inspection: benchmarking Mews/Cloudbeds/
+  Stayntouch confirmed every commercial PMS assigns rooms a type from a
+  managed catalogue — free text does not exist — so 2e's true shape was
+  "finish the catalogue-only transition", not "run a migration". Product
+  decision (catalogue-only) taken with the human before implementation.
 
-  **Blocked as of 2026-09-02 — precondition objectively unmet, verified
-  empirically, not assumed (see DECISIONS.md):**
-  1. *Code still reads the legacy column.* The rooms list search filters on
-     `roomType` (`rooms/repository.ts`), both room audit entries record it,
-     the room diff tracks it, and the whole label-derivation layer
-     (`resolveRoomTypeName`/`resolveCreateInput`/`resolveUpdateInput`)
-     exists to keep it in sync. Removing the column is a Backend slice, not
-     a one-file migration.
-  2. *Data isn't ready for NOT NULL.* 455 of 1,573 rooms have
-     `roomTypeId = NULL` (counted against the live DB). `SET NOT NULL` would
-     fail on them; a backfill/reassignment step and a product decision for
-     never-matched free-text types are both prerequisites.
+  **Backend.** `createRoomSchema`/`updateRoomSchema` now take a required
+  `roomTypeId` (uuid) and no free-text field. The rooms repository search
+  spans the *related* type's name and code; the service validates the id
+  against the room's own property inside the write transaction (same 404
+  semantics — a cross-property or cross-tenant type is indistinguishable
+  from a nonexistent one); the response embeds `roomType: { id, name,
+  code }`; audit records the type id + name (name captured so a later
+  rename doesn't rewrite history). Label-derivation machinery removed
+  entirely.
 
-  Re-scoped from "run a migration" to its true shape: **Backend
-  migration-off-legacy-column slice → data backfill → then the destructive
-  DDL**, each sequenced and approved on its own. Awaiting Orchestrator/human
-  direction before any of that begins.
+  **Frontend.** `RoomDialog` is a required room-type picker. When the
+  property has no active types, create is blocked with an empty state that
+  links to the catalogue rather than showing an unsubmittable form — the
+  same "set up types before rooms" flow real PMS enforce. `RoomsPage`
+  shows `Name (CODE)`.
+
+  **Migrations — expand→contract, destructive step isolated and last.**
+  `20260902000100_rooms_backfill_types` (safe: backfilled 501 orphaned
+  rooms into the catalogue, linked them, relaxed the old NOT NULL) applied
+  and verified first (501 → 0 orphans on real PostgreSQL 16). Then, with
+  explicit human approval, `20260902000200_rooms_catalogue_only`
+  (destructive: `roomTypeId` SET NOT NULL, FK → RESTRICT, DROP COLUMN
+  `room_type`) applied. FK is RESTRICT so a type assigned to rooms can't
+  be deleted — the DB backstop for the existing 409.
+
+  Verified: `npm run typecheck && lint && build && test` green both
+  workspaces. Backend 208/208 across 15 files (rewrote rooms/rooms-room-
+  types tests for the catalogue-only contract; updated rooms creation in
+  properties/authorization/tenant-isolation/audit-transactional; new
+  whole-table integrity + column-dropped assertions). Frontend 131/131.
+  Migration state clean (`prisma migrate status`). Every step run against
+  the real PostgreSQL 16 on localhost:5432. See DECISIONS.md.
+
+## Phase 2 — Booking core (2026-09-07)
+
+- [x] **Rate plans, reservations & guests — backend + UI**
+  The booking core. Three domain modules on the established pattern
+  (scoped repository, service owning authz + audit, permission-guarded
+  routes; matching feature-module frontends). Rate plans (per RoomType) +
+  per-date rates in INR paise with bulk set/clear; org-scoped guest
+  profiles (delete blocked while a reservation references them);
+  reservations — availability-checked booking in one Serializable
+  transaction, price snapshotted per night, a no-write quote endpoint, and
+  cancel + no-show lifecycle. New permissions (`rate-plans:*`, `guests:*`,
+  `reservations:*`), audit actions, two tenancy relation-scoping helpers.
+  Migrations `20260904103803_rate_plans` and `20260904113021_reservations`
+  applied to real PostgreSQL 16. Reservations UI carries a live
+  server-priced availability + cost quote — the client never computes
+  money. Verified: typecheck/lint/build green; backend 240/240, frontend
+  150/150.
+
+- [x] **Check-in / check-out + room assignment** (2026-09-07)
+  Closes the gap that a booking held a room *type* but never a physical
+  room. No schema change — `Reservation.roomId` was nullable from the
+  start (the create-slice left it "a check-in-slice concern"). Adds
+  `POST /reservations/:id/{assign-room,check-in,check-out}` and
+  `GET /reservations/:id/assignable-rooms`, plus three audit actions
+  (`reservation.room_assigned/checked_in/checked_out`).
+
+  A room is assignable only if it exists at the property, is of the
+  booking's own room type, is ACTIVE, and is free for the whole stay (no
+  other occupying reservation overlaps it). Cross-property / cross-tenant
+  room ids are indistinguishable from nonexistent (404). Assignment and
+  check-in run Serializable so two clerks can't hand the same room to two
+  bookings. Lifecycle is guarded: only CONFIRMED checks in (room required,
+  assignable inline), only CHECKED_IN checks out; the room record is kept
+  as history. The assignable-rooms endpoint returns every ACTIVE room of
+  the type flagged free/occupied, so the picker shows the whole floor and
+  why a room is unavailable rather than a silently short list.
+
+  Verified against real PostgreSQL 16 (`prisma migrate status` clean).
+  Backend 246/246 (was 240 — 6 new: assign happy-path, wrong-type/occupied/
+  404 rejections, full check-in→check-out lifecycle, no-room-on-check-in,
+  released-room-reuse + audit-trail order, auth gating). Frontend 153/153
+  (was 150 — 3 new: lifecycle-correct action buttons, check-in via the
+  room picker asserting the POST body, occupied room non-selectable).
+  typecheck/lint/build green both workspaces. See DECISIONS.md.
+
+- [x] **Availability calendar** (2026-09-07)
+  The Cloudbeds/Mews "heart of daily ops" screen: a room-type × date grid
+  showing free/booked rooms per night with property-wide occupancy.
+  Read-only and computed — **no schema, no migration, no new permission**
+  (reuses `reservations:read`). Built by two agents in parallel (backend +
+  frontend) against a contract locked by the orchestrator first, then
+  integrated and verified end-to-end here.
+
+  **Backend.** New `modules/availability/` (read-only: no writes, no audit).
+  `GET /properties/:propertyId/availability?from&to` — `from` inclusive,
+  `to` exclusive, span ≤ 62 nights (400 otherwise; `to<=from` also 400).
+  The grid is computed in TypeScript from a bounded query set (ACTIVE
+  room-type list + ACTIVE room counts grouped by type + occupying stays
+  overlapping the window), never one query per cell. `booked` per type/night
+  counts occupying reservations (CONFIRMED/CHECKED_IN/CHECKED_OUT) covering
+  that night; `available = max(0, totalRooms - booked)`; totals carry
+  `occupancyPct`. Tenant-scoped through the property (cross-org → 404).
+
+  **Frontend.** New `features/availability/` — a grid with a 7-night default
+  window, Previous/Next-week navigation, per-cell available counts toned by
+  state (free/sold-out), and a per-night occupancy summary row. Gated on
+  `reservations:read` (presentation only); linked from each property row.
+
+  Verified: typecheck/lint/build green both workspaces. Backend 252/252
+  (was 246 — 6 new + a cross-org case folded into `tenant-isolation.test.ts`).
+  Frontend 158/158 (was 153 — 5 new). Beyond the mocked/unit tests, a live
+  end-to-end probe against the built server on real PostgreSQL 16 confirmed
+  the grid for 3 rooms with 2 overlapping bookings (available 1 / 67% on the
+  booked nights, 3 / 0% on the free nights, `checkOut` correctly exclusive),
+  plus the 400/400/401 guards. See DECISIONS.md.
+
+- [x] **Operational dashboard** (2026-09-08)
+  The front desk's daily cockpit: one property's arrivals, departures,
+  in-house guests, occupancy, housekeeping and maintenance load, and
+  unsettled folios for a given date (default today). The Mews/Cloudbeds/
+  Stayntouch "morning operations" screen that ties the shipped modules
+  together. The backend service/repository were already drafted on this
+  branch (uncommitted); this task finished the slice.
+
+  **Read-only and computed — no schema, no migration, no audit.** Derived
+  from a bounded batch of parallel queries across reservations, rooms,
+  housekeeping, maintenance and folios — never a query per metric. Mounted
+  at `GET /properties/:propertyId/dashboard?date=` behind
+  `requirePropertyAccess`, so a cross-org property 404s like every other
+  property sub-route. Classification follows the half-open stay convention:
+  arrivals = `checkIn === date`, departures = `checkOut === date`, in-house =
+  `checkIn <= date < checkOut`. Unsettled folios are OPEN folios with
+  `charges − payments > 0`, summed server-side from integer paise.
+
+  **New permission, not a reuse.** `dashboard:read` (MANAGER + STAFF; OWNER/
+  ADMIN via the full spread) — the cockpit spans housekeeping, maintenance
+  and folio balances, so it's a distinct capability from `reservations:read`.
+  Read-only, no matching `manage`. `npm run db:seed -w backend` run for real
+  (backfilled 53276 mappings onto existing organizations).
+
+  **Frontend.** New `features/dashboard/` module (`types`/`api`/`permissions`/
+  `PropertyDashboardPage`/css) on the established shape — a KPI strip with
+  warn/danger toning driven by the numbers, three guest lists reusing the
+  shared `Badge`, housekeeping/maintenance/folio panels deep-linking to their
+  full screens, and prev/next/today date navigation that refetches
+  server-side. Linked as the first action on each property row, gated on
+  `dashboard:read` (presentation only). The org-level `/app` landing
+  `DashboardPage` is untouched — this is a distinct property-scoped screen.
+
+  Verified: typecheck/lint/build green both workspaces; backend 288/288 (was
+  252 for availability; +6 dashboard-api + 1 cross-org case in
+  tenant-isolation, and the intervening housekeeping/maintenance slices),
+  frontend 180/180 (+6 page, +2 route registration). `prisma migrate status`
+  clean on real PostgreSQL 16. A 28-assertion live probe against the built
+  server exercised a booking across arrival → in-house → departure,
+  occupancy 1/3 = 33% mid-stay, an unsettled folio appearing and clearing on
+  payment, the 401/400 guards, no passwordHash leak, and a cross-tenant 404.
+  See DECISIONS.md.
 
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,

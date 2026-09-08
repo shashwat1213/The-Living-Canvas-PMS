@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { Modal } from './Modal';
 
 interface ConfirmDialogProps {
@@ -9,6 +11,10 @@ interface ConfirmDialogProps {
   /** Styles the confirm button as destructive and is announced as such. */
   destructive?: boolean;
   busy?: boolean;
+  /** Optional extra content in the dialog body — e.g. a reason input that
+   * accompanies the confirmation. Most confirmations carry their whole
+   * message in `message` and pass nothing here. */
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -27,6 +33,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   destructive = false,
   busy = false,
+  children,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -50,6 +57,8 @@ export function ConfirmDialog({
           </button>
         </>
       }
-    />
+    >
+      {children}
+    </Modal>
   );
 }
