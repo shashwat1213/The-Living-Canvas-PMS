@@ -510,6 +510,12 @@ Migrations live in `backend/prisma/migrations/`:
   Applied and verified against real PostgreSQL 16 (`prisma migrate dev`), then
   exercised by the POS test suite and a 19-assertion live e2e probe (direct
   and room-charge settlement, stock decrement/oversell/void-restock).
+- `20260908115859_guest_tags` — **additive / non-destructive**. Adds a
+  `guests.tags text[]` column defaulted to `{}` for guest segmentation labels
+  (upper-cased/de-duplicated in the service). No backfill needed — existing
+  rows default to empty. Applied and verified against real PostgreSQL 16;
+  exercised by the guest-CRM test suite and an 18-assertion live e2e probe
+  (tag set/filter plus the computed guest-360 profile aggregation).
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

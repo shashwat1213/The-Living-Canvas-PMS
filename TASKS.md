@@ -958,6 +958,39 @@ done; **nothing below it has been started.**
   +90000 to the folio with a linked folioChargeId, cross-outlet product 404,
   no passwordHash leak, anonymous 401 and cross-tenant 404. See DECISIONS.md.
 
+- [x] **Guest CRM / guest-360** (2026-09-08)
+  Fulfils the `Guest` model's standing note that "a richer guest profile is a
+  later module and attaches here without reshaping this": segmentation tags
+  plus a computed guest-360 view (stay history, lifetime value, repeat-guest
+  detection). Reuses reservations, folios and POS charges — one additive
+  column, no new relations.
+
+  **Additive migration on real PostgreSQL 16** (`20260908115859_guest_tags`):
+  a `guests.tags text[]` defaulted to `{}`, no backfill. Tags are upper-cased,
+  trimmed and de-duplicated in the service; the list filter matches with `has`
+  (exact membership). `PUT /guests/:id/tags` (set-replace, no-op writes no
+  audit), new `guest.tags_changed` audit action recording before/after sets.
+
+  **`GET /guests/:id/profile`** — read-only, derived from the guest's
+  reservations + folios in one query: stay history (newest-first), nights
+  stayed, booked value (non-cancelled reservations), and charged/paid/balance
+  from the folios (so POS room-charges and extras roll up automatically).
+  `isRepeatGuest` counts realised stays (CHECKED_IN/CHECKED_OUT), not
+  bookings. Reuses `guests:read`/`guests:manage` — no new permission, no seed
+  change.
+
+  **Frontend.** `GuestProfileDialog` (lifetime stat grid, repeat-guest badge,
+  inline tag editor, stay-history table); tag chips on directory rows and a
+  tag filter on the list.
+
+  Verified: typecheck/lint/build green both workspaces; backend 311/311 (+7
+  guest-crm), frontend 197/197 (+3 GuestProfileDialog); `prisma migrate
+  status` clean on real PostgreSQL 16. An 18-assertion live probe confirmed
+  tag upper-casing/de-dup + filter, the profile aggregation for two realised
+  stays (totalStays 2, nights 3, booked 1.2M, repeat true, charged matching
+  the folio, first/last dates, newest-first), no passwordHash leak, anonymous
+  401, nonexistent-guest 404 and cross-tenant 404. See DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the

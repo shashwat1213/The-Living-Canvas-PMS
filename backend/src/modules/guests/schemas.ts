@@ -42,9 +42,23 @@ export const updateGuestSchema = z
 
 export type UpdateGuestInput = z.infer<typeof updateGuestSchema>;
 
+/**
+ * A guest's segmentation tags, replaced as a set. Each tag is trimmed and
+ * capped; the service upper-cases and de-duplicates, so "vip" and "VIP" and a
+ * repeated "VIP" collapse to one. An empty array clears all tags. Capped at a
+ * sane number so the array stays a label set, not a data dump.
+ */
+export const setGuestTagsSchema = z.object({
+  tags: z.array(z.string().trim().min(1).max(40)).max(30),
+});
+
+export type SetGuestTagsInput = z.infer<typeof setGuestTagsSchema>;
+
 export const listGuestsQuerySchema = paginationQuerySchema.extend({
   /** Matches across first name, last name, email and phone. */
   search: z.string().trim().max(120).optional(),
+  /** Filter to guests carrying this tag (exact, case-insensitive via upper-case). */
+  tag: z.string().trim().min(1).max(40).optional(),
 });
 
 export type ListGuestsQuery = z.infer<typeof listGuestsQuerySchema>;

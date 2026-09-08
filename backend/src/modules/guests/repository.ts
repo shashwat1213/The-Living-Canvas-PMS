@@ -31,6 +31,12 @@ function buildWhere(query: ListGuestsQuery): Prisma.GuestWhereInput {
     }
   }
 
+  // Tags are stored upper-cased, so the filter upper-cases to match. `has` is
+  // an exact array-membership test, not a substring — a tag is a label.
+  if (query.tag) {
+    conditions.push({ tags: { has: query.tag.trim().toUpperCase() } });
+  }
+
   return conditions.length > 0 ? { AND: conditions } : {};
 }
 
@@ -71,6 +77,45 @@ export const guestsRepository = {
   /** Existing guests with this email, for the duplicate-profile check. */
   findByEmail(email: string): Promise<Guest[]> {
     return scopedPrisma.guest.findMany({ where: { email } });
+  },
+
+  /**
+   * Everything the guest-360 profile aggregates from: the guest's own row,
+   * plus every reservation with the fields a stay-history line and a spend
+   * total need (property + room type names, status, dates, agreed total, and
+   * the folio's charges/payments so realised spend can be derived). One query;
+   * the service does the arithmetic.
+   */
+  async profileSource(id: string) {
+    return scopedPrisma.guest.findFirst({
+      where: { id },
+      include: {
+        reservations: {
+          select: {
+            id: true,
+            reference: true,
+            status: true,
+            checkIn: true,
+            checkOut: true,
+            totalAmountMinor: true,
+            property: { select: { id: true, name: true } },
+            roomType: { select: { id: true, name: true } },
+            folio: {
+              select: {
+                charges: { select: { amountMinor: true } },
+                payments: { select: { amountMinor: true } },
+              },
+            },
+          },
+          orderBy: [{ checkIn: 'desc' }],
+        },
+      },
+    });
+  },
+
+  /** Replaces a guest's tag set. */
+  setTags(id: string, tags: string[], db: GuestsDb = scopedPrisma): Promise<Guest> {
+    return db.guest.update({ where: { id }, data: { tags } });
   },
 
   create(data: CreateGuestInput, db: GuestsDb = scopedPrisma): Promise<Guest> {

@@ -8,6 +8,7 @@ import { ApiError } from '../../lib/api';
 import type { PageMeta } from '../../lib/pagination';
 import { deleteGuest, listGuests } from './api';
 import { GuestDialog } from './GuestDialog';
+import { GuestProfileDialog } from './GuestProfileDialog';
 import { canManageGuests, canReadGuests } from './permissions';
 import { guestFullName, type Guest } from './types';
 import './guests.css';
@@ -32,6 +33,7 @@ export function GuestsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Guest | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [profileGuest, setProfileGuest] = useState<Guest | null>(null);
 
   const mayRead = canReadGuests(session);
   const mayManage = canManageGuests(session);
@@ -137,6 +139,15 @@ export function GuestsPage() {
         <div className="guest-identity">
           <span className="guest-name">{guestFullName(guest)}</span>
           {guest.email && <span className="guest-email">{guest.email}</span>}
+          {guest.tags.length > 0 && (
+            <span className="guest-tag-chips">
+              {guest.tags.map((tag) => (
+                <span key={tag} className="guest-tag-chip">
+                  {tag}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
       ),
     },
@@ -162,6 +173,9 @@ export function GuestsPage() {
       align: 'end',
       render: (guest) => (
         <div className="table-actions">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setProfileGuest(guest)}>
+            Profile
+          </button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openGuest(guest)}>
             {mayManage ? 'Edit' : 'View'}
           </button>
@@ -278,6 +292,19 @@ export function GuestsPage() {
           busy={deleting}
           onConfirm={() => void confirmDelete()}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {profileGuest && (
+        <GuestProfileDialog
+          guest={profileGuest}
+          canManage={mayManage}
+          onClose={() => setProfileGuest(null)}
+          onTagsChanged={(updated) => {
+            // Reflect the new tags in the row and the open dialog without a refetch.
+            setProfileGuest(updated);
+            setGuests((current) => current?.map((g) => (g.id === updated.id ? updated : g)) ?? current);
+          }}
         />
       )}
     </section>
