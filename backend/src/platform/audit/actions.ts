@@ -86,6 +86,17 @@ export const AUDIT_ACTIONS = {
   WORK_ORDER_RESOLVED: 'work_order.resolved',
   ROOM_OUT_OF_SERVICE: 'room.out_of_service',
   ROOM_RETURNED_TO_SERVICE: 'room.returned_to_service',
+  // Point of sale: outlets and their product catalogue, plus the order
+  // lifecycle. Settling an order to a room folio moves money onto a guest's
+  // bill, so charge/pay/void are audited distinctly from catalogue edits.
+  POS_OUTLET_CREATED: 'pos_outlet.created',
+  POS_OUTLET_UPDATED: 'pos_outlet.updated',
+  POS_PRODUCT_CREATED: 'pos_product.created',
+  POS_PRODUCT_UPDATED: 'pos_product.updated',
+  POS_ORDER_CREATED: 'pos_order.created',
+  POS_ORDER_CHARGED: 'pos_order.charged',
+  POS_ORDER_PAID: 'pos_order.paid',
+  POS_ORDER_VOIDED: 'pos_order.voided',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -107,6 +118,9 @@ export const AUDIT_ENTITY_TYPES = {
   FOLIO: 'folio',
   HOUSEKEEPING_TASK: 'housekeeping_task',
   WORK_ORDER: 'work_order',
+  POS_OUTLET: 'pos_outlet',
+  POS_PRODUCT: 'pos_product',
+  POS_ORDER: 'pos_order',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

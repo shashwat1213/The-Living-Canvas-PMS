@@ -274,6 +274,8 @@ model Property {
   propertyAccess PropertyAccess[]
   reservations   Reservation[]
   workOrders     MaintenanceWorkOrder[]
+  posOutlets     PosOutlet[]
+  posOrders      PosOrder[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -558,13 +560,14 @@ model Reservation {
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  property Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  roomType RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
-  ratePlan RatePlan           @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
-  guest    Guest              @relation(fields: [guestId], references: [id], onDelete: Restrict)
-  room     Room?              @relation(fields: [roomId], references: [id], onDelete: SetNull)
-  nights   ReservationNight[]
-  folio    Folio?
+  property  Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType  RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  ratePlan  RatePlan           @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
+  guest     Guest              @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  room      Room?              @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  nights    ReservationNight[]
+  folio     Folio?
+  posOrders PosOrder[]
 
   @@unique([propertyId, reference])
   @@index([propertyId])
@@ -647,7 +650,8 @@ model FolioCharge {
   amountMinor Int      @map("amount_minor")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  folio Folio @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  folio    Folio     @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  posOrder PosOrder?
 
   @@index([folioId])
   @@map("folio_charges")
@@ -818,4 +822,170 @@ model MaintenanceWorkOrder {
   @@index([assignedToId])
   @@index([status])
   @@map("maintenance_work_orders")
+}
+
+/// A point-of-sale outlet at a property — a restaurant, bar, spa, minibar
+/// service, or gift shop. Sells products (see `PosProduct`) whose orders are
+/// either settled to a guest's folio (charged to the room) or paid directly
+/// at the outlet. Property-scoped, exactly like Room/RoomType: two hotels in
+/// one group run their own outlets, so tenancy reaches this through
+/// `property_id`, registered in `platform/tenancy/scoped-prisma.ts`.
+model PosOutlet {
+  id         String        @id @default(uuid())
+  propertyId String        @map("property_id")
+  name       String
+  type       PosOutletType @default(OTHER)
+  /// Retirement flag rather than a hard delete — an outlet with historical
+  /// orders is kept for the record, the same pattern as room-type retirement.
+  isActive   Boolean       @default(true) @map("is_active")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  property Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  products PosProduct[]
+  orders   PosOrder[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId])
+  @@map("pos_outlets")
+}
+
+/// A sellable product in an outlet's catalogue — a menu item, a drink, a spa
+/// treatment. Price is INR paise, integer, matching the rest of the money
+/// model. Optional lightweight stock tracking (`trackStock` + `stockQty`) for
+/// physical goods like minibar items; services leave it off. Scoped to the
+/// outlet, and thereby to the property, through the relation.
+model PosProduct {
+  id         String   @id @default(uuid())
+  outletId   String   @map("outlet_id")
+  name       String
+  /// Optional short SKU / code, unique per outlet when set (upper-cased on
+  /// input, like a room-type code).
+  sku        String?
+  category   String?
+  /// Unit price in INR paise. Snapshotted onto an order line at sale time, so
+  /// a later price change never rewrites a historical order.
+  priceMinor Int      @map("price_minor")
+  /// When true, `stockQty` is decremented as the product is sold and the
+  /// order is refused if stock would go negative. False for services and
+  /// anything not inventory-tracked.
+  trackStock Boolean  @default(false) @map("track_stock")
+  stockQty   Int      @default(0) @map("stock_qty")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  outlet PosOutlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  items  PosOrderItem[]
+
+  @@unique([outletId, name])
+  @@unique([outletId, sku])
+  @@index([outletId])
+  @@map("pos_products")
+}
+
+/// An order placed at an outlet: a set of line items with a total. Settlement
+/// is one of two paths — charged to a guest's folio (posted as a single
+/// `FolioCharge`, room billing) or paid directly at the outlet (cash/card at
+/// point of sale). Status tracks its lifecycle: OPEN while being built,
+/// CHARGED/PAID once settled, VOID if cancelled. A charged order links the
+/// `FolioCharge` it created so the two can never diverge.
+model PosOrder {
+  id            String         @id @default(uuid())
+  propertyId    String         @map("property_id")
+  outletId      String         @map("outlet_id")
+  /// Human-friendly order reference (e.g. "POS-3F9K2A"), unique per property.
+  reference     String
+  status        PosOrderStatus @default(OPEN)
+  settlement    PosSettlement  @default(UNSETTLED)
+  /// The reservation whose folio this order was charged to, when settled to a
+  /// room. Null for a direct-paid order. SetNull so an order survives as a
+  /// record if the reservation is ever removed.
+  reservationId String?        @map("reservation_id")
+  /// The folio charge this order produced when charged to a room, 1:1. Null
+  /// for a direct-paid or still-open order.
+  folioChargeId String?        @unique @map("folio_charge_id")
+  /// How a direct-paid order was tendered. Null for a room-charged order.
+  paymentMethod PaymentMethod? @map("payment_method")
+  /// Order total in INR paise, the sum of its line items. Stored (not only
+  /// derived) because it is snapshotted at settlement and drives the folio
+  /// charge; the line items justify it and are asserted to match.
+  totalMinor    Int            @default(0) @map("total_minor")
+  notes         String?
+  /// When the order was settled (charged or paid). Null while OPEN.
+  settledAt     DateTime?      @map("settled_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  property    Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  outlet      PosOutlet      @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  reservation Reservation?   @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  folioCharge FolioCharge?   @relation(fields: [folioChargeId], references: [id], onDelete: SetNull)
+  items       PosOrderItem[]
+
+  @@unique([propertyId, reference])
+  @@index([propertyId])
+  @@index([outletId])
+  @@index([reservationId])
+  @@index([status])
+  @@map("pos_orders")
+}
+
+/// One line of a POS order: a product, a quantity, and the unit price locked
+/// in at sale time. Name and price are snapshotted from the product so a later
+/// rename or repricing leaves historical orders untouched — the same
+/// price-snapshot rule as ReservationNight.
+model PosOrderItem {
+  id             String   @id @default(uuid())
+  orderId        String   @map("order_id")
+  /// The catalogue product this line sold. Restrict so a product with sales
+  /// history can't be hard-deleted out from under its orders.
+  productId      String   @map("product_id")
+  /// Product name at sale time (snapshot), so the line reads correctly even
+  /// after a later rename.
+  nameSnapshot   String   @map("name_snapshot")
+  /// Unit price in INR paise at sale time (snapshot).
+  unitPriceMinor Int      @map("unit_price_minor")
+  quantity       Int      @default(1)
+  /// Line total = unitPriceMinor × quantity, in INR paise.
+  lineTotalMinor Int      @map("line_total_minor")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  order   PosOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product PosProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("pos_order_items")
+}
+
+enum PosOutletType {
+  RESTAURANT
+  BAR
+  CAFE
+  SPA
+  MINIBAR
+  GIFT_SHOP
+  ROOM_SERVICE
+  OTHER
+}
+
+enum PosOrderStatus {
+  /// Being built — lines can be added/removed, not yet settled.
+  OPEN
+  /// Settled to a guest's folio as a room charge.
+  CHARGED
+  /// Settled by direct payment at the outlet.
+  PAID
+  /// Cancelled before settlement; kept for the record, bills nothing.
+  VOID
+}
+
+enum PosSettlement {
+  /// Not yet settled (status OPEN).
+  UNSETTLED
+  /// Charged to a room folio.
+  ROOM_CHARGE
+  /// Paid directly at the outlet.
+  DIRECT
 }

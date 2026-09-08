@@ -53,6 +53,8 @@ export function PropertiesPage() {
   const mayReadDashboard = hasPermission(session, 'dashboard:read');
   // Revenue/occupancy reports live under a property too — management-only.
   const mayReadReports = hasPermission(session, 'reports:read');
+  // Point of sale lives under a property; front-line read gate.
+  const mayReadPos = hasPermission(session, 'pos:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -172,6 +174,13 @@ export function PropertiesPage() {
           {mayReadReports && (
             <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/reports`}>
               Reports
+            </Link>
+          )}
+          {/* Point of sale — outlet sales charged to a room or paid directly.
+              Presentation-only gating; route and API enforce pos:read. */}
+          {mayReadPos && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/pos`}>
+              Point of sale
             </Link>
           )}
           {/* The front desk's core screen: bookings for this property.

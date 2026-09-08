@@ -29,7 +29,7 @@ function renderAt(path: string, status: AuthContextValue['status']) {
             makeToken({
               sub: 'user-1',
               organizationId: 'org-1',
-              permissions: ['properties:read', 'room-types:read', 'room-types:manage', 'dashboard:read', 'reports:read'],
+              permissions: ['properties:read', 'room-types:read', 'room-types:manage', 'dashboard:read', 'reports:read', 'pos:read', 'pos:operate', 'pos:manage'],
               roleNames: ['OWNER'],
               grantedPropertyIds: ['prop-1'],
             }),
@@ -200,5 +200,40 @@ describe('AppRouter — reports route', () => {
 
     expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Revenue/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('AppRouter — point of sale route', () => {
+  it('renders the till at /app/properties/:propertyId/pos', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              url.includes('/pos/outlets')
+                ? { outlets: [], page: { page: 1, pageSize: 100, totalItems: 0, totalPages: 0 } }
+                : url.includes('/pos/orders')
+                  ? { orders: [], page: { page: 1, pageSize: 15, totalItems: 0, totalPages: 0 } }
+                  : { property: { id: 'prop-1', name: 'Seaside Villa' } },
+            ),
+        } as Response),
+      ),
+    );
+
+    renderAt('/app/properties/prop-1/pos', 'authenticated');
+
+    expect(await screen.findByRole('heading', { name: 'Point of sale — Seaside Villa' })).toBeInTheDocument();
+  });
+
+  it('sends an anonymous visitor to login instead of the till', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response));
+
+    renderAt('/app/properties/prop-1/pos', 'anonymous');
+
+    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Point of sale/ })).not.toBeInTheDocument();
   });
 });

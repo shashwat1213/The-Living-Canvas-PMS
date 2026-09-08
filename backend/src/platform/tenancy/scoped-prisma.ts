@@ -145,6 +145,78 @@ function scopeByRoomTypeRelation() {
 }
 
 /**
+ * Scoping for `PosProduct`, which reaches its tenant through its outlet:
+ * product → outlet → property → organizationId. Same shape and rationale as
+ * `scopeByRoomTypeRelation` — the filter is injected on every read/write, and
+ * a create is made safe by the repository resolving its parent PosOutlet
+ * through the scoped client first.
+ */
+function scopeByOutletRelation() {
+  return {
+    async $allOperations({
+      operation,
+      args,
+      query,
+    }: {
+      operation: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      args: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (args: any) => Promise<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }): Promise<any> {
+      const ctx = getRequestContext();
+      const a = args;
+      if (WHERE_OPERATIONS.has(operation)) {
+        a.where = {
+          ...a.where,
+          outlet: {
+            ...a.where?.outlet,
+            property: { ...a.where?.outlet?.property, organizationId: ctx.organizationId },
+          },
+        };
+      }
+      return query(a);
+    },
+  };
+}
+
+/**
+ * Scoping for `PosOrderItem`, which reaches its tenant through its order:
+ * item → order → property → organizationId. Same shape as
+ * `scopeByReservationRelation` — anchored on `order` instead of `reservation`.
+ */
+function scopeByPosOrderRelation() {
+  return {
+    async $allOperations({
+      operation,
+      args,
+      query,
+    }: {
+      operation: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      args: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (args: any) => Promise<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }): Promise<any> {
+      const ctx = getRequestContext();
+      const a = args;
+      if (WHERE_OPERATIONS.has(operation)) {
+        a.where = {
+          ...a.where,
+          order: {
+            ...a.where?.order,
+            property: { ...a.where?.order?.property, organizationId: ctx.organizationId },
+          },
+        };
+      }
+      return query(a);
+    },
+  };
+}
+
+/**
  * Scoping for `RatePlanRate`, which reaches its tenant one relation deeper
  * still: rate → ratePlan → roomType → property → organizationId. The nesting
  * is longer but the principle is identical — the filter is injected on every
@@ -358,5 +430,9 @@ export const scopedPrisma = prisma.$extends({
     payment: scopeByFolioRelation(),
     housekeepingTask: scopeByRoomRelation(),
     maintenanceWorkOrder: scopeByPropertyRelation(),
+    posOutlet: scopeByPropertyRelation(),
+    posProduct: scopeByOutletRelation(),
+    posOrder: scopeByPropertyRelation(),
+    posOrderItem: scopeByPosOrderRelation(),
   },
 });
