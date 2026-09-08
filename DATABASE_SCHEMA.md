@@ -345,6 +345,78 @@ Indexes all lead with `organization_id` (`+ created_at`, `+ entity_type,
 entity_id`, `+ actor_user_id`): no query reaches this table without a
 tenant filter, so a tenant-first index is the one that gets used.
 
+### PosOutlet / PosProduct / PosOrder / PosOrderItem (point of sale)
+
+The point-of-sale layer: outlets sell catalogue products, and an order
+settles either to a guest's room folio or by direct payment. All money is
+INR paise (integer), matching the rest of the system. Tenancy: `PosOutlet`
+and `PosOrder` carry `property_id` directly (scoped through Property, like
+Room); `PosProduct` is scoped through its outlet; `PosOrderItem` through its
+order. All four are registered in `platform/tenancy/scoped-prisma.ts`.
+
+`PosOutlet` — a restaurant/bar/spa/minibar/etc.
+
+| Column      | Type      | Notes                                   |
+|-------------|-----------|-----------------------------------------|
+| id          | uuid      | PK                                      |
+| property_id | uuid      | FK → properties, cascade delete         |
+| name        | text      | unique per property                     |
+| type        | enum      | RESTAURANT \| BAR \| CAFE \| SPA \| MINIBAR \| GIFT_SHOP \| ROOM_SERVICE \| OTHER; default OTHER |
+| is_active   | boolean   | default true; retirement, not hard delete |
+| created_at / updated_at | timestamp |                             |
+
+`PosProduct` — a catalogue item within an outlet.
+
+| Column       | Type    | Notes                                          |
+|--------------|---------|------------------------------------------------|
+| id           | uuid    | PK                                             |
+| outlet_id    | uuid    | FK → pos_outlets, cascade delete               |
+| name         | text    | unique per outlet                              |
+| sku          | text?   | optional, unique per outlet when set (upper-cased) |
+| category     | text?   |                                                |
+| price_minor  | int     | INR paise; snapshotted onto an order line at sale time |
+| track_stock  | boolean | default false                                  |
+| stock_qty    | int     | default 0; decremented on sale when track_stock |
+| is_active    | boolean | default true                                   |
+| created_at / updated_at | timestamp |                                    |
+
+`PosOrder` — an order with a settlement path.
+
+| Column          | Type    | Notes                                           |
+|-----------------|---------|-------------------------------------------------|
+| id              | uuid    | PK                                              |
+| property_id     | uuid    | FK → properties, cascade delete                 |
+| outlet_id       | uuid    | FK → pos_outlets, `RESTRICT`                    |
+| reference       | text    | `POS-XXXXXX`, unique per property               |
+| status          | enum    | OPEN \| CHARGED \| PAID \| VOID; default OPEN   |
+| settlement      | enum    | UNSETTLED \| ROOM_CHARGE \| DIRECT; default UNSETTLED |
+| reservation_id  | uuid?   | FK → reservations, `SET NULL`; set on room charge |
+| folio_charge_id | uuid?   | FK → folio_charges, `SET NULL`, unique; the 1:1 charge a room-charged order created |
+| payment_method  | enum?   | CASH \| CARD \| UPI \| BANK_TRANSFER \| OTHER; set on direct pay |
+| total_minor     | int     | INR paise; sum of line items                    |
+| notes           | text?   |                                                 |
+| settled_at      | timestamp? | set when charged/paid                        |
+| created_at / updated_at | timestamp |                                     |
+
+`PosOrderItem` — one line, with name + unit price snapshotted at sale time.
+
+| Column           | Type   | Notes                                     |
+|------------------|--------|-------------------------------------------|
+| id               | uuid   | PK                                        |
+| order_id         | uuid   | FK → pos_orders, cascade delete           |
+| product_id       | uuid   | FK → pos_products, `RESTRICT`             |
+| name_snapshot    | text   | product name at sale time                 |
+| unit_price_minor | int    | INR paise at sale time                    |
+| quantity         | int    | default 1                                 |
+| line_total_minor | int    | unit_price_minor × quantity               |
+| created_at       | timestamp |                                        |
+
+A ROOM_CHARGE order posts exactly one `FolioCharge` for its total to the
+reservation's folio and links it via `folio_charge_id`, so the order and the
+bill line can never diverge. `PosOrder.outlet_id` and
+`PosOrderItem.product_id` are `RESTRICT` so an outlet/product with order
+history can't be hard-deleted; retire (`is_active = false`) instead.
+
 ## Relationships
 
 ```
@@ -429,6 +501,15 @@ Migrations live in `backend/prisma/migrations/`:
   status). No existing table touched. Applied and verified against real
   PostgreSQL 16 (`prisma migrate dev`), then exercised by the maintenance test
   suite and a live e2e probe (including the room out-of-service/return flow).
+- `20260908085605_pos_inventory` — **additive / non-destructive**. Adds the
+  `PosOutletType`, `PosOrderStatus` and `PosSettlement` enums and the
+  `pos_outlets`, `pos_products`, `pos_orders` and `pos_order_items` tables
+  (property/outlet cascade FKs; `pos_orders.outlet_id` and
+  `pos_order_items.product_id` `RESTRICT`; `reservation_id` and
+  `folio_charge_id` `SET NULL`, the latter unique). No existing table touched.
+  Applied and verified against real PostgreSQL 16 (`prisma migrate dev`), then
+  exercised by the POS test suite and a 19-assertion live e2e probe (direct
+  and room-charge settlement, stock decrement/oversell/void-restock).
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

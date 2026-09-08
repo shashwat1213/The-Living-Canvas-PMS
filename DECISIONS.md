@@ -2567,3 +2567,63 @@ producing revenue 9000 over 3 window nights, occupancy 2/12 = 17%, ADR 4500,
 RevPAR 750, a zero-filled empty night with no divide-by-zero, payments
 collected 8000 grouped and sorted by method, the 400/400/401 guards, no
 passwordHash leak, and a cross-tenant 404.
+
+
+## POS & inventory (2026-09-08)
+
+**Context.** Point of sale is a major revenue stream a serious PMS owns
+directly — F&B, minibar, spa, room service — and the missing link between
+"guest stays" and "guest's bill". Benchmarked how Mews/Cloudbeds model it:
+outlets sell a catalogue, and a sale either posts to the room folio or is
+tendered on the spot. This slice is that, kept deliberately in-house (no
+external POS/payment-gateway integration, which is a credential-walled later
+phase).
+
+**Four models, additive migration.** `PosOutlet` (property-scoped),
+`PosProduct` (outlet-scoped catalogue, INR paise, optional stock),
+`PosOrder` (status OPEN/CHARGED/PAID/VOID, settlement
+UNSETTLED/ROOM_CHARGE/DIRECT) and `PosOrderItem` (name + unit-price snapshot).
+Strictly additive — no existing table touched — applied to real PostgreSQL 16.
+Two new tenancy relation helpers (`scopeByOutletRelation`,
+`scopeByPosOrderRelation`) join the existing property/reservation ones; all
+four models registered in the tenancy extension.
+
+**Order settlement is the heart of it, and runs Serializable.** In one
+transaction: products are resolved from the order's *own* outlet (a
+cross-outlet or cross-tenant product id is indistinguishable from
+nonexistent → 404), each line's name and price are snapshotted at sale time
+(a later rename/reprice never rewrites history, same rule as
+`ReservationNight`), tracked stock is decremented (oversell → 409), and the
+order settles — ROOM_CHARGE opens/finds the reservation's folio and posts
+**exactly one** `FolioCharge` for the total, linked back via
+`folio_charge_id` so order and bill line can't diverge; DIRECT records the
+tender method. Everything (order, items, stock, folio charge, audit) commits
+together, so a failure anywhere leaves no order, no charge, no stock movement.
+
+**Void is OPEN-only, and restocks.** A settled order has already moved money
+(a folio charge or a taken payment); un-billing it silently would be wrong, so
+void is refused (409) once CHARGED/PAID — the reversal belongs on the folio.
+Voiding an OPEN order restocks any tracked products it decremented.
+
+**Permission split mirrors how the work divides.** `pos:read` (see),
+`pos:operate` (take/settle/void orders — front line), `pos:manage` (configure
+outlets + catalogue — managers). STAFF gets read + operate: the desk rings up
+sales but does not reconfigure the menu or open outlets; MANAGER and above get
+all three. Eight audit actions, three entity types. `npm run db:seed` run for
+real to backfill the new permissions onto existing organizations.
+
+**Frontend is a real till, not a CRUD form.** `features/pos/`: outlet tabs, a
+tappable product grid that builds a cart with per-line quantity, a settlement
+control (direct payment with method, or charge-to-room with a reservation id),
+and a recent-orders table with inline void. Money is entered in rupees and
+converted to paise at the edge; the client never computes an order total the
+server won't. Operate/manage controls are permission-gated (presentation only).
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces; backend
+304/304 (+10 pos, +1 cross-org tenant-isolation case), frontend 194/194 (+5
+page, +2 route registration); migrate status clean on real PostgreSQL 16. A
+19-assertion live probe against the built server confirmed outlet dup-name
+409, sku upper-casing, a direct order totalling 60000/PAID, stock decrement +
+oversell 409 + void-restock, cannot-void-paid 409, a room-charge posting
++90000 to the folio with a linked folioChargeId, cross-outlet product 404, no
+passwordHash leak, anonymous 401 and cross-tenant 404.
