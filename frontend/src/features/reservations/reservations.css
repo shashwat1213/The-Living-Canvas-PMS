@@ -109,15 +109,6 @@
   border-color: #b91c1c;
 }
 
-@media (prefers-color-scheme: dark) {
-  .reservation-danger-text {
-    color: #fca5a5;
-  }
-  .reservation-danger-text:hover:not(:disabled) {
-    border-color: #fca5a5;
-  }
-}
-
 .reservation-cancel-reason {
   margin-top: 0.5rem;
 }
@@ -181,16 +172,6 @@
 .booking-bad {
   color: #b91c1c;
   font-weight: 600;
-}
-
-@media (prefers-color-scheme: dark) {
-  .booking-quote-error,
-  .booking-bad {
-    color: #fca5a5;
-  }
-  .booking-ok {
-    color: #86efac;
-  }
 }
 
 /* ---------- Detail dialog ---------- */

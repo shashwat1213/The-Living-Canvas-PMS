@@ -82,15 +82,6 @@
   border-color: #b91c1c;
 }
 
-@media (prefers-color-scheme: dark) {
-  .property-danger-text {
-    color: #fca5a5;
-  }
-  .property-danger-text:hover:not(:disabled) {
-    border-color: #fca5a5;
-  }
-}
-
 .property-form {
   display: flex;
   flex-direction: column;

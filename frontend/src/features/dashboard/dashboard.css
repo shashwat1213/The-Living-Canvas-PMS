@@ -5,29 +5,18 @@
  * states) live in components/ui.css; page chrome mirrors the availability
  * and reservations features so the front-desk screens read as one product.
  *
- * Warn/danger accents are defined locally (the shared token set has no
- * semantic warning colour yet) and given explicit light + dark values so
- * they stay legible in both themes.
+ * Warn/danger accents map onto the shared semantic tokens (index.css) so
+ * the cockpit stays in step with the product palette; they are aliased
+ * locally only to keep the panel-level class names readable.
  */
 
 .cockpit-page {
-  --warn: #b45309;
-  --warn-bg: rgba(180, 83, 9, 0.1);
-  --danger: #b91c1c;
-  --danger-bg: rgba(185, 28, 28, 0.1);
+  --warn: var(--warning);
+  --warn-bg: var(--warning-bg);
   display: flex;
   flex-direction: column;
   gap: 1rem;
   text-align: left;
-}
-
-@media (prefers-color-scheme: dark) {
-  .cockpit-page {
-    --warn: #fbbf24;
-    --warn-bg: rgba(251, 191, 36, 0.14);
-    --danger: #f87171;
-    --danger-bg: rgba(248, 113, 113, 0.14);
-  }
 }
 
 .cockpit-breadcrumb {

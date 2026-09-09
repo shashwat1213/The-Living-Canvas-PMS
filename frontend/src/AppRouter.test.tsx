@@ -82,7 +82,7 @@ describe('AppRouter — room-type catalogue route', () => {
 
     renderAt('/app/properties/prop-1/room-types', 'anonymous');
 
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Room types/ })).not.toBeInTheDocument();
   });
 });
@@ -137,7 +137,7 @@ describe('AppRouter — property dashboard route', () => {
 
     renderAt('/app/properties/prop-1/dashboard', 'anonymous');
 
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Dashboard/ })).not.toBeInTheDocument();
   });
 });
@@ -198,7 +198,7 @@ describe('AppRouter — reports route', () => {
 
     renderAt('/app/properties/prop-1/reports', 'anonymous');
 
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Revenue/ })).not.toBeInTheDocument();
   });
 });
@@ -233,7 +233,7 @@ describe('AppRouter — point of sale route', () => {
 
     renderAt('/app/properties/prop-1/pos', 'anonymous');
 
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Point of sale/ })).not.toBeInTheDocument();
   });
 });

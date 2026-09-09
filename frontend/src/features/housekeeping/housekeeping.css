@@ -104,25 +104,6 @@
   background: var(--code-bg);
 }
 
-@media (prefers-color-scheme: dark) {
-  .hk-chip-dirty {
-    background: #451a1a;
-    color: #fca5a5;
-  }
-  .hk-chip-cleaning {
-    background: #422006;
-    color: #fcd34d;
-  }
-  .hk-chip-clean {
-    background: #082f49;
-    color: #7dd3fc;
-  }
-  .hk-chip-inspected {
-    background: #052e16;
-    color: #86efac;
-  }
-}
-
 /* ---------- Board grid of room cards ---------- */
 
 .hk-grid {
