@@ -417,6 +417,61 @@ bill line can never diverge. `PosOrder.outlet_id` and
 `PosOrderItem.product_id` are `RESTRICT` so an outlet/product with order
 history can't be hard-deleted; retire (`is_active = false`) instead.
 
+### Job (background queue)
+
+The DB-backed job queue processed by the in-process worker
+(`platform/jobs`). Chosen over Redis/BullMQ to keep the single-service
+footprint (CI and docker-compose run only PostgreSQL) and to let a job
+commit transactionally with the domain change that enqueued it — see
+[DECISIONS.md](DECISIONS.md).
+
+- `organization_id` — tenant owner (cascade); set on the request context
+  the worker runs each job under, so a handler sees exactly the tenant that
+  enqueued it and `scopedPrisma` stays correct.
+- `type` — handler key (e.g. `notification.send`), mapped to a registered
+  handler in `platform/jobs/registry.ts`. A string, not an enum: adding a
+  job type is a code constant, not a migration.
+- `status` — `JobStatus` (`PENDING` / `RUNNING` / `COMPLETED` / `FAILED`).
+- `payload` — JSONB handler input; validated by the handler, never trusted
+  raw.
+- `attempts` / `max_attempts` — retry accounting; a run that throws is
+  retried with exponential backoff until `max_attempts`, then `FAILED`.
+- `run_after` — earliest claim time; advanced on each retry (backoff) and
+  settable on enqueue to schedule future work.
+- `last_error` / `locked_at` / `completed_at` — inspection breadcrumbs.
+
+Rows are claimed with `SELECT … FOR UPDATE SKIP LOCKED` so multiple workers
+or app instances never process the same job twice. Indexed on
+`(status, run_after)` for the claim scan and on `organization_id`.
+
+### Notification
+
+The record of a message the PMS sends (or would send) to a guest or staff
+member over a channel — the source of truth for *what* was sent and its
+delivery state. Transmission is performed by a pluggable channel driver
+(`platform/notifications/channels`) invoked from the job worker.
+
+- `organization_id` — tenant owner (cascade).
+- `channel` — `NotificationChannel` (`EMAIL` / `SMS` / `WHATSAPP` /
+  `STORED`). `STORED` only records the message (no external transmission) —
+  the default until real provider credentials are configured, and what
+  tests and local development use.
+- `status` — `NotificationStatus` (`PENDING` / `SENT` / `FAILED`).
+- `type` — the notification's purpose (e.g. `reservation.confirmation`), a
+  namespaced string like audit actions and job types.
+- `recipient` / `subject` / `body` — content, rendered and persisted at
+  enqueue time (not at send time) so a later template/data change never
+  rewrites an already-queued message; `recipient` is captured at compose
+  time so the record stays meaningful if the guest's contact details later
+  change.
+- `entity_type` / `entity_id` — optional polymorphic link back to the
+  triggering entity (e.g. a reservation), like the audit trail. No FK — the
+  notification outlives the entity.
+- `attempts` / `last_error` / `sent_at` — delivery accounting.
+
+Indexed on `(organization_id, created_at)` (the log's default ordering),
+`(organization_id, status)`, and `(entity_type, entity_id)`.
+
 ## Relationships
 
 ```
@@ -427,6 +482,8 @@ Organization 1──* Property 1──* PropertyAccess *──1 User
 Organization 1──* Role *──* Permission   (through RolePermission)
 User *──* Role                            (through UserRoleAssignment)
 Organization 1──* AuditLog *──0..1 User   (actor; SET NULL, not cascade)
+Organization 1──* Job                     (background queue)
+Organization 1──* Notification            (message record; optional polymorphic entity link)
 ```
 
 All child rows cascade-delete with their parent (deleting an Organization
@@ -516,6 +573,16 @@ Migrations live in `backend/prisma/migrations/`:
   rows default to empty. Applied and verified against real PostgreSQL 16;
   exercised by the guest-CRM test suite and an 18-assertion live e2e probe
   (tag set/filter plus the computed guest-360 profile aggregation).
+- `20260909020630_notifications_jobs` — **additive / non-destructive**. Adds
+  the `JobStatus`, `NotificationChannel` and `NotificationStatus` enums and
+  the `jobs` and `notifications` tables (both `organization_id` cascade FKs;
+  `jobs` indexed on `(status, run_after)` and `organization_id`;
+  `notifications` on `(organization_id, created_at)`, `(organization_id,
+  status)` and `(entity_type, entity_id)`). No existing table touched.
+  Applied and verified against real PostgreSQL 16 (`prisma migrate dev`),
+  then exercised by the jobs/notifications test suites and a live e2e probe
+  (booking → confirmation notification composed, queued, delivered by the
+  worker).
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

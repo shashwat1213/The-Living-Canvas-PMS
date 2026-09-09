@@ -237,3 +237,61 @@ describe('AppRouter — point of sale route', () => {
     expect(screen.queryByRole('heading', { name: /Point of sale/ })).not.toBeInTheDocument();
   });
 });
+
+describe('AppRouter — notifications route', () => {
+  it('renders the notification log at /app/notifications', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              url.includes('/notifications')
+                ? { notifications: [], page: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 } }
+                : url.includes('/organizations/me')
+                  ? { organization: { id: 'org-1', name: 'Canvas Group' } }
+                  : {},
+            ),
+        } as Response),
+      ),
+    );
+
+    // The default renderAt token lacks notifications:read; render with a
+    // token that has it so the page loads rather than showing the
+    // no-access state.
+    const value: AuthContextValue = {
+      status: 'authenticated',
+      session: readSessionClaims(
+        makeToken({
+          sub: 'user-1',
+          organizationId: 'org-1',
+          permissions: ['notifications:read'],
+          roleNames: ['OWNER'],
+          grantedPropertyIds: [],
+        }),
+      ),
+      login: vi.fn(),
+      logout: vi.fn(),
+    };
+    render(
+      <AuthContext.Provider value={value}>
+        <MemoryRouter initialEntries={['/app/notifications']}>
+          <AppRouter />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
+  });
+
+  it('sends an anonymous visitor to login instead of the notification log', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response));
+
+    renderAt('/app/notifications', 'anonymous');
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Notifications' })).not.toBeInTheDocument();
+  });
+});

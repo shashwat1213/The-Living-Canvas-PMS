@@ -991,6 +991,58 @@ done; **nothing below it has been started.**
   the folio, first/last dates, newest-first), no passwordHash leak, anonymous
   401, nonexistent-guest 404 and cross-tenant 404. See DECISIONS.md.
 
+## Notifications & background jobs (2026-09-09)
+
+- [x] **Notifications / job-queue infrastructure + reservation-confirmation trigger** (2026-09-09)
+  The asynchronous backbone the PMS was missing, delivered as an infra
+  foundation + one real trigger (not a full comms suite). Three product
+  decisions were taken with the human up front: a DB-backed queue over
+  Redis/BullMQ, a channel-driver abstraction with a working `stored` fallback
+  (real SMTP/Twilio/WhatsApp adapters drop in behind the same interface when
+  credentials exist), and a minimal first slice. See DECISIONS.md.
+
+  **Queue (`platform/jobs`).** A `jobs` table + in-process poll worker that
+  claims rows with `FOR UPDATE SKIP LOCKED` (safe to run in every app
+  instance — no double-processing), retries with exponential backoff, and
+  lands exhausted jobs in FAILED. `enqueueJob` takes a client so a job
+  commits transactionally with the domain change that triggered it. The
+  worker runs each job in its organization's request context, so
+  `scopedPrisma` stays tenant-correct inside a handler.
+
+  **Notifications (`platform/notifications` + `modules/notifications`).**
+  `NotificationChannelDriver` seam + `storedDriver` fallback + a
+  `notification.send` job handler; `queueNotification` composes and persists
+  the message (rendered at enqueue time, not send time) and enqueues delivery,
+  atomically with its trigger. Read-only log API `GET /api/v1/notifications`
+  (paginated, filterable by channel/status/type/entity, searchable across
+  recipient/subject/type) behind a new front-desk-visible `notifications:read`
+  permission (OWNER/ADMIN/MANAGER/STAFF; no `manage` — notifications are
+  system-composed, never hand-authored). `npm run db:seed` run for real.
+
+  **Trigger.** A confirmed reservation composes a `reservation.confirmation`
+  inside the booking transaction — EMAIL if the guest has an email, else SMS
+  by phone, and none for a contactless walk-in. The mechanism is generic;
+  every future notification reuses it.
+
+  **Frontend.** New `features/notifications/` — a log page (DataTable +
+  server-side search/filters + pagination) with status badges and a read-only
+  detail dialog showing the full composed message. New "Notifications" nav
+  entry gated on `notifications:read`; new Badge tones (warning/danger/info).
+
+  **Migration `20260909020630_notifications_jobs`** — additive (two tables,
+  three enums; no existing table touched), applied to real PostgreSQL 16.
+  Both models registered in the tenancy extension.
+
+  Verified: typecheck/lint/build green both workspaces; backend 328/328 (+17),
+  frontend 204/204 (+7); `prisma migrate status` clean on real PostgreSQL 16.
+  An 18-assertion live probe against the running server *with the real
+  background worker* confirmed a booking → PENDING confirmation → worker
+  delivery → SENT, a contactless walk-in producing none, cross-tenant
+  invisibility (list + search), no passwordHash leak, anonymous 401 and a 400
+  on an unknown filter. The queue suite proves SKIP LOCKED never
+  double-processes under concurrent claims and that a failing job backs off
+  then lands in FAILED. See DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the
@@ -999,5 +1051,9 @@ phased roadmap in the architecture review; each phase gets its own
 
 ## Explicitly out of scope for now
 
-Bookings/reservations, OTA integrations, reviews, payments, marketing —
-do not start these until a task here explicitly calls for them.
+OTA integrations, reviews, external payment gateways, and the AI Marketing
+Studio — do not start these until a task here explicitly calls for them.
+(Bookings/reservations, POS and the notifications/jobs backbone have since
+been built; real notification-provider adapters are ready to wire behind the
+existing channel-driver seam when credentials exist.)
+

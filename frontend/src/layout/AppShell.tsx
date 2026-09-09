@@ -89,6 +89,12 @@ export function AppShell() {
                 <span>Team</span>
               </NavLink>
             )}
+            {hasPermission(session, 'notifications:read') && (
+              <NavLink to="/app/notifications" className={navLinkClass}>
+                <NavIcon name="notifications" />
+                <span>Notifications</span>
+              </NavLink>
+            )}
             {hasPermission(session, 'audit:read') && (
               <NavLink to="/app/audit" className={navLinkClass}>
                 <NavIcon name="activity" />

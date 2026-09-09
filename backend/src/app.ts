@@ -12,6 +12,7 @@ import { dashboardRouter } from './modules/dashboard/routes.js';
 import { foliosRouter } from './modules/folios/routes.js';
 import { housekeepingRouter } from './modules/housekeeping/routes.js';
 import { maintenanceRouter } from './modules/maintenance/routes.js';
+import { notificationsRouter } from './modules/notifications/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { guestsRouter } from './modules/guests/routes.js';
 import { propertiesRouter } from './modules/properties/routes.js';
@@ -23,8 +24,14 @@ import { roomTypesRouter } from './modules/room-types/routes.js';
 import { roomsRouter } from './modules/rooms/routes.js';
 import { staffRouter } from './modules/staff/routes.js';
 import { healthRouter } from './routes/health.js';
+import { registerNotificationHandlers } from './platform/notifications/send-handler.js';
 
 export function createApp(): Express {
+  // Register background-job handlers once, at app construction, so the job
+  // registry is populated whether the process also starts the worker
+  // (`index.ts`) or drives the queue directly (tests). Idempotent.
+  registerNotificationHandlers();
+
   const app = express();
 
   // `credentials: true` + an explicit (not wildcard) origin is required
@@ -41,6 +48,7 @@ export function createApp(): Express {
   v1.use(organizationsRouter);
   v1.use(staffRouter);
   v1.use(auditRouter);
+  v1.use(notificationsRouter);
   v1.use(guestsRouter);
   v1.use(propertiesRouter);
   v1.use('/properties/:propertyId/rooms', roomsRouter);

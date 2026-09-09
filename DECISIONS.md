@@ -2679,3 +2679,111 @@ and the aggregation for two realised stays (totalStays 2, nightsStayed 3,
 bookedValue 1.2M, isRepeatGuest true, charged matching the opened folio,
 first/last stay dates, stays newest-first), plus no passwordHash leak,
 anonymous 401, nonexistent-guest 404 and cross-tenant 404.
+
+## Notifications & background jobs (2026-09-09)
+
+The asynchronous backbone the PMS had been missing: a way to do deferred
+work (guest confirmations now; reminders, AI generation and webhooks later)
+reliably, transactionally, and without a second piece of infrastructure.
+Delivered as an infra foundation + one real trigger, not a full comms suite
+— the smallest slice that proves the whole pipeline end to end.
+
+**Queue: DB-backed, not Redis/BullMQ.** A `jobs` table + an in-process poll
+worker that claims rows with `SELECT … FOR UPDATE SKIP LOCKED`. Chosen
+deliberately over a broker: the project's entire footprint is one
+PostgreSQL (CI runs only `postgres:16`, docker-compose has no other
+service), and adding Redis would be the first new piece of required
+infrastructure in the stack. The trade-off is latency — a poll loop is
+seconds, not sub-second — which for a booking-confirmation email is the
+right price for zero new infra. `SKIP LOCKED` is what makes it safe to run
+the worker in every app instance: a locked row is skipped, never
+double-claimed, so horizontal scaling needs no coordination. Retries use
+exponential backoff (2^attempts s, capped) and a job that exhausts
+`maxAttempts` lands in `FAILED` for inspection rather than looping forever.
+An unregistered job type is a hard error (surfaced as a failed job), never
+a silent skip — queued work with no handler means a deploy dropped code
+that still has pending work, which must be visible.
+
+**Jobs are transactional with what triggered them.** `enqueueJob` and
+`queueNotification` both accept a client, so when called with the booking
+transaction the job/notification row commits or rolls back *with* the
+booking. A booking that fails to persist leaves no orphan "your booking is
+confirmed" message; a committed booking is guaranteed to have its delivery
+job queued. This is the same optional-client pattern the audit recorder
+uses, and it's why the queue lives in the DB — a Redis enqueue could not
+join a Postgres transaction.
+
+**The worker runs each job in its org's context.** A job carries
+`organizationId`; the worker sets a system `RequestContext` for that org
+(`systemContextForOrganization`) before invoking the handler, so
+`scopedPrisma` inside a handler is correctly tenant-filtered exactly as it
+is in an HTTP request — a handler cannot reach across tenants. The system
+actor id is a sentinel, never a real `User.id`; system-originated audit (if
+a handler ever needs it) uses `AuditActorType.SYSTEM`, which the audit
+trail already models.
+
+**Providers: a channel-driver seam with a working `stored` fallback.**
+`NotificationChannelDriver` is the one interface the record, queue, retry
+logic and UI are all built around. A real provider (SMTP, Twilio, WhatsApp
+Business) is a drop-in implementation registered against its
+`NotificationChannel`; anything unregistered falls back to `storedDriver`,
+which records the message and reports success without an external call. So
+EMAIL/SMS/WHATSAPP all work end-to-end today — in dev, tests and CI — with
+no credentials and no cost, and light up for real the moment an adapter is
+dropped in. This was an explicit product decision (asked and confirmed):
+build the abstraction + stored driver now, wire real providers when
+credentials exist, rather than hard-coding one provider or blocking the
+slice on an account.
+
+**Content is composed and stored at enqueue time, not send time.** The
+`notifications` row carries the rendered subject/body and the recipient
+captured when the triggering event happened, so a later template change or
+a guest editing their email never rewrites an already-queued message. The
+send handler is idempotent — a notification already SENT is left untouched —
+because a job may run more than once if a process dies after delivery but
+before the row is marked COMPLETED.
+
+**The trigger: reservation confirmed → guest confirmation.** Inside the
+booking transaction (after the audit entry), the guest and property are
+read and a `reservation.confirmation` notification is composed and queued.
+Channel is EMAIL if the guest has an email, else SMS if they have a phone;
+a walk-in recorded name-only has nowhere to send, so no notification is
+composed — a normal case, not a failure. This is the one trigger this slice
+wires; the mechanism is generic and every future notification reuses it.
+
+**Permission: `notifications:read`, read-only, front-desk-visible.** The
+log is guest-communication visibility ("did LC-3F9K2A's confirmation
+actually go out?"), a daily front-desk question, so OWNER/ADMIN/MANAGER
+*and* STAFF hold it — unlike `audit:read`, which is OWNER/ADMIN only because
+it records actions taken *on* staff. There is no `manage` counterpart:
+notifications are composed by the system in response to events, never
+hand-authored, so the API (and the UI) expose no create/update/delete.
+`npm run db:seed` run for real backfilled the new mapping (63876 mappings
+onto existing organizations; a second run reports 0).
+
+**Migration `20260909020630_notifications_jobs` — additive.** Two tables
+(`jobs`, `notifications`) and three enums; no existing table touched.
+Applied to real PostgreSQL 16 (`prisma migrate dev`). Both models carry
+`organizationId` directly and are registered in the tenancy extension via
+`scopeByOrganizationColumn`.
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces;
+backend 328/328 (+17: 11 notifications end-to-end, 6 queue/worker
+mechanics), frontend 204/204 (+7: 5 page behaviour, 2 route registration);
+`prisma migrate status` clean on real PostgreSQL 16. Beyond the suites, an
+18-assertion live probe against the *running server with the real
+background worker* confirmed a booking composes a PENDING confirmation
+addressed to the guest, the worker then delivers it to SENT (sentAt set,
+attempts 1), a walk-in produces none, another organization sees zero
+(list + search), no passwordHash leaks, anonymous is 401 and an unknown
+status filter is 400. The queue suite additionally proves SKIP LOCKED never
+double-processes a job under concurrent claims, and that a failing job backs
+off and lands in FAILED after exhausting `maxAttempts`.
+
+**Deferred deliberately.** No real provider adapters (the seam is ready);
+no notification templates engine (plain composer functions suffice for one
+message type); no per-recipient preferences / opt-out; no staff
+notifications; no retry-from-UI or manual resend; no scheduled reminders
+(the `runAfter` column and backoff already support scheduling — the trigger
+is a later task). Each slots in behind the interfaces this slice
+established without reshaping them.
