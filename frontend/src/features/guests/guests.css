@@ -87,15 +87,6 @@
   border-color: #b91c1c;
 }
 
-@media (prefers-color-scheme: dark) {
-  .guest-danger-text {
-    color: #fca5a5;
-  }
-  .guest-danger-text:hover:not(:disabled) {
-    border-color: #fca5a5;
-  }
-}
-
 /* ---------- Dialog form ---------- */
 
 .guest-form {

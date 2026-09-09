@@ -1,64 +1,304 @@
+/*
+ * App shell: fixed dark left sidebar + content column with a slim topbar.
+ * The layout mirrors leading cloud PMS products (Mews/Cloudbeds/
+ * Stayntouch): persistent grouped navigation on the left, a neutral
+ * content canvas on the right. Collapses to an off-canvas drawer under
+ * 960px.
+ */
+
 .shell {
   display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-w);
+  display: flex;
   flex-direction: column;
+  background: linear-gradient(180deg, var(--side-bg) 0%, var(--side-bg-2) 100%);
+  border-right: 1px solid var(--side-border);
+  z-index: 40;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  border-bottom: 1px solid var(--side-border);
+}
+
+.sidebar-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-brand-mark .nav-icon {
+  width: 21px;
+  height: 21px;
+}
+
+.sidebar-brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar-brand-name {
+  font-weight: 600;
+  font-size: var(--fs-md);
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-brand-sub {
+  font-size: var(--fs-xs);
+  color: var(--side-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.sidebar-nav {
   flex: 1;
-  text-align: left;
+  overflow-y: auto;
+  padding: var(--sp-4) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-group-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--side-text-muted);
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0.55rem var(--sp-3);
+  border-radius: var(--radius);
+  color: var(--side-text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.nav-link:hover {
+  background: var(--side-hover-bg);
+  color: var(--side-text-active);
+}
+
+.nav-link-active {
+  background: var(--side-active-bg);
+  color: var(--side-text-active);
+  border-left-color: var(--side-active-border);
+}
+
+.nav-icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.nav-link-active .nav-icon {
+  opacity: 1;
+}
+
+/* ---------- Sidebar footer ---------- */
+
+.sidebar-footer {
+  border-top: 1px solid var(--side-border);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-2);
+}
+
+.sidebar-user-avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--side-active-bg);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.sidebar-user-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar-user-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--side-text-active);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-user-role {
+  font-size: var(--fs-xs);
+  color: var(--side-text-muted);
+}
+
+.sidebar-logout {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: 0.55rem var(--sp-3);
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--side-text);
+  font: inherit;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.sidebar-logout:hover {
+  background: var(--side-hover-bg);
+  color: var(--side-text-active);
+}
+
+/* ---------- Content column ---------- */
+
+.shell-content {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
 }
 
 .shell-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--topbar-h);
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 1rem 1.5rem;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-6);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: saturate(1.4) blur(8px);
   border-bottom: 1px solid var(--border);
 }
 
-.shell-org-name {
+.shell-topbar-org {
   font-weight: 600;
   color: var(--text-h);
+  font-size: var(--fs-md);
 }
 
-.shell-nav {
-  display: flex;
-  gap: 1rem;
-  flex: 1;
+.shell-menu-btn,
+.shell-backdrop {
+  display: none;
 }
 
-.shell-nav a {
-  color: var(--text);
-  text-decoration: none;
-  padding: 0.25rem 0;
-  border-bottom: 2px solid transparent;
-}
-
-.shell-nav a:hover,
-.shell-nav a.shell-nav-active {
-  color: var(--text-h);
-  border-bottom-color: var(--accent);
-}
-
-.shell-logout {
-  background: none;
+.shell-menu-btn {
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
-  font: inherit;
-}
-
-.shell-logout:hover {
-  border-color: var(--accent-border);
+  border-radius: var(--radius);
+  background: var(--surface);
   color: var(--text-h);
+  cursor: pointer;
 }
 
 .shell-main {
   flex: 1;
-  padding: 1.75rem 1.5rem 3rem;
+  padding: var(--sp-8) var(--sp-8) var(--sp-12);
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .page-loading {
-  padding: 3rem;
+  padding: var(--sp-12);
   text-align: center;
   color: var(--text);
+}
+
+/* ---------- Responsive: off-canvas drawer ---------- */
+
+@media (max-width: 960px) {
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .shell-mobile-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .shell-content {
+    margin-left: 0;
+  }
+
+  .shell-menu-btn {
+    display: inline-flex;
+  }
+
+  .shell-mobile-open .shell-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    border: none;
+    background: rgba(2, 6, 23, 0.45);
+    cursor: pointer;
+  }
+
+  .shell-main {
+    padding: var(--sp-5) var(--sp-4) var(--sp-10);
+  }
 }

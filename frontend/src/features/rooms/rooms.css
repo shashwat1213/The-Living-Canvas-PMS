@@ -108,15 +108,6 @@
   border-color: #b91c1c;
 }
 
-@media (prefers-color-scheme: dark) {
-  .room-danger-text {
-    color: #fca5a5;
-  }
-  .room-danger-text:hover:not(:disabled) {
-    border-color: #fca5a5;
-  }
-}
-
 .room-form {
   display: flex;
   flex-direction: column;

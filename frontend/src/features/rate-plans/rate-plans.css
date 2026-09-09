@@ -101,15 +101,6 @@
   border-color: #b91c1c;
 }
 
-@media (prefers-color-scheme: dark) {
-  .rate-plan-danger-text {
-    color: #fca5a5;
-  }
-  .rate-plan-danger-text:hover:not(:disabled) {
-    border-color: #fca5a5;
-  }
-}
-
 .rate-plan-form {
   display: flex;
   flex-direction: column;

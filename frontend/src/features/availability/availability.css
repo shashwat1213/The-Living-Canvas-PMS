@@ -167,18 +167,3 @@
 .availability-total-cell.availability-cell-soldout .availability-occ-meta {
   color: #b91c1c;
 }
-
-@media (prefers-color-scheme: dark) {
-  .availability-cell-open {
-    background: rgba(34, 197, 94, 0.18);
-    color: #86efac;
-  }
-  .availability-cell-soldout {
-    background: rgba(239, 68, 68, 0.2);
-    color: #fca5a5;
-  }
-  .availability-total-cell.availability-cell-soldout .availability-occ-pct,
-  .availability-total-cell.availability-cell-soldout .availability-occ-meta {
-    color: #fca5a5;
-  }
-}

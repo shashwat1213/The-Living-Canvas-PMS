@@ -91,15 +91,6 @@
   color: var(--accent);
 }
 
-@media (prefers-color-scheme: dark) {
-  .folio-settled {
-    color: #86efac;
-  }
-  .folio-owing {
-    color: #fca5a5;
-  }
-}
-
 /* ---------- Posting forms ---------- */
 
 .folio-forms {

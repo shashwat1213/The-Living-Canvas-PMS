@@ -68,7 +68,18 @@ export function SignupPage() {
   return (
     <main className="auth-page">
       <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
+        <div className="auth-brand">
+          <span className="auth-brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 21h18" />
+              <path d="M5 21V7l7-4 7 4v14" />
+              <path d="M9 21v-6h6v6" />
+            </svg>
+          </span>
+          <span className="auth-brand-name">The Living Canvas</span>
+        </div>
         <h1>Create your organization</h1>
+        <p className="auth-subtitle">Set up your hotel workspace in a minute</p>
         <label>
           Organization name
           <input value={form.organizationName} onChange={(e) => update('organizationName', e.target.value)} required />

@@ -6,6 +6,7 @@ import { hasPermission } from '../auth/session';
 import { canReadGuests } from '../features/guests/permissions';
 import { canReadStaff } from '../features/staff/permissions';
 import { ApiError, apiFetch } from '../lib/api';
+import { NavIcon } from './NavIcon';
 import './shell.css';
 
 interface Organization {
@@ -16,6 +17,7 @@ interface Organization {
 export function AppShell() {
   const { logout, session } = useAuth();
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     apiFetch<{ organization: Organization }>('/api/v1/organizations/me')
@@ -36,49 +38,106 @@ export function AppShell() {
     }
   }
 
+  const orgName = organization?.name ?? 'The Living Canvas';
+  const orgInitials = orgName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join('');
+  const primaryRole = session?.roleNames[0] ?? 'Member';
+
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    isActive ? 'nav-link nav-link-active' : 'nav-link';
+
   return (
-    <div className="shell">
-      <header className="shell-topbar">
-        <span className="shell-org-name">{organization?.name ?? 'The Living Canvas'}</span>
-        <nav className="shell-nav">
-          <NavLink to="/app" end className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/app/properties" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
-            Properties
-          </NavLink>
-          {/* Guests are organization-scoped, so this is a top-level entry
-              rather than nested under a property. Presentation-only gating:
-              the route and the API both enforce `guests:read` independently. */}
-          {canReadGuests(session) && (
-            <NavLink to="/app/guests" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
-              Guests
+    <div className={`shell ${mobileOpen ? 'shell-mobile-open' : ''}`}>
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <span className="sidebar-brand-mark" aria-hidden="true">
+            <NavIcon name="brand" />
+          </span>
+          <span className="sidebar-brand-text">
+            <span className="sidebar-brand-name">{orgName}</span>
+            <span className="sidebar-brand-sub">Property Management</span>
+          </span>
+        </div>
+
+        <nav className="sidebar-nav" onClick={() => setMobileOpen(false)}>
+          <div className="nav-group">
+            <span className="nav-group-label">Overview</span>
+            <NavLink to="/app" end className={navLinkClass}>
+              <NavIcon name="dashboard" />
+              <span>Dashboard</span>
             </NavLink>
-          )}
-          {/* Hidden without `staff:read` so the nav doesn't advertise a
-              page that would only explain itself as unavailable. The route
-              still guards itself — this is presentation, not access
-              control. */}
-          {canReadStaff(session) && (
-            <NavLink to="/app/staff" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
-              Team
+            <NavLink to="/app/properties" className={navLinkClass}>
+              <NavIcon name="properties" />
+              <span>Properties</span>
             </NavLink>
-          )}
-          {/* Same presentation-only gating as Team: the route and the API
-              both enforce `audit:read` independently. */}
-          {hasPermission(session, 'audit:read') && (
-            <NavLink to="/app/audit" className={({ isActive }) => (isActive ? 'shell-nav-active' : '')}>
-              Activity
-            </NavLink>
-          )}
+          </div>
+
+          <div className="nav-group">
+            <span className="nav-group-label">Management</span>
+            {canReadGuests(session) && (
+              <NavLink to="/app/guests" className={navLinkClass}>
+                <NavIcon name="guests" />
+                <span>Guests</span>
+              </NavLink>
+            )}
+            {canReadStaff(session) && (
+              <NavLink to="/app/staff" className={navLinkClass}>
+                <NavIcon name="team" />
+                <span>Team</span>
+              </NavLink>
+            )}
+            {hasPermission(session, 'audit:read') && (
+              <NavLink to="/app/audit" className={navLinkClass}>
+                <NavIcon name="activity" />
+                <span>Activity</span>
+              </NavLink>
+            )}
+          </div>
         </nav>
-        <button type="button" className="shell-logout" onClick={() => void handleLogout()}>
-          Log out
-        </button>
-      </header>
-      <main className="shell-main">
-        <Outlet />
-      </main>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-user">
+            <span className="sidebar-user-avatar" aria-hidden="true">
+              {orgInitials || 'LC'}
+            </span>
+            <span className="sidebar-user-text">
+              <span className="sidebar-user-name">{orgName}</span>
+              <span className="sidebar-user-role">{primaryRole}</span>
+            </span>
+          </div>
+          <button type="button" className="sidebar-logout" onClick={() => void handleLogout()}>
+            <NavIcon name="logout" />
+            <span>Log out</span>
+          </button>
+        </div>
+      </aside>
+
+      <button
+        type="button"
+        className="shell-backdrop"
+        aria-label="Close navigation"
+        onClick={() => setMobileOpen(false)}
+      />
+
+      <div className="shell-content">
+        <header className="shell-topbar">
+          <button
+            type="button"
+            className="shell-menu-btn"
+            aria-label="Toggle navigation"
+            onClick={() => setMobileOpen((open) => !open)}
+          >
+            <NavIcon name="menu" />
+          </button>
+          <span className="shell-topbar-org">{orgName}</span>
+        </header>
+        <main className="shell-main">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

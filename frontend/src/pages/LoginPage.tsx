@@ -34,7 +34,18 @@ export function LoginPage() {
   return (
     <main className="auth-page">
       <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
-        <h1>Log in</h1>
+        <div className="auth-brand">
+          <span className="auth-brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 21h18" />
+              <path d="M5 21V7l7-4 7 4v14" />
+              <path d="M9 21v-6h6v6" />
+            </svg>
+          </span>
+          <span className="auth-brand-name">The Living Canvas</span>
+        </div>
+        <h1>Welcome back</h1>
+        <p className="auth-subtitle">Sign in to your property management workspace</p>
         <label>
           Email
           <input
