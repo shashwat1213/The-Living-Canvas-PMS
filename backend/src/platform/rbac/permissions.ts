@@ -109,6 +109,10 @@ export const ALL_PERMISSIONS = [
     description: 'Create staff, change their role, manage their property access, and deactivate them.',
   },
   {
+    key: 'notifications:read',
+    description: "Read the organization's notification log (guest/staff messages and their delivery state).",
+  },
+  {
     key: 'audit:read',
     description: "Read the organization's audit trail.",
   },
@@ -200,6 +204,12 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // OWNER/ADMIN. The role-rank rules in `modules/staff/service.ts` are a
     // second, independent limit on top of this one.
     'staff:read',
+    // The notification log is guest-communication visibility — "did the
+    // confirmation for LC-3F9K2A actually go out?" is a daily front-desk
+    // question, so MANAGER (and STAFF below) can read it. Read-only; there
+    // is no manage counterpart because notifications are composed by the
+    // system in response to events, not hand-authored.
+    'notifications:read',
     // `audit:read` is deliberately absent here and for STAFF: the audit
     // trail records administrative actions taken *on* people, including
     // by the roles above this one. Restricting it to OWNER/ADMIN (who
@@ -237,6 +247,9 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // Configuring outlets and the menu (manage) stays with MANAGER and above.
     'pos:read',
     'pos:operate',
+    // The front desk sees the notification log too — confirming a guest's
+    // booking email went out is core desk reassurance. Read-only.
+    'notifications:read',
   ],
 };
 

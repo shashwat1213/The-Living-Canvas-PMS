@@ -6,6 +6,8 @@ import { BadRequestError, ConflictError, NotFoundError } from '../../lib/http-er
 import type { PageMeta } from '../../lib/pagination.js';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../../platform/audit/actions.js';
 import { recordAuditEvent } from '../../platform/audit/recorder.js';
+import { queueNotification } from '../../platform/notifications/queue-notification.js';
+import { reservationConfirmationMessage } from '../../platform/notifications/templates.js';
 import { scopedPrisma } from '../../platform/tenancy/scoped-prisma.js';
 import {
   reservationsRepository,
@@ -261,6 +263,49 @@ export async function createReservation(propertyId: string, input: CreateReserva
         },
         tx,
       );
+
+      // Compose and queue the guest's booking confirmation inside the same
+      // transaction, so a booking that commits is guaranteed to have its
+      // confirmation queued, and one that rolls back leaves no orphan
+      // message (see platform/notifications). Delivery itself is deferred to
+      // the job worker. A guest with neither email nor phone (a walk-in
+      // recorded name-only) has nowhere to send to, so no notification is
+      // composed — that is a normal case, not a failure.
+      const guest = await tx.guest.findFirst({
+        where: { id: input.guestId },
+        select: { firstName: true, lastName: true, email: true, phone: true },
+      });
+      const property = await tx.property.findFirst({
+        where: { id: propertyId },
+        select: { name: true },
+      });
+      if (guest && property) {
+        const recipient = guest.email ?? guest.phone;
+        if (recipient) {
+          const channel = guest.email ? 'EMAIL' : 'SMS';
+          const { subject, body } = reservationConfirmationMessage({
+            guestName: `${guest.firstName} ${guest.lastName}`.trim(),
+            propertyName: property.name,
+            reference,
+            checkIn: toIsoDate(input.checkIn),
+            checkOut: toIsoDate(input.checkOut),
+            nights: nights.length,
+            totalAmountMinor: totalMinor,
+          });
+          await queueNotification(
+            {
+              channel,
+              type: 'reservation.confirmation',
+              recipient,
+              subject,
+              body,
+              entityType: AUDIT_ENTITY_TYPES.RESERVATION,
+              entityId: reservation.id,
+            },
+            tx,
+          );
+        }
+      }
 
       return reservation;
     },

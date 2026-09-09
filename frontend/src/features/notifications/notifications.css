@@ -1,0 +1,133 @@
+/*
+ * Notification log layout. Shared primitives (table, modal, badge, buttons,
+ * fields, pagination) live in components/ui.css; this only styles the
+ * page-specific chrome and the detail dialog.
+ */
+
+.notif-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  text-align: left;
+}
+
+.notif-header h1 {
+  margin: 0;
+  font-size: var(--fs-3xl);
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 1024px) {
+  .notif-header h1 {
+    font-size: var(--fs-2xl);
+  }
+}
+
+.notif-subtitle {
+  color: var(--text);
+  font-size: var(--fs-md);
+  margin-top: var(--sp-1);
+  max-width: 62ch;
+}
+
+.notif-filters {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.notif-filters .field {
+  min-width: 180px;
+}
+
+.notif-search {
+  flex: 1 1 260px;
+}
+
+.notif-reset {
+  margin-top: var(--sp-3);
+}
+
+/* ---------- Table cells ---------- */
+
+.notif-when {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.notif-channel {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.notif-recipient {
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.notif-subject {
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Detail dialog ---------- */
+
+.notif-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+@media (max-width: 640px) {
+  .notif-detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+.notif-detail dt {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  margin-bottom: var(--sp-1);
+}
+
+.notif-detail dd {
+  margin: 0;
+  font-size: var(--fs-base);
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.notif-body-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-h);
+  margin: var(--sp-2) 0 var(--sp-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.notif-body-text {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--fs-base);
+  line-height: 1.6;
+  color: var(--text-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}

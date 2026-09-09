@@ -419,6 +419,8 @@ export const scopedPrisma = prisma.$extends({
     user: scopeByOrganizationColumn(),
     auditLog: scopeByOrganizationColumn(),
     guest: scopeByOrganizationColumn(),
+    job: scopeByOrganizationColumn(),
+    notification: scopeByOrganizationColumn(),
     room: scopeByPropertyRelation(),
     roomType: scopeByPropertyRelation(),
     reservation: scopeByPropertyRelation(),

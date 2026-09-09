@@ -23,11 +23,13 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users      User[]
-  properties Property[]
-  roles      Role[]
-  auditLogs  AuditLog[]
-  guests     Guest[]
+  users         User[]
+  properties    Property[]
+  roles         Role[]
+  auditLogs     AuditLog[]
+  guests        Guest[]
+  jobs          Job[]
+  notifications Notification[]
 
   @@map("organizations")
 }
@@ -994,4 +996,101 @@ enum PosSettlement {
   ROOM_CHARGE
   /// Paid directly at the outlet.
   DIRECT
+}
+
+// ---------------------------------------------------------------------------
+// Notifications and background jobs (2026-09-09, see DECISIONS.md)
+//
+// The asynchronous backbone the PMS hangs deferred work off: guest
+// confirmations today, and reminders / AI generation / webhooks later. A
+// DB-backed queue was chosen over Redis/BullMQ specifically so the project
+// keeps its single-service footprint (CI and docker-compose run only
+// PostgreSQL) and so a job's lifecycle is transactional with the domain
+// change that enqueued it: a booking and its "send confirmation" job commit
+// or roll back together. See DECISIONS.md for the trade-off vs. a broker.
+// ---------------------------------------------------------------------------
+
+/// A unit of deferred work processed by the in-process worker
+/// (`platform/jobs`). Rows are claimed with `FOR UPDATE SKIP LOCKED` so
+/// multiple workers (or app instances) never process the same job twice,
+/// and a failed run is retried with exponential backoff up to `maxAttempts`
+/// before landing in FAILED for inspection.
+///
+/// Tenant-scoped: `organizationId` is carried directly and set on the
+/// request context the worker runs each job under, so a job's handler sees
+/// exactly the tenant that enqueued it and `scopedPrisma` stays correct.
+model Job {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  type           String
+  status         JobStatus @default(PENDING)
+  payload        Json      @default("{}")
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5) @map("max_attempts")
+  runAfter       DateTime  @default(now()) @map("run_after")
+  lastError      String?   @map("last_error")
+  lockedAt       DateTime? @map("locked_at")
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([organizationId])
+  @@map("jobs")
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// A message the PMS sends (or would send) to a guest or staff member over a
+/// channel. The record is the source of truth for what was sent and its
+/// delivery state; actual transmission is performed by a pluggable channel
+/// driver (`platform/notifications/channels`) invoked from the job worker.
+///
+/// Content is rendered and persisted at enqueue time (not at send time) so
+/// the message a guest receives is exactly what was composed when the
+/// triggering event happened: a later template or data change never
+/// rewrites an already-queued notification.
+model Notification {
+  id             String              @id @default(uuid())
+  organizationId String              @map("organization_id")
+  channel        NotificationChannel
+  status         NotificationStatus  @default(PENDING)
+  type           String
+  recipient      String
+  subject        String?
+  body           String
+  entityType     String?             @map("entity_type")
+  entityId       String?             @map("entity_id")
+  attempts       Int                 @default(0)
+  lastError      String?             @map("last_error")
+  sentAt         DateTime?           @map("sent_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+  @@index([entityType, entityId])
+  @@map("notifications")
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  STORED
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
 }
