@@ -401,3 +401,40 @@ button.cal-bar:focus-visible {
   display: flex;
   justify-content: flex-end;
 }
+
+/* In-popover room assignment */
+.cal-detail-assign {
+  padding: 0 1.1rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.cal-detail-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text);
+}
+.cal-detail-select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-h);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.cal-detail-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cal-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.cal-detail-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}

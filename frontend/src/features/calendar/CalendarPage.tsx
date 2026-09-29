@@ -7,6 +7,8 @@ import { ApiError } from '../../lib/api';
 import { getProperty } from '../properties/api';
 import type { Property } from '../properties/types';
 import { getCalendar } from './api';
+import { assignRoom, listAssignableRooms } from '../reservations/api';
+import type { AssignableRoom } from '../reservations/types';
 import {
   DEFAULT_WINDOW_NIGHTS,
   addDays,
@@ -330,24 +332,72 @@ export function CalendarPage() {
         <BlockDetails
           block={selected}
           propertyId={propertyId ?? ''}
+          canManage={mayManage}
           onClose={() => setSelected(null)}
+          onAssigned={() => {
+            setSelected(null);
+            void load();
+          }}
         />
       )}
     </section>
   );
 }
 
-/** A lightweight detail popover for a selected reservation bar. */
+/** A detail popover for a selected reservation bar — with room assignment for
+ * an unassigned booking when the viewer may manage reservations. */
 function BlockDetails({
   block,
   propertyId,
+  canManage,
   onClose,
+  onAssigned,
 }: {
   block: CalendarBlock;
   propertyId: string;
+  canManage: boolean;
   onClose: () => void;
+  onAssigned: () => void;
 }) {
   const guests = block.adults + block.children;
+  const needsRoom = !block.roomId;
+
+  const [assigning, setAssigning] = useState(false);
+  const [rooms, setRooms] = useState<AssignableRoom[] | null>(null);
+  const [loadingRooms, setLoadingRooms] = useState(false);
+  const [roomId, setRoomId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function startAssign() {
+    setAssigning(true);
+    setLoadingRooms(true);
+    setErr(null);
+    try {
+      const list = await listAssignableRooms(propertyId, block.id);
+      setRooms(list);
+      const firstFree = list.find((r) => r.available);
+      if (firstFree) setRoomId(firstFree.id);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not load rooms.');
+    } finally {
+      setLoadingRooms(false);
+    }
+  }
+
+  async function confirmAssign() {
+    if (!roomId) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await assignRoom(propertyId, block.id, roomId);
+      onAssigned();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not assign the room.');
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="cal-detail-backdrop" role="dialog" aria-modal="true" aria-label="Reservation details" onClick={onClose}>
       <div className="cal-detail" onClick={(e) => e.stopPropagation()}>
@@ -364,6 +414,58 @@ function BlockDetails({
           <div><dt>Guests</dt><dd>{block.adults} adult{block.adults === 1 ? '' : 's'}{block.children > 0 ? `, ${block.children} child${block.children === 1 ? '' : 'ren'}` : ''} ({guests} total)</dd></div>
           <div><dt>Room</dt><dd>{block.roomId ? 'Assigned' : 'Not yet assigned'}</dd></div>
         </dl>
+
+        {err && <p className="page-error" role="alert">{err}</p>}
+
+        {/* Assign a room straight from the board — the front desk's core action
+            on an unassigned booking. Only offered to a manager and only while
+            the booking has no room. */}
+        {needsRoom && canManage && !assigning && (
+          <div className="cal-detail-assign">
+            <button type="button" className="btn btn-primary btn-sm" onClick={startAssign}>
+              Assign a room
+            </button>
+          </div>
+        )}
+        {needsRoom && canManage && assigning && (
+          <div className="cal-detail-assign">
+            {loadingRooms ? (
+              <p className="cal-detail-hint">Loading rooms…</p>
+            ) : rooms && rooms.length > 0 ? (
+              <>
+                <label className="cal-detail-label" htmlFor="cal-assign-room">
+                  Room for this stay
+                </label>
+                <select
+                  id="cal-assign-room"
+                  className="cal-detail-select"
+                  value={roomId}
+                  onChange={(e) => setRoomId(e.target.value)}
+                  disabled={busy}
+                >
+                  {rooms.map((r) => (
+                    <option key={r.id} value={r.id} disabled={!r.available}>
+                      {r.name}
+                      {r.floor ? ` · Floor ${r.floor}` : ''}
+                      {r.available ? '' : ' (occupied)'}
+                    </option>
+                  ))}
+                </select>
+                <div className="cal-detail-actions">
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAssigning(false)} disabled={busy}>
+                    Cancel
+                  </button>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={confirmAssign} disabled={busy || !roomId}>
+                    {busy ? 'Assigning…' : 'Confirm'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="cal-detail-hint">No rooms of this type are free for these dates.</p>
+            )}
+          </div>
+        )}
+
         <footer className="cal-detail-foot">
           <Link className="btn btn-secondary btn-sm" to={`/app/properties/${propertyId}/reservations`}>
             Open in Reservations
