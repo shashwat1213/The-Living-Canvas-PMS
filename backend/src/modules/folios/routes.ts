@@ -3,8 +3,9 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { addChargeSchema, addPaymentSchema } from './schemas.js';
+import { addChargeSchema, addPaymentSchema, createPaymentIntentSchema, verifyPaymentIntentSchema } from './schemas.js';
 import * as foliosService from './service.js';
+import * as paymentIntentsService from './payment-intents.service.js';
 
 /**
  * Folios (guest bills) for a property's reservations.
@@ -71,5 +72,56 @@ foliosRouter.post(
     const folio = await foliosService.getOrOpenFolio(req.params.reservationId as string);
     const updated = await foliosService.reopenFolio(folio.id);
     res.json({ folio: updated });
+  }),
+);
+
+/**
+ * Online payments through the gateway seam (`platform/payments`). Opening an
+ * intent and verifying a return both post money, so both are `payments:manage`;
+ * listing the intent history is `payments:read`.
+ */
+foliosRouter.get(
+  '/payment-intents',
+  requirePermission('payments:read'),
+  asyncHandler(async (req, res) => {
+    const folio = await foliosService.getOrOpenFolio(req.params.reservationId as string);
+    const intents = await paymentIntentsService.listPaymentIntents(folio.id);
+    res.json({ intents });
+  }),
+);
+
+foliosRouter.post(
+  '/payment-intents',
+  requirePermission('payments:manage'),
+  asyncHandler(async (req, res) => {
+    const input = createPaymentIntentSchema.parse(req.body);
+    const folio = await foliosService.getOrOpenFolio(req.params.reservationId as string);
+    const intent = await paymentIntentsService.createPaymentIntent(folio.id, input);
+    res.status(201).json({ intent });
+  }),
+);
+
+foliosRouter.post(
+  '/payment-intents/:intentId/verify',
+  requirePermission('payments:manage'),
+  asyncHandler(async (req, res) => {
+    const input = verifyPaymentIntentSchema.parse(req.body);
+    const intent = await paymentIntentsService.verifyPaymentIntent(req.params.intentId as string, input);
+    res.json({ intent });
+  }),
+);
+
+/**
+ * DEV/DEMO: complete an intent as if the gateway checkout succeeded. Allowed
+ * only while the stub provider is active (409 with live Razorpay). Runs the
+ * exact same verification path with a stub-signed return — the demo path with
+ * no external checkout to bounce through.
+ */
+foliosRouter.post(
+  '/payment-intents/:intentId/simulate',
+  requirePermission('payments:manage'),
+  asyncHandler(async (req, res) => {
+    const intent = await paymentIntentsService.simulatePaymentIntent(req.params.intentId as string);
+    res.json({ intent });
   }),
 );

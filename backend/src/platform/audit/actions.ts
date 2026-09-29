@@ -73,6 +73,9 @@ export const AUDIT_ACTIONS = {
   FOLIO_OPENED: 'folio.opened',
   FOLIO_CHARGE_ADDED: 'folio.charge_added',
   FOLIO_PAYMENT_RECORDED: 'folio.payment_recorded',
+  PAYMENT_INTENT_CREATED: 'payment_intent.created',
+  PAYMENT_INTENT_PAID: 'payment_intent.paid',
+  PAYMENT_INTENT_FAILED: 'payment_intent.failed',
   FOLIO_CLOSED: 'folio.closed',
   FOLIO_REOPENED: 'folio.reopened',
   // Housekeeping: a room's cleaning condition changing, and the lifecycle of
@@ -132,6 +135,7 @@ export const AUDIT_ENTITY_TYPES = {
   RESERVATION: 'reservation',
   RESERVATION_GROUP: 'reservation_group',
   FOLIO: 'folio',
+  PAYMENT_INTENT: 'payment_intent',
   HOUSEKEEPING_TASK: 'housekeeping_task',
   WORK_ORDER: 'work_order',
   POS_OUTLET: 'pos_outlet',

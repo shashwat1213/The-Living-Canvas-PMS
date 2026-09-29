@@ -75,6 +75,7 @@ model User {
   workOrders        MaintenanceWorkOrder[] @relation("WorkOrderAssignee")
   marketingCreated  MarketingContent[]     @relation("MarketingContentCreatedBy")
   marketingApproved MarketingContent[]     @relation("MarketingContentApprovedBy")
+  paymentIntents    PaymentIntent[]        @relation("PaymentIntentCreatedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -683,9 +684,10 @@ model Folio {
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
 
-  reservation Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
-  charges     FolioCharge[]
-  payments    Payment[]
+  reservation    Reservation     @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  charges        FolioCharge[]
+  payments       Payment[]
+  paymentIntents PaymentIntent[]
 
   @@index([reservationId])
   @@map("folios")
@@ -719,21 +721,68 @@ model FolioCharge {
 /// received in INR paise (positive); a refund is a separate negative row so
 /// the payment history stays append-only.
 model Payment {
-  id          String        @id @default(uuid())
-  folioId     String        @map("folio_id")
-  method      PaymentMethod
+  id              String        @id @default(uuid())
+  folioId         String        @map("folio_id")
+  method          PaymentMethod
   /// Amount received in INR paise (positive); a refund is a negative row.
-  amountMinor Int           @map("amount_minor")
+  amountMinor     Int           @map("amount_minor")
   /// Optional external reference — a card auth code, UPI transaction id, or
   /// cheque number. Free text; never a stored credential.
-  reference   String?
-  note        String?
-  createdAt   DateTime      @default(now()) @map("created_at")
+  reference       String?
+  note            String?
+  /// The online payment intent that produced this row, when the payment was
+  /// captured through the payment-gateway seam rather than recorded manually.
+  /// Null for a manually-entered front-desk payment. A gateway capture writes
+  /// exactly one Payment row referencing its intent, so the two never
+  /// double-count the same money.
+  paymentIntentId String?       @unique @map("payment_intent_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
 
-  folio Folio @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  folio         Folio          @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  paymentIntent PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
 
   @@index([folioId])
   @@map("payments")
+}
+
+/// An online payment attempt against a folio, taken through the payment-gateway
+/// seam (`platform/payments`). Its lifecycle: a front-desk clerk opens an
+/// intent for an amount owed (CREATED) — the provider returns a gateway order
+/// id and the guest pays via the provider's own checkout; the return is then
+/// verified and the intent moves to PAID (writing one Payment row on the folio)
+/// or FAILED. This model holds only gateway *references* — an order id, a
+/// payment id, a signature — never raw card data or gateway credentials
+/// (ARCHITECTURE.md: Razorpay, tokenized only). A deterministic stub provider
+/// drives the whole flow in dev/CI with no account, exactly like the AI and
+/// notification seams; the real Razorpay adapter drops in behind the same
+/// interface when credentials exist.
+model PaymentIntent {
+  id               String              @id @default(uuid())
+  folioId          String              @map("folio_id")
+  /// Amount to collect, in INR paise (positive).
+  amountMinor      Int                 @map("amount_minor")
+  status           PaymentIntentStatus @default(CREATED)
+  /// The provider key that owns this intent ("stub", "razorpay"), stored so an
+  /// old intent shows what processed it even after the default provider changes.
+  provider         String
+  /// The gateway's order id, returned when the intent is created — what the
+  /// client checkout is opened against. Never a credential.
+  gatewayOrderId   String?             @map("gateway_order_id")
+  /// The gateway's payment id, captured on a successful verify. A reference,
+  /// not card data.
+  gatewayPaymentId String?             @map("gateway_payment_id")
+  /// Why a verification failed, when it did — surfaced to the clerk.
+  lastError        String?             @map("last_error")
+  createdByUserId  String?             @map("created_by_user_id")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  folio     Folio    @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("PaymentIntentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  payment   Payment?
+
+  @@index([folioId, createdAt])
+  @@map("payment_intents")
 }
 
 enum FolioStatus {
@@ -747,6 +796,17 @@ enum PaymentMethod {
   UPI
   BANK_TRANSFER
   OTHER
+}
+
+/// The lifecycle of an online payment intent taken through the gateway seam.
+/// CREATED when opened (gateway order placed); PAID once a returned payment is
+/// verified and posted to the folio; FAILED if verification is rejected. An
+/// intent is single-shot — a failed attempt is left FAILED and a fresh intent
+/// is opened rather than retried, so the history of attempts is preserved.
+enum PaymentIntentStatus {
+  CREATED
+  PAID
+  FAILED
 }
 
 /// The lifecycle of a housekeeping task.

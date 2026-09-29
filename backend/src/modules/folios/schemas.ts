@@ -37,3 +37,33 @@ export const addPaymentSchema = z.object({
 });
 
 export type AddPaymentInput = z.infer<typeof addPaymentSchema>;
+
+/**
+ * Open an online payment intent for an amount owed on a folio. `amountMinor` is
+ * INR paise (positive). The gateway seam takes it from here — the client pays
+ * via the provider's checkout, and the signed return is verified before any
+ * money is posted.
+ */
+export const createPaymentIntentSchema = z.object({
+  amountMinor: z
+    .number()
+    .int('Amount must be a whole number of paise.')
+    .positive('An online payment must be a positive amount.')
+    .max(100_000_000, 'Amount is out of range.'),
+});
+
+export type CreatePaymentIntentInput = z.infer<typeof createPaymentIntentSchema>;
+
+/**
+ * Verify a signed gateway return and, on success, post the payment to the
+ * folio. The fields mirror what a gateway (Razorpay) hands the client back;
+ * they are verified server-side against the intent — a client can't fake a
+ * payment by posting arbitrary ids.
+ */
+export const verifyPaymentIntentSchema = z.object({
+  gatewayPaymentId: z.string().trim().min(1).max(200),
+  signature: z.string().trim().min(1).max(512),
+});
+
+export type VerifyPaymentIntentInput = z.infer<typeof verifyPaymentIntentSchema>;
+

@@ -4,7 +4,15 @@ import { Badge } from '../../components/Badge';
 import { Modal } from '../../components/Modal';
 import { ApiError } from '../../lib/api';
 import { formatMinor, parseRupeesToMinor } from '../rate-plans/money';
-import { addCharge, addPayment, closeFolio, getFolio, reopenFolio } from './api';
+import {
+  addCharge,
+  addPayment,
+  closeFolio,
+  completePaymentIntent,
+  createPaymentIntent,
+  getFolio,
+  reopenFolio,
+} from './api';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Folio, type PaymentMethod } from './types';
 import './folios.css';
 
@@ -104,6 +112,28 @@ export function FolioDialog({ propertyId, reservationId, reference, mayManage, o
 
   const balance = folio?.balanceMinor ?? 0;
   const settled = balance === 0;
+
+  /**
+   * Take the outstanding balance online through the payment-gateway seam:
+   * open an intent, then complete it. In dev/CI the stub gateway drives the
+   * flow (the `simulate` route); with live Razorpay the completion is the
+   * SDK's signed return. Either way the folio gets a real CARD payment.
+   */
+  async function handlePayOnline() {
+    if (balance <= 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const intent = await createPaymentIntent(propertyId, reservationId, balance);
+      await completePaymentIntent(propertyId, reservationId, intent.id);
+      const updated = await getFolio(propertyId, reservationId);
+      setFolio(updated);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'The online payment could not be completed.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <Modal
@@ -269,6 +299,27 @@ export function FolioDialog({ propertyId, reservationId, reference, mayManage, o
                   </button>
                 </div>
               </div>
+
+              {/* Online payment through the gateway seam — one click settles the
+                  outstanding balance as a CARD payment. */}
+              {balance > 0 && (
+                <div className="folio-form folio-pay-online">
+                  <h4>Pay online</h4>
+                  <div className="folio-form-row">
+                    <p className="folio-pay-online-hint">
+                      Charge the balance of {formatMinor(balance)} to the guest&apos;s card via the payment gateway.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={busy}
+                      onClick={() => void handlePayOnline()}
+                    >
+                      {busy ? 'Processing…' : `Pay ${formatMinor(balance)} online`}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -3052,3 +3052,59 @@ backend / 234 frontend total.
 own plan for now); assigning rooms for a whole block in one action (per-booking
 assignment already works from the calendar); a block on the tape chart as a
 single grouped bar.
+
+---
+
+## 2026-09-29 — Online payments on folios (payment-gateway seam + Razorpay)
+
+**Context:** Folios already recorded manual payments (cash/card/UPI/bank). A
+serious PMS also takes the money online. Razorpay needs live credentials this
+environment doesn't have — so, per the autobuild "financial / credential
+barrier" rule, this was flagged up front and built as an abstraction with a
+deterministic stub, exactly like the AI-content and notification seams.
+
+**Decision:** A `platform/payments` gateway seam + a `PaymentIntent` model, with
+the stub provider active by default and a code-ready Razorpay adapter that
+switches on at startup when `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` exist.
+
+- **Additive, expand-only migration `20260929150751_payment_intents`.** New
+  `payment_intents` table + a nullable, unique `payment_intent_id` on
+  `payments` (SetNull) + indexes; no existing column touched, no NOT NULL, no
+  backfill. Generated with `migrate diff` and applied via `migrate deploy`
+  (the env is non-interactive, so `migrate dev` won't run) — 18 migrations,
+  `migrate status` clean. Registered property-scoped (through folio) in
+  `scoped-prisma`; a cross-org intent 404s.
+- **The seam is the interface, not a vendor.** `PaymentProvider` =
+  `createOrder` + `verifyPayment`. The stub is deterministic and *models the
+  real security property*: it HMAC-signs `order|payment` and verifies with a
+  constant-time compare, so a tampered signature is rejected — the same check
+  Razorpay's `validatePaymentVerification` does. The Razorpay adapter calls the
+  Orders API over HTTPS (no SDK dependency) and verifies with the key secret.
+  We store only gateway references (order id, payment id) — never raw card data
+  or credentials (ARCHITECTURE.md: "Razorpay, tokenized only").
+- **Money moves only on verified capture.** `create-intent` opens a CREATED
+  intent + gateway order; `verify` checks the signed return and, on success,
+  writes exactly one CARD Payment row linked to the intent and flips it PAID —
+  all in one transaction. The unique `payment_intent_id` makes a double-capture
+  impossible (409). A bad signature leaves the intent FAILED with the reason;
+  nothing posts. `payments:manage` to create/verify, `payments:read` to list.
+- **Dev/demo completion.** With no external checkout to bounce through, a
+  `simulate` route (stub-only; 409 under live Razorpay) mints a stub-signed
+  return and runs the *exact* verify path — so the whole flow is demoable and
+  CI-testable without an account, without weakening verification.
+- **Frontend:** a "Pay ₹… online" action on the folio settles the outstanding
+  balance through the seam (open intent → complete → refetch), surfacing a real
+  CARD payment. Manager-gated, only while the folio is open.
+
+**Verification.** typecheck/lint/build green both workspaces; `migrate status`
+clean; backend +6 tests (open→verify→post, tampered-signature reject posts
+nothing, no double-capture, cross-tenant 404, closed-folio guard, auth),
+frontend +1 (settles online through the seam).
+
+**Deferred deliberately.** A Razorpay webhook endpoint for out-of-band capture
+(the synchronous verify covers the checkout return); partial/multiple online
+payments toward one balance (one-shot full-balance capture first); online
+refunds through the gateway (manual negative payment still records a refund).
+
+⚠️ To go live, the operator sets `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`;
+until then the stub provider runs and no real money moves.

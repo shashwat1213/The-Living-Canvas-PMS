@@ -131,3 +131,17 @@
 .folio-form-row button {
   flex: 0 0 auto;
 }
+
+/* Online payment (gateway seam) */
+.folio-pay-online {
+  border: 1px dashed var(--border-strong, var(--border));
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  background: var(--surface-2);
+}
+.folio-pay-online-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  flex: 1;
+}
