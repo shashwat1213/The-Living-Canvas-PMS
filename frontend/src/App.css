@@ -1,4 +1,11 @@
-.shell {
+/*
+ * Landing (unauthenticated) page only. These are scoped under `.home-shell`
+ * so they never collide with the authenticated app shell in layout/shell.css,
+ * which also owns a `.shell` class. (Previously both used `.shell`, and this
+ * global 640px-centered rule leaked into the whole app, squeezing every
+ * screen into a narrow centered column.)
+ */
+.home-shell {
   max-width: 640px;
   margin: 4rem auto;
   padding: 0 1.5rem;
@@ -6,11 +13,11 @@
   font-family: system-ui, sans-serif;
 }
 
-.tagline {
-  color: #666;
+.home-shell .tagline {
+  color: var(--text);
 }
 
-.api-status {
+.home-shell .api-status {
   display: inline-block;
   margin-top: 1rem;
   padding: 0.25rem 0.75rem;
@@ -19,22 +26,22 @@
   font-weight: 600;
 }
 
-.api-status[data-status='checking'] {
+.home-shell .api-status[data-status='checking'] {
   background: #eee;
   color: #555;
 }
 
-.api-status[data-status='online'] {
+.home-shell .api-status[data-status='online'] {
   background: #d1fae5;
   color: #065f46;
 }
 
-.api-status[data-status='offline'] {
+.home-shell .api-status[data-status='offline'] {
   background: #fee2e2;
   color: #991b1b;
 }
 
-.home-nav {
+.home-shell .home-nav {
   display: flex;
   justify-content: center;
   gap: 1.25rem;

@@ -30,3 +30,6 @@ coverage/
 
 # Local agent workspace (Hermes) — never commit
 .hermes/
+
+# Design exploration scratch (throwaway mockups + large screenshots)
+design-mockups/

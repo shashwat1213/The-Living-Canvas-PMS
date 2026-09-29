@@ -186,7 +186,7 @@
   padding: 0.4rem 0.55rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text-h);
   flex: 1;
   min-width: 10rem;

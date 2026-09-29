@@ -4,55 +4,75 @@
  * This is the single source of truth for the product's visual language.
  * Every feature and shared component is built on these custom properties,
  * so the whole app restyles from here. The palette targets a serious
- * commercial-PMS bar (Mews/Cloudbeds/Stayntouch class): a calm neutral
- * canvas, a professional blue accent, a dark navigational sidebar, and
- * semantic status colors for operational data.
+ * commercial-PMS bar (Mews/Cloudbeds/Stayntouch class): a warm neutral
+ * canvas, a hospitality teal accent, a deep-green dark navigational
+ * sidebar, and semantic status colors for operational data.
  */
 
-:root {
-  /* ---- Neutral ramp (slate) ---- */
-  --slate-25: #fbfcfe;
-  --slate-50: #f8fafc;
-  --slate-100: #f1f5f9;
-  --slate-200: #e2e8f0;
-  --slate-300: #cbd5e1;
-  --slate-400: #94a3b8;
-  --slate-500: #64748b;
-  --slate-600: #475569;
-  --slate-700: #334155;
-  --slate-800: #1e293b;
-  --slate-900: #0f172a;
-  --slate-950: #020617;
+/*
+ * Tailwind CSS v4 — imported as theme + utilities layers ONLY, deliberately
+ * skipping the `base` layer (Preflight's global reset). The existing 17
+ * feature modules and shared primitives are hand-authored CSS that assume
+ * browser defaults in places; pulling in Preflight now would silently shift
+ * every one of them. New shadcn-style primitives can opt into utilities
+ * without that blast radius, and Preflight can be layered in later once the
+ * migration reaches the older modules. The semantic design tokens below are
+ * re-exposed to Tailwind via `@theme inline`, so utilities such as
+ * `bg-surface`, `text-muted` and `border-border` resolve to the same
+ * variables the rest of the app already uses.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
 
-  /* ---- Brand / accent (professional blue) ---- */
-  --brand-50: #eff6ff;
-  --brand-100: #dbeafe;
-  --brand-200: #bfdbfe;
-  --brand-400: #60a5fa;
-  --brand-500: #3b82f6;
-  --brand-600: #2563eb;
-  --brand-700: #1d4ed8;
-  --brand-800: #1e40af;
+:root {
+  /* ---- Neutral ramp (warm sand) ----
+   * The variable names are kept as `--slate-*` so no component that
+   * references the ramp directly has to change — only the values shift
+   * from a cool blue-grey to a warm sand/stone, which is what gives the
+   * whole app its Mews-class hospitality warmth in one place. */
+  --slate-25: #fdfcfa;
+  --slate-50: #faf9f6;
+  --slate-100: #f4f2ee;
+  --slate-200: #e9e5dd;
+  --slate-300: #d8d2c6;
+  --slate-400: #a8a091;
+  --slate-500: #8a8378;
+  --slate-600: #6b6458;
+  --slate-700: #45413a;
+  --slate-800: #2c2925;
+  --slate-900: #1c1a17;
+  --slate-950: #12100e;
+
+  /* ---- Brand / accent (hospitality teal) ---- */
+  --brand-50: #edf7f5;
+  --brand-100: #d3ece8;
+  --brand-200: #b8e0da;
+  --brand-400: #2db5a8;
+  --brand-500: #14a396;
+  --brand-600: #0f766e;
+  --brand-700: #0c5f58;
+  --brand-800: #0a4d47;
 
   /* ---- Semantic status ---- */
-  --success: #059669;
+  --success: #047857;
   --success-bg: #ecfdf5;
   --success-border: #a7f3d0;
   --warning: #b45309;
-  --warning-bg: #fffbeb;
-  --warning-border: #fde68a;
-  --danger: #dc2626;
-  --danger-bg: #fef2f2;
-  --danger-border: #fecaca;
-  --info: #0369a1;
-  --info-bg: #f0f9ff;
-  --info-border: #bae6fd;
+  --warning-bg: #fffaeb;
+  --warning-border: #fce4a6;
+  --danger: #c0392b;
+  --danger-bg: #fdf1ef;
+  --danger-border: #f3c7c0;
+  --info: #0e7490;
+  --info-bg: #effcfd;
+  --info-border: #b6ecf0;
 
   /* ---- Semantic surface / text roles (used across the app) ---- */
-  --bg: var(--slate-50); /* app canvas */
+  --bg: var(--slate-100); /* warm cream app canvas */
   --surface: #ffffff; /* cards, tables, modals */
   --surface-2: var(--slate-50); /* subtle raised / hover fill */
-  --surface-3: var(--slate-100); /* headers, inset areas */
+  --surface-3: var(--slate-200); /* headers, inset areas */
   --text: var(--slate-500); /* secondary / muted text */
   --text-muted: var(--slate-400);
   --text-h: var(--slate-900); /* headings / primary text */
@@ -68,20 +88,20 @@
   --accent-border: var(--brand-200);
   --accent-contrast: #ffffff;
 
-  /* ---- Sidebar (dark, independent of content theme) ---- */
-  --side-bg: var(--slate-900);
-  --side-bg-2: #0b1324;
-  --side-border: rgba(148, 163, 184, 0.14);
-  --side-text: #cbd5e1;
-  --side-text-muted: #64748b;
+  /* ---- Sidebar (deep green, independent of content theme) ---- */
+  --side-bg: #1b2a2a;
+  --side-bg-2: #14201f;
+  --side-border: rgba(45, 212, 191, 0.12);
+  --side-text: #c6d3cf;
+  --side-text-muted: #6f817c;
   --side-text-active: #ffffff;
-  --side-active-bg: rgba(59, 130, 246, 0.16);
-  --side-active-border: var(--brand-500);
-  --side-hover-bg: rgba(148, 163, 184, 0.1);
+  --side-active-bg: rgba(45, 212, 191, 0.16);
+  --side-active-border: #2dd4bf;
+  --side-hover-bg: rgba(198, 211, 207, 0.1);
 
   /* ---- Typography ---- */
-  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --heading: var(--sans);
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --heading: 'Plus Jakarta Sans', var(--sans);
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Consolas, monospace;
 
   --fs-xs: 0.75rem;
@@ -111,11 +131,11 @@
   --radius-lg: 14px;
   --radius-full: 999px;
 
-  /* ---- Elevation ---- */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.1), 0 2px 6px -2px rgba(15, 23, 42, 0.06);
-  --shadow-lg: 0 12px 28px -6px rgba(15, 23, 42, 0.18), 0 6px 12px -6px rgba(15, 23, 42, 0.1);
+  /* ---- Elevation ---- (warm-tinted to match the sand canvas) */
+  --shadow-xs: 0 1px 2px rgba(28, 26, 23, 0.05);
+  --shadow-sm: 0 1px 2px rgba(28, 26, 23, 0.04), 0 2px 8px -2px rgba(28, 26, 23, 0.06);
+  --shadow-md: 0 4px 12px -2px rgba(28, 26, 23, 0.08), 0 2px 6px -2px rgba(28, 26, 23, 0.05);
+  --shadow-lg: 0 16px 36px -10px rgba(28, 26, 23, 0.16), 0 6px 12px -6px rgba(28, 26, 23, 0.08);
   --shadow: var(--shadow-sm);
 
   --sidebar-w: 248px;
@@ -209,4 +229,53 @@ code {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--slate-400);
   background-clip: content-box;
+}
+
+/*
+ * Bridge the semantic design tokens above into Tailwind's theme so new
+ * shadcn-style primitives can use utilities (`bg-surface`, `text-h`,
+ * `border-border`, `rounded-lg`, `shadow-card`, `font-heading`) that
+ * resolve to the exact same variables the hand-authored CSS uses. Using
+ * `inline` means the utilities reference the live `var(--…)`, so a future
+ * theme swap still flows through one place.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--text-h);
+  --color-body: var(--text-body);
+  --color-muted: var(--text);
+  --color-faint: var(--text-muted);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-bg);
+  --color-accent-border: var(--accent-border);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-bg);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-bg);
+
+  --font-sans: var(--sans);
+  --font-heading: var(--heading);
+  --font-mono: var(--mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-DEFAULT: var(--radius);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-card: var(--shadow-sm);
+  --shadow-pop: var(--shadow-lg);
 }
