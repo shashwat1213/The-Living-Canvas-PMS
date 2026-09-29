@@ -8,6 +8,7 @@ import { errorHandler } from './middleware/error-handler.js';
 import { auditRouter } from './modules/audit/routes.js';
 import { authRouter } from './modules/auth/routes.js';
 import { availabilityRouter } from './modules/availability/routes.js';
+import { calendarRouter } from './modules/calendar/routes.js';
 import { dashboardRouter } from './modules/dashboard/routes.js';
 import { foliosRouter } from './modules/folios/routes.js';
 import { housekeepingRouter } from './modules/housekeeping/routes.js';
@@ -60,6 +61,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/reservations', reservationsRouter);
   v1.use('/properties/:propertyId/reservations/:reservationId/folio', foliosRouter);
   v1.use('/properties/:propertyId/availability', availabilityRouter);
+  v1.use('/properties/:propertyId/calendar', calendarRouter);
   v1.use('/properties/:propertyId/dashboard', dashboardRouter);
   v1.use('/properties/:propertyId/reports', reportsRouter);
   v1.use('/properties/:propertyId/pos', posRouter);
