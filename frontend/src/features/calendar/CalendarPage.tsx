@@ -1,0 +1,375 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+
+import { hasPermission } from '../../auth/session';
+import { useAuth } from '../../auth/useAuth';
+import { ApiError } from '../../lib/api';
+import { getProperty } from '../properties/api';
+import type { Property } from '../properties/types';
+import { getCalendar } from './api';
+import {
+  DEFAULT_WINDOW_NIGHTS,
+  addDays,
+  todayUtc,
+  type CalendarBlock,
+  type CalendarResponse,
+  type CalendarRoom,
+} from './types';
+import './calendar.css';
+
+/** A short header label for a night, e.g. { day: "1", weekday: "Thu" }, in UTC. */
+function nightLabel(date: string): { day: string; weekday: string; isWeekend: boolean } {
+  const ms = Date.parse(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(ms)) return { day: date, weekday: '', isWeekend: false };
+  const d = new Date(ms);
+  const dow = d.getUTCDay();
+  return {
+    day: String(d.getUTCDate()),
+    weekday: d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+    isWeekend: dow === 0 || dow === 6,
+  };
+}
+
+/** A human range for the current window, e.g. "1 Oct – 14 Oct 2026" (to is exclusive). */
+function rangeLabel(from: string, to: string): string {
+  const fmt = (date: string) => {
+    const ms = Date.parse(`${date}T00:00:00.000Z`);
+    if (Number.isNaN(ms)) return date;
+    return new Date(ms).toLocaleDateString('en-US', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  };
+  return `${fmt(from)} – ${fmt(addDays(to, -1))}`;
+}
+
+const STATUS_LABEL: Record<CalendarBlock['status'], string> = {
+  CONFIRMED: 'Confirmed',
+  CHECKED_IN: 'In-house',
+  CHECKED_OUT: 'Checked out',
+  CANCELLED: 'Cancelled',
+  NO_SHOW: 'No-show',
+};
+
+const HK_LABEL: Record<CalendarRoom['housekeepingStatus'], string> = {
+  DIRTY: 'Dirty',
+  CLEANING: 'Cleaning',
+  CLEAN: 'Clean',
+  INSPECTED: 'Inspected',
+};
+
+/** A single reservation bar, positioned by grid column. */
+function ReservationBar({
+  block,
+  onSelect,
+  interactive,
+}: {
+  block: CalendarBlock;
+  onSelect?: (block: CalendarBlock) => void;
+  interactive: boolean;
+}) {
+  const guests = block.adults + block.children;
+  const title =
+    `${block.guestName} · ${block.reference}\n` +
+    `${block.checkIn} → ${block.checkOut} · ${guests} guest${guests === 1 ? '' : 's'} · ${STATUS_LABEL[block.status]}`;
+  const style = {
+    // Bars live inside `.cal-lane-track`, a grid of only the night columns
+    // (no room-name column), so columns are 1-based on the nights directly.
+    gridColumnStart: block.startIndex + 1,
+    gridColumnEnd: `span ${block.span}`,
+  };
+  const className =
+    `cal-bar cal-bar-${block.status.toLowerCase()}` +
+    (block.continuesBefore ? ' cal-bar-open-start' : '') +
+    (block.continuesAfter ? ' cal-bar-open-end' : '');
+
+  if (interactive && onSelect) {
+    return (
+      <button type="button" className={className} style={style} title={title} onClick={() => onSelect(block)}>
+        <span className="cal-bar-label">
+          {block.continuesBefore && <span aria-hidden="true">‹ </span>}
+          {block.guestName}
+          {block.continuesAfter && <span aria-hidden="true"> ›</span>}
+        </span>
+        <span className="cal-bar-ref">{block.reference}</span>
+      </button>
+    );
+  }
+  return (
+    <div className={className} style={style} title={title}>
+      <span className="cal-bar-label">{block.guestName}</span>
+      <span className="cal-bar-ref">{block.reference}</span>
+    </div>
+  );
+}
+
+export function CalendarPage() {
+  const { propertyId } = useParams<{ propertyId: string }>();
+  const { session } = useAuth();
+
+  const initialFrom = todayUtc();
+  const [from, setFrom] = useState(initialFrom);
+  const [to, setTo] = useState(addDays(initialFrom, DEFAULT_WINDOW_NIGHTS));
+
+  const [property, setProperty] = useState<Property | null>(null);
+  const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selected, setSelected] = useState<CalendarBlock | null>(null);
+
+  // Presentation only — the route and API both enforce this themselves.
+  const mayRead = hasPermission(session, 'reservations:read');
+  const mayManage = hasPermission(session, 'reservations:manage');
+
+  const load = useCallback(async () => {
+    if (!propertyId) return;
+    setRefreshing(true);
+    try {
+      const result = await getCalendar(propertyId, from, to);
+      setCalendar(result);
+      setError(null);
+    } catch (err) {
+      setCalendar(null);
+      setError(err instanceof ApiError ? err.message : 'Could not load the calendar.');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [propertyId, from, to]);
+
+  useEffect(() => {
+    if (!mayRead) return;
+    void load();
+  }, [mayRead, load]);
+
+  useEffect(() => {
+    if (!propertyId) return;
+    getProperty(propertyId)
+      .then(setProperty)
+      .catch(() => setProperty(null));
+  }, [propertyId]);
+
+  function shiftWindow(direction: -1 | 1) {
+    const span = DEFAULT_WINDOW_NIGHTS * direction;
+    setFrom((current) => addDays(current, span));
+    setTo((current) => addDays(current, span));
+  }
+
+  function goToday() {
+    const today = todayUtc();
+    setFrom(today);
+    setTo(addDays(today, DEFAULT_WINDOW_NIGHTS));
+  }
+
+  const dates = calendar?.dates ?? [];
+  // The outer grid template: a fixed room-name column plus one equal column per night.
+  const gridStyle = useMemo(
+    () => ({ gridTemplateColumns: `var(--cal-room-col) repeat(${dates.length}, minmax(var(--cal-night-col), 1fr))` }),
+    [dates.length],
+  );
+  // Each lane's inner track holds only the night columns (bars position here).
+  const trackStyle = useMemo(
+    () => ({ gridTemplateColumns: `repeat(${dates.length}, minmax(var(--cal-night-col), 1fr))` }),
+    [dates.length],
+  );
+
+  if (!mayRead) {
+    return (
+      <section className="calendar-page">
+        <h1>Reservation calendar</h1>
+        <p className="empty-state">
+          You don&apos;t have access to reservations. An owner or admin in your organization can grant it.
+        </p>
+      </section>
+    );
+  }
+
+  const hasRooms = (calendar?.roomTypes.some((rt) => rt.rooms.length > 0)) ?? false;
+  const unassigned = calendar?.unassigned ?? [];
+
+  return (
+    <section className="calendar-page">
+      <p className="calendar-breadcrumb">
+        <Link to="/app/properties">&larr; Properties</Link>
+      </p>
+
+      <header className="calendar-header">
+        <div>
+          <h1>Reservation calendar{property ? ` — ${property.name}` : ''}</h1>
+          <p className="calendar-subtitle">
+            Every room, every night. Bars are stays — drag the window to plan ahead or review arrivals.
+          </p>
+        </div>
+        <div className="calendar-controls">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => shiftWindow(-1)} disabled={refreshing}>
+            &larr; Back
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={goToday} disabled={refreshing}>
+            Today
+          </button>
+          <span className="calendar-range" aria-live="polite">
+            {rangeLabel(from, to)}
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => shiftWindow(1)} disabled={refreshing}>
+            Forward &rarr;
+          </button>
+        </div>
+      </header>
+
+      <div className="calendar-legend" aria-hidden="true">
+        <span className="cal-legend-item"><span className="cal-swatch cal-bar-confirmed" /> Confirmed</span>
+        <span className="cal-legend-item"><span className="cal-swatch cal-bar-checked_in" /> In-house</span>
+        <span className="cal-legend-item"><span className="cal-swatch cal-bar-checked_out" /> Checked out</span>
+        <span className="cal-legend-item"><span className="cal-swatch cal-swatch-oos" /> Out of service</span>
+      </div>
+
+      {error && (
+        <p className="page-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {calendar && !hasRooms ? (
+        <p className="empty-state">
+          No rooms for this property yet. Add rooms under <Link to={`/app/properties/${propertyId}/rooms`}>Rooms</Link>{' '}
+          to see them on the board.
+        </p>
+      ) : calendar ? (
+        <div className="calendar-grid-wrap">
+          <div className="calendar-grid" style={gridStyle} role="grid" aria-label="Reservation calendar">
+            {/* Header row: corner + one cell per night. */}
+            <div className="cal-corner" role="columnheader">
+              Room
+            </div>
+            {dates.map((date) => {
+              const label = nightLabel(date);
+              return (
+                <div
+                  key={date}
+                  className={`cal-datecol${label.isWeekend ? ' cal-datecol-weekend' : ''}`}
+                  role="columnheader"
+                >
+                  <span className="cal-date-weekday">{label.weekday}</span>
+                  <span className="cal-date-day">{label.day}</span>
+                </div>
+              );
+            })}
+
+            {/* Unassigned lane: bookings awaiting a room — the front desk's work list. */}
+            {unassigned.length > 0 && (
+              <>
+                <div className="cal-rowhead cal-rowhead-unassigned" role="rowheader">
+                  <span className="cal-room-name">Unassigned</span>
+                  <span className="cal-room-meta">{unassigned.length} awaiting a room</span>
+                </div>
+                <div className="cal-lane cal-lane-unassigned" style={{ gridColumn: `2 / span ${dates.length}` }}>
+                  <div className="cal-lane-track" style={trackStyle}>
+                    {unassigned.map((block) => (
+                      <ReservationBar
+                        key={block.id}
+                        block={block}
+                        onSelect={setSelected}
+                        interactive={mayManage}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* One group per room type, then one lane row per room. */}
+            {calendar.roomTypes.map((rt) => (
+              <div className="cal-group-contents" key={rt.id} role="rowgroup">
+                <div className="cal-group-head" style={{ gridColumn: `1 / span ${dates.length + 1}` }}>
+                  {rt.name}
+                  {rt.code ? <span className="cal-group-code">{rt.code}</span> : null}
+                  <span className="cal-group-count">
+                    {rt.rooms.length} room{rt.rooms.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                {rt.rooms.map((room) => {
+                  const outOfService = room.status !== 'ACTIVE';
+                  const blocks = calendar.assigned[room.id] ?? [];
+                  return (
+                    <div className="cal-group-contents" key={room.id} role="row">
+                      <div className={`cal-rowhead${outOfService ? ' cal-rowhead-oos' : ''}`} role="rowheader">
+                        <span className="cal-room-name">{room.name}</span>
+                        <span className="cal-room-meta">
+                          {room.floor ? `Floor ${room.floor} · ` : ''}
+                          {outOfService ? (room.status === 'MAINTENANCE' ? 'Maintenance' : 'Inactive') : HK_LABEL[room.housekeepingStatus]}
+                        </span>
+                      </div>
+                      <div
+                        className={`cal-lane${outOfService ? ' cal-lane-oos' : ''}`}
+                        style={{ gridColumn: `2 / span ${dates.length}` }}
+                      >
+                        <div className="cal-lane-track" style={trackStyle}>
+                          {blocks.map((block) => (
+                            <ReservationBar
+                              key={block.id}
+                              block={block}
+                              onSelect={setSelected}
+                              interactive={mayManage}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        !error && <p className="empty-state">Loading the calendar…</p>
+      )}
+
+      {selected && (
+        <BlockDetails
+          block={selected}
+          propertyId={propertyId ?? ''}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+/** A lightweight detail popover for a selected reservation bar. */
+function BlockDetails({
+  block,
+  propertyId,
+  onClose,
+}: {
+  block: CalendarBlock;
+  propertyId: string;
+  onClose: () => void;
+}) {
+  const guests = block.adults + block.children;
+  return (
+    <div className="cal-detail-backdrop" role="dialog" aria-modal="true" aria-label="Reservation details" onClick={onClose}>
+      <div className="cal-detail" onClick={(e) => e.stopPropagation()}>
+        <header className="cal-detail-head">
+          <h2>{block.guestName}</h2>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <dl className="cal-detail-body">
+          <div><dt>Reference</dt><dd>{block.reference}</dd></div>
+          <div><dt>Status</dt><dd>{STATUS_LABEL[block.status]}</dd></div>
+          <div><dt>Stay</dt><dd>{block.checkIn} → {block.checkOut}</dd></div>
+          <div><dt>Guests</dt><dd>{block.adults} adult{block.adults === 1 ? '' : 's'}{block.children > 0 ? `, ${block.children} child${block.children === 1 ? '' : 'ren'}` : ''} ({guests} total)</dd></div>
+          <div><dt>Room</dt><dd>{block.roomId ? 'Assigned' : 'Not yet assigned'}</dd></div>
+        </dl>
+        <footer className="cal-detail-foot">
+          <Link className="btn btn-secondary btn-sm" to={`/app/properties/${propertyId}/reservations`}>
+            Open in Reservations
+          </Link>
+        </footer>
+      </div>
+    </div>
+  );
+}

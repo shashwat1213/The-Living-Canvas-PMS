@@ -4,6 +4,7 @@ import App from './App';
 import { RequireAuth } from './auth/RequireAuth';
 import { AuditPage } from './features/audit/AuditPage';
 import { AvailabilityPage } from './features/availability/AvailabilityPage';
+import { CalendarPage } from './features/calendar/CalendarPage';
 import { PropertyDashboardPage } from './features/dashboard/PropertyDashboardPage';
 import { ReportsPage } from './features/reports/ReportsPage';
 import { PosPage } from './features/pos/PosPage';
@@ -42,6 +43,7 @@ export function AppRouter() {
         <Route path="properties/:propertyId/rooms" element={<RoomsPage />} />
         <Route path="properties/:propertyId/reservations" element={<ReservationsPage />} />
         <Route path="properties/:propertyId/availability" element={<AvailabilityPage />} />
+        <Route path="properties/:propertyId/calendar" element={<CalendarPage />} />
         <Route path="properties/:propertyId/dashboard" element={<PropertyDashboardPage />} />
         <Route path="properties/:propertyId/reports" element={<ReportsPage />} />
         <Route path="properties/:propertyId/pos" element={<PosPage />} />
