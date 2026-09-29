@@ -260,31 +260,75 @@
 
 /* A reservation bar. */
 .cal-bar {
+  position: relative;
   margin: 0 2px;
-  padding: 0.2rem 0.5rem;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
-  font: inherit;
-  text-align: left;
   overflow: hidden;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  line-height: 1.1;
-  cursor: default;
   min-width: 0;
   box-shadow: var(--shadow-xs);
 }
-button.cal-bar {
-  cursor: pointer;
-  transition: filter 0.12s ease, transform 0.12s ease;
+/* The clickable body of a bar (button); fills the bar minus the edge handles. */
+.cal-bar-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.2rem 0.5rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  line-height: 1.1;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
 }
-button.cal-bar:hover {
+.cal-bar-draggable .cal-bar-body,
+button.cal-bar-body {
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.cal-bar-body:hover {
   filter: brightness(0.96);
 }
-button.cal-bar:focus-visible {
+.cal-bar-body:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: -2px;
+}
+/* Edge resize handles — grab the left/right rim to change the dates. */
+.cal-bar-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 2;
+  touch-action: none;
+}
+.cal-bar-handle-start {
+  left: 0;
+}
+.cal-bar-handle-end {
+  right: 0;
+}
+.cal-bar-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 55%;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.cal-bar:hover .cal-bar-handle::before {
+  opacity: 0.45;
 }
 .cal-bar-label {
   font-size: var(--fs-xs);
@@ -312,9 +356,6 @@ button.cal-bar:focus-visible {
 /* Drag-to-reassign */
 .cal-bar-draggable {
   cursor: grab;
-}
-.cal-bar-draggable:active {
-  cursor: grabbing;
 }
 .cal-bar-dragging {
   opacity: 0.4;

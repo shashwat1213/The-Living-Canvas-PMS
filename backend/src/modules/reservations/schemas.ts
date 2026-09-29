@@ -52,6 +52,23 @@ export const assignRoomSchema = z.object({
   roomId: z.string().uuid(),
 });
 
+/**
+ * Move a booking to new stay dates (drag-to-resize / drag-to-move on the
+ * calendar). Same half-open [checkIn, checkOut) convention and 370-night cap
+ * as create; the room type and rate plan don't change, only the window.
+ */
+export const rescheduleReservationSchema = z
+  .object({
+    checkIn: isoDate,
+    checkOut: isoDate,
+  })
+  .refine((v) => v.checkOut > v.checkIn, { message: '`checkOut` must be after `checkIn`.' })
+  .refine((v) => (v.checkOut.getTime() - v.checkIn.getTime()) / 86_400_000 <= 370, {
+    message: 'A stay must be 370 nights or fewer.',
+  });
+
+export type RescheduleReservationInput = z.infer<typeof rescheduleReservationSchema>;
+
 export type AssignRoomInput = z.infer<typeof assignRoomSchema>;
 
 /**

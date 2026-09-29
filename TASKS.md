@@ -1134,6 +1134,17 @@ phased roadmap in the architecture review; each phase gets its own
   Verified: typecheck/lint/build green; backend +1, frontend +2 tests
   (349 backend / 224 frontend). See DECISIONS.md.
 
+- [x] **Reschedule a stay by dragging a bar's edge** (2026-09-29)
+
+  Extend/shorten a stay from the calendar: drag a bar's left/right edge to
+  move check-in/check-out. New `POST /reservations/:id/reschedule` re-prices
+  from the same rate plan, re-checks availability (excluding self) + the
+  assigned room's freeness, and regenerates the per-night snapshot + total in a
+  Serializable transaction; CONFIRMED/CHECKED_IN only, audited. Manager-only
+  pointer-drag handles; read-only viewers get none. Verified: typecheck/lint/
+  build green; backend +3, frontend +3 tests (351 backend / 227 frontend).
+  See DECISIONS.md.
+
 ## Explicitly out of scope for now
 
 OTA integrations, reviews, and external payment gateways — do not start

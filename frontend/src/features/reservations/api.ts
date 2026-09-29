@@ -74,6 +74,19 @@ export function assignRoom(propertyId: string, reservationId: string, roomId: st
   }).then((res) => res.reservation);
 }
 
+/** Move a booking to new stay dates (drag-to-resize / drag-to-move). */
+export function rescheduleReservation(
+  propertyId: string,
+  reservationId: string,
+  checkIn: string,
+  checkOut: string,
+): Promise<Reservation> {
+  return apiFetch<{ reservation: Reservation }>(`${base(propertyId)}/${reservationId}/reschedule`, {
+    method: 'POST',
+    body: { checkIn, checkOut },
+  }).then((res) => res.reservation);
+}
+
 export function checkIn(propertyId: string, reservationId: string, roomId?: string): Promise<Reservation> {
   return apiFetch<{ reservation: Reservation }>(`${base(propertyId)}/${reservationId}/check-in`, {
     method: 'POST',

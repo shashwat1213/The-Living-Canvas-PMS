@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { assignRoomSchema, cancelReservationSchema, checkInSchema, createReservationSchema, listReservationsQuerySchema } from './schemas.js';
+import { assignRoomSchema, cancelReservationSchema, checkInSchema, createReservationSchema, listReservationsQuerySchema, rescheduleReservationSchema } from './schemas.js';
 import * as reservationsService from './service.js';
 
 /**
@@ -115,6 +115,25 @@ reservationsRouter.post(
   asyncHandler(async (req, res) => {
     const input = assignRoomSchema.parse(req.body);
     const reservation = await reservationsService.assignRoom(
+      req.params.propertyId as string,
+      req.params.reservationId as string,
+      input,
+    );
+    res.json({ reservation });
+  }),
+);
+
+/**
+ * Move a booking to new stay dates (drag-to-resize / drag-to-move on the
+ * calendar). Re-prices and re-checks availability against the new window;
+ * `reservations:manage`, like every other change to a booking.
+ */
+reservationsRouter.post(
+  '/:reservationId/reschedule',
+  requirePermission('reservations:manage'),
+  asyncHandler(async (req, res) => {
+    const input = rescheduleReservationSchema.parse(req.body);
+    const reservation = await reservationsService.rescheduleReservation(
       req.params.propertyId as string,
       req.params.reservationId as string,
       input,

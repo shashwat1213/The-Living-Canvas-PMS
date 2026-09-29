@@ -2959,3 +2959,46 @@ separately proven live.
 **Deferred deliberately.** Drag-to-resize (changing dates); dragging onto a
 different date to shift the stay; group/block bookings; keyboard-accessible
 reassignment (the popover picker remains the a11y path).
+
+---
+
+## 2026-09-29 — Reschedule a stay by dragging a bar's edge
+
+**Context:** The calendar could move a booking between rooms, but not change
+its *dates*. Extending or shortening a stay by dragging the bar's edge is the
+other half of the direct-manipulation front-desk workflow — and unlike a
+room move it has real financial weight: the price and the per-night ledger
+must move with the dates.
+
+**Decision:** Add `POST /reservations/:id/reschedule { checkIn, checkOut }`
+(new) and pointer-drag resize handles on each bar's left/right edge.
+
+- **Re-runs the create-path guards against the new window.** Serializable
+  transaction: re-price from the *same* rate plan (400 naming any unpriced
+  night), re-check type-level availability excluding this booking, and — if a
+  room is assigned — confirm that room is still free across the new dates.
+- **The money moves with the dates.** The per-night `ReservationNight`
+  snapshot is regenerated and `totalAmountMinor` recomputed, so the folio and
+  revenue reports bill the new stay. A rate change elsewhere still never
+  re-prices silently — the new nights are snapshotted at reschedule time.
+- **Room type / rate plan don't change** — only the window. Moving to a
+  different type is a different operation (rebooking), out of scope here.
+- **Only CONFIRMED / CHECKED_IN** can be rescheduled; a cancelled / checked-out
+  / no-show stay is history (409). Audited with old + new dates and totals.
+- **Frontend:** pointer-based edge handles snap to whole night columns
+  (`--cal-night-col` = 44px) and fire once on release; the reschedule call's
+  error/success surfaces as a toast and the board refetches. Manager-only;
+  read-only viewers get no handles. The bar became a `.cal-bar` wrapper with a
+  `.cal-bar-body` button so the handles sit outside the clickable/draggable
+  body without nested-interactive issues.
+
+**Verification.** typecheck/lint/build green; backend +3 tests (reschedule
+re-prices + regenerates nights + frees old dates; assigned-room clash 409;
+inverted-window 400 / cancelled 409), frontend +3 (handles present for a
+manager, edge drag → reschedule POST with the new checkout, no handles for
+read-only) — 351 backend / 227 frontend total.
+
+**Deferred deliberately.** Dragging the whole bar sideways to shift both dates
+at once (edge resize covers extend/shorten first); changing room type in the
+same gesture; keyboard-accessible date editing (a dated form on the
+reservation detail remains the a11y path).

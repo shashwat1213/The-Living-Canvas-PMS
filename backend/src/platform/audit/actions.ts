@@ -65,6 +65,7 @@ export const AUDIT_ACTIONS = {
   RESERVATION_CANCELLED: 'reservation.cancelled',
   RESERVATION_NO_SHOW: 'reservation.no_show',
   RESERVATION_ROOM_ASSIGNED: 'reservation.room_assigned',
+  RESERVATION_RESCHEDULED: 'reservation.rescheduled',
   RESERVATION_CHECKED_IN: 'reservation.checked_in',
   RESERVATION_CHECKED_OUT: 'reservation.checked_out',
   FOLIO_OPENED: 'folio.opened',

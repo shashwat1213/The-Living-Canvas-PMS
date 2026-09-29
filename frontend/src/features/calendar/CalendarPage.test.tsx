@@ -103,7 +103,7 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
 }
 
 function stubApi(response?: CalendarResponse) {
-  const fetchMock = vi.fn((url: string) => {
+  const fetchMock = vi.fn((url: string, _init?: RequestInit) => {
     if (url.includes('/assignable-rooms')) {
       return Promise.resolve(
         jsonResponse({
@@ -116,6 +116,9 @@ function stubApi(response?: CalendarResponse) {
     }
     if (url.includes('/assign-room')) {
       return Promise.resolve(jsonResponse({ reservation: { id: 'resv-2', roomId: 'room-101' } }));
+    }
+    if (url.includes('/reschedule')) {
+      return Promise.resolve(jsonResponse({ reservation: { id: 'resv-1' } }));
     }
     if (url.includes('/calendar')) {
       return Promise.resolve(jsonResponse(response ?? calendar()));
@@ -310,5 +313,50 @@ describe('CalendarPage', () => {
     await screen.findByText('Ada Lovelace');
     // Read-only bars are static divs, not draggable buttons.
     expect(screen.queryByRole('button', { name: /Ada Lovelace/ })).not.toBeInTheDocument();
+  });
+
+  it('exposes resize handles on a manager-editable bar', async () => {
+    stubApi();
+    renderPage(manageSession());
+
+    await screen.findByText('Ada Lovelace');
+    // A manager-editable assigned bar carries start + end resize handles.
+    expect(document.querySelector('.cal-bar-handle-start')).not.toBeNull();
+    expect(document.querySelector('.cal-bar-handle-end')).not.toBeNull();
+  });
+
+  it('reschedules a stay when a manager drags the end edge outward', async () => {
+    const fetchMock = stubApi();
+    renderPage(manageSession());
+
+    await screen.findByText('Ada Lovelace');
+    // Target the assigned booking's own bar (Ada / resv-1), not the first bar
+    // on the board (which is the unassigned Alan Turing).
+    const adaBar = screen.getByText('Ada Lovelace').closest('.cal-bar') as HTMLElement;
+    const endHandle = adaBar.querySelector('.cal-bar-handle-end') as HTMLElement;
+    expect(endHandle).not.toBeNull();
+
+    // Simulate dragging the end edge ~2 night-columns to the right (44px each).
+    fireEvent.pointerDown(endHandle, { clientX: 100 });
+    fireEvent.pointerMove(window, { clientX: 188 });
+    fireEvent.pointerUp(window, { clientX: 188 });
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/resv-1/reschedule'));
+      expect(call).toBeTruthy();
+    });
+    const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/resv-1/reschedule'))!;
+    const body = JSON.parse((call as unknown as [string, RequestInit])[1].body as string);
+    expect(body.checkIn).toBe('2026-10-01');
+    // Original checkout 2026-10-03 + 2 nights = 2026-10-05.
+    expect(body.checkOut).toBe('2026-10-05');
+  });
+
+  it('does not expose resize handles to a read-only viewer', async () => {
+    stubApi();
+    renderPage(readOnlySession());
+
+    await screen.findByText('Ada Lovelace');
+    expect(document.querySelector('.cal-bar-handle')).toBeNull();
   });
 });
