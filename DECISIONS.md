@@ -3002,3 +3002,53 @@ read-only) — 351 backend / 227 frontend total.
 at once (edge resize covers extend/shorten first); changing room type in the
 same gesture; keyboard-accessible date editing (a dated form on the
 reservation detail remains the a11y path).
+
+---
+
+## 2026-09-29 — Group / block bookings (multi-room under one name)
+
+**Context:** A serious PMS holds several rooms together as a *block* — a
+wedding, a corporate group, a tour. The bookings must be organised under one
+name and priced/held atomically, but they must also stay ordinary reservations
+so availability, the calendar, folios and reports treat them like any other.
+
+**Decision:** A thin `ReservationGroup` header + a nullable `Reservation.groupId`.
+
+- **Additive, expand-only migration `20260929144528_reservation_groups`.** One
+  new table (`reservation_groups`) and one nullable `group_id` column on
+  `reservations` (SetNull FK) + an index; no existing column touched, no data
+  backfill, no NOT NULL. Applied to real PostgreSQL 16; `migrate status` clean.
+  Registered in `scoped-prisma.ts` (property-scoped) — a cross-org block 404s.
+- **The block is a header, not a container.** All inventory, dates, pricing and
+  lifecycle live on the child `Reservation` rows; removing a block SetNulls its
+  children's `groupId`, leaving each booking intact and standalone. So nothing
+  downstream needed to learn about blocks.
+- **Shared booking core, extracted not duplicated.** A new exported
+  `bookOneInTx(tx, propertyId, input, { groupId })` is the price + availability +
+  write + confirmation core; the block path calls it in a loop inside one
+  Serializable transaction. Because each room is written before the next, the
+  overlap count already sees the block's earlier rooms — so a block that
+  exactly fills a room type is placed correctly, and one that would oversell
+  rolls the *whole* block back (all-or-nothing). Fixed a self-double-count bug
+  here (counting both the committed-in-tx rooms and a running tally rejected
+  the last room of a full block).
+- **Permissions reuse reservations.** `reservations:read` to view,
+  `reservations:manage` to create/cancel — a block is a booking operation, not
+  a new tier. Cancelling a block cancels each still-active child (freeing
+  inventory) and keeps the header as history. Block create + cancel audited;
+  each child audits itself as an ordinary reservation.
+- **Frontend:** a Blocks page (card list + detail drawer) and a New-block
+  dialog with repeatable room lines (each its own type/plan/guest/dates — a
+  block can mix types and windows), on the shared design system. Manager-gated.
+
+**Verification.** typecheck/lint/build green both workspaces; backend +7 tests
+(atomic multi-room create, self-oversell rollback with nothing created, list,
+detail, whole-block cancel frees inventory, cross-tenant 404, empty/unknown-
+contact validation), frontend +7 (list, empty, detail drawer, manager create
+dialog, read-only hides New block, cancel from drawer, access gate) — 358
+backend / 234 frontend total.
+
+**Deferred deliberately.** A block-level rate/discount (each room prices on its
+own plan for now); assigning rooms for a whole block in one action (per-booking
+assignment already works from the calendar); a block on the tape chart as a
+single grouped bar.

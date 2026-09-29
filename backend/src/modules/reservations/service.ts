@@ -15,6 +15,14 @@ import {
   type ReservationListRow,
   type ReservationsDb,
 } from './repository.js';
+
+/**
+ * The transaction client handed to a `scopedPrisma.$transaction` callback — the
+ * extended, tenant-scoped client minus the transaction-control methods. This is
+ * what `bookOneInTx` runs against, and it structurally satisfies the narrower
+ * `ReservationsDb`, `AuditDb` and notification-queue client types.
+ */
+export type ScopedTx = Parameters<Parameters<typeof scopedPrisma.$transaction>[0]>[0];
 import type { AssignRoomInput, CancelReservationInput, CheckInInput, CreateReservationInput, ListReservationsQuery, RescheduleReservationInput } from './schemas.js';
 
 function toIsoDate(d: Date): string {
@@ -313,6 +321,129 @@ export async function createReservation(propertyId: string, input: CreateReserva
   );
 
   return getReservation(propertyId, created.id);
+}
+
+/**
+ * Book one room inside an already-open transaction — the shared core the
+ * standalone create path and the block-booking path both use. Prices the stay,
+ * checks availability (each room already written earlier in this same
+ * transaction is visible to the overlap count, so a block that takes three of
+ * three Deluxe rooms is placed correctly without overselling), writes the
+ * reservation + its night snapshot + an audit entry, and queues the guest
+ * confirmation. Returns the created row and its type. Does NOT open its own
+ * transaction: the caller owns the Serializable boundary so the whole block is
+ * atomic.
+ */
+export async function bookOneInTx(
+  tx: ScopedTx,
+  propertyId: string,
+  input: CreateReservationInput,
+  opts: { groupId?: string } = {},
+): Promise<{ id: string; roomTypeId: string }> {
+  const nights = nightsBetween(input.checkIn, input.checkOut);
+  await resolveParents(propertyId, input, tx);
+
+  const { pricedNights, totalMinor } = await priceStay(input.ratePlanId, nights, tx);
+
+  const sellableRooms = await reservationsRepository.countSellableRooms(propertyId, input.roomTypeId, tx);
+  if (sellableRooms === 0) {
+    throw new ConflictError('This room type has no sellable rooms, so it cannot be booked.');
+  }
+  // Inside the block's own transaction, each earlier room is already written,
+  // so `countOverlapping` sees them — the running block tally needs no separate
+  // addition (adding it would double-count and reject the last room of a block
+  // that exactly fills the type).
+  const booked = await reservationsRepository.countOverlapping(
+    propertyId,
+    input.roomTypeId,
+    input.checkIn,
+    input.checkOut,
+    tx,
+  );
+  if (booked >= sellableRooms) {
+    throw new ConflictError(
+      `No availability: all ${sellableRooms} room${sellableRooms === 1 ? '' : 's'} of this type are booked for those dates.`,
+    );
+  }
+
+  let reference = generateReference();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const clash = await tx.reservation.findFirst({ where: { propertyId, reference }, select: { id: true } });
+    if (!clash) break;
+    reference = generateReference();
+  }
+
+  const reservation = await tx.reservation.create({
+    data: {
+      propertyId,
+      roomTypeId: input.roomTypeId,
+      ratePlanId: input.ratePlanId,
+      guestId: input.guestId,
+      groupId: opts.groupId,
+      reference,
+      status: 'CONFIRMED',
+      checkIn: input.checkIn,
+      checkOut: input.checkOut,
+      adults: input.adults ?? 1,
+      children: input.children ?? 0,
+      totalAmountMinor: totalMinor,
+      notes: input.notes,
+      nights: { create: pricedNights.map((n) => ({ date: n.date, amountMinor: n.amountMinor })) },
+    },
+  });
+
+  await recordAuditEvent(
+    {
+      action: AUDIT_ACTIONS.RESERVATION_CREATED,
+      entityType: AUDIT_ENTITY_TYPES.RESERVATION,
+      entityId: reservation.id,
+      metadata: {
+        reference,
+        roomTypeId: input.roomTypeId,
+        checkIn: toIsoDate(input.checkIn),
+        checkOut: toIsoDate(input.checkOut),
+        nights: nights.length,
+        totalAmountMinor: totalMinor,
+        ...(opts.groupId ? { groupId: opts.groupId } : {}),
+      },
+    },
+    tx,
+  );
+
+  const guest = await tx.guest.findFirst({
+    where: { id: input.guestId },
+    select: { firstName: true, lastName: true, email: true, phone: true },
+  });
+  const property = await tx.property.findFirst({ where: { id: propertyId }, select: { name: true } });
+  if (guest && property) {
+    const recipient = guest.email ?? guest.phone;
+    if (recipient) {
+      const channel = guest.email ? 'EMAIL' : 'SMS';
+      const { subject, body } = reservationConfirmationMessage({
+        guestName: `${guest.firstName} ${guest.lastName}`.trim(),
+        propertyName: property.name,
+        reference,
+        checkIn: toIsoDate(input.checkIn),
+        checkOut: toIsoDate(input.checkOut),
+        nights: nights.length,
+        totalAmountMinor: totalMinor,
+      });
+      await queueNotification(
+        {
+          channel,
+          type: 'reservation.confirmation',
+          recipient,
+          subject,
+          body,
+          entityType: AUDIT_ENTITY_TYPES.RESERVATION,
+          entityId: reservation.id,
+        },
+        tx,
+      );
+    }
+  }
+
+  return { id: reservation.id, roomTypeId: input.roomTypeId };
 }
 
 /** Statuses a reservation can be actively transitioned out of by this slice. */

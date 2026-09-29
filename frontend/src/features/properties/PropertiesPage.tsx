@@ -209,6 +209,13 @@ export function PropertiesPage() {
               Calendar
             </Link>
           )}
+          {/* Block / group bookings — several rooms held under one name.
+              Presentation-only gating; route + API enforce reservations:read. */}
+          {mayReadReservations && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/blocks`}>
+              Blocks
+            </Link>
+          )}
           {/* The room-type × night occupancy grid; same read permission as
               reservations. Presentation-only gating — the route and API
               both enforce `reservations:read` themselves. */}

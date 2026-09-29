@@ -1,0 +1,288 @@
+/*
+ * Block / group bookings — list of blocks, a create dialog and a detail
+ * drawer. Built on the shared design tokens so it re-themes with the app.
+ */
+
+.groups-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.groups-breadcrumb {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.groups-breadcrumb a {
+  color: var(--text);
+  text-decoration: none;
+}
+.groups-breadcrumb a:hover {
+  color: var(--accent);
+}
+.groups-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.groups-header h1 {
+  margin: 0;
+  font-family: var(--heading, inherit);
+  font-size: var(--fs-2xl);
+  color: var(--text-h);
+}
+.groups-subtitle {
+  margin: 0.25rem 0 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+/* List ------------------------------------------------------------------ */
+.groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.85rem;
+}
+.group-card {
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.group-card:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-strong);
+}
+.group-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.group-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.group-card-name {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text-h);
+}
+.group-card-ref {
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  font-weight: 600;
+}
+.group-card-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.group-card-count {
+  font-weight: 600;
+}
+.group-card-notes {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Create dialog room lines --------------------------------------------- */
+.block-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.block-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.block-rooms-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.block-rooms-head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text-h);
+}
+.block-room-line {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.block-room-line-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.block-room-index {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-h);
+}
+.block-room-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.block-room-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* Detail drawer -------------------------------------------------------- */
+.group-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(28, 26, 23, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.group-detail {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: min(560px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.group-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.group-detail-head h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--text-h);
+}
+.group-detail-ref {
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  font-weight: 600;
+}
+.group-detail-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.75rem 1.1rem 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.group-detail-total {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text-h);
+}
+.group-detail-notes {
+  margin: 0;
+  padding: 0 1.1rem 0.5rem;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.group-detail-rooms {
+  padding: 0.5rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.group-room-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.group-room-cancelled,
+.group-room-no_show {
+  opacity: 0.6;
+}
+.group-room-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.group-room-guest {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-h);
+}
+.group-room-type {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.group-room-side {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.group-room-dates {
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.group-room-status {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-full);
+}
+.group-status-confirmed {
+  background: var(--brand-100);
+  color: var(--brand-800);
+}
+.group-status-checked_in {
+  background: var(--brand-500);
+  color: #fff;
+}
+.group-status-checked_out {
+  background: var(--slate-200);
+  color: var(--slate-700);
+}
+.group-status-cancelled,
+.group-status-no_show {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.group-room-amount {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-h);
+}
+.group-detail-foot {
+  padding: 0.9rem 1.1rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}

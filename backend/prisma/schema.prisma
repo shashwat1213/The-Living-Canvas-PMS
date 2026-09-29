@@ -272,15 +272,16 @@ model Property {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  rooms            Room[]
-  roomTypes        RoomType[]
-  propertyAccess   PropertyAccess[]
-  reservations     Reservation[]
-  workOrders       MaintenanceWorkOrder[]
-  posOutlets       PosOutlet[]
-  posOrders        PosOrder[]
-  marketingContent MarketingContent[]
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rooms             Room[]
+  roomTypes         RoomType[]
+  propertyAccess    PropertyAccess[]
+  reservations      Reservation[]
+  reservationGroups ReservationGroup[]
+  workOrders        MaintenanceWorkOrder[]
+  posOutlets        PosOutlet[]
+  posOrders         PosOrder[]
+  marketingContent  MarketingContent[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -487,8 +488,9 @@ model Guest {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  reservations Reservation[]
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reservations      Reservation[]
+  reservationGroups ReservationGroup[] @relation("ReservationGroupContact")
 
   @@index([organizationId])
   // Email is not globally unique — two organizations may each know the same
@@ -547,6 +549,12 @@ model Reservation {
   roomTypeId       String            @map("room_type_id")
   ratePlanId       String            @map("rate_plan_id")
   guestId          String            @map("guest_id")
+  /// The group/block this booking belongs to, if it was made as part of a
+  /// multi-room block (e.g. a wedding or corporate block). Null for an
+  /// ordinary standalone booking. Additive and nullable so existing
+  /// reservations are unaffected; SetNull on delete so removing the block
+  /// leaves its individual bookings intact and standalone.
+  groupId          String?           @map("group_id")
   /// The specific room, once assigned. Null until room assignment (a
   /// check-in-slice concern) — a booking is for a type, not a room.
   roomId           String?           @map("room_id")
@@ -575,6 +583,7 @@ model Reservation {
   roomType  RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   ratePlan  RatePlan           @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
   guest     Guest              @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  group     ReservationGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
   room      Room?              @relation(fields: [roomId], references: [id], onDelete: SetNull)
   nights    ReservationNight[]
   folio     Folio?
@@ -585,11 +594,46 @@ model Reservation {
   @@index([roomTypeId])
   @@index([ratePlanId])
   @@index([guestId])
+  @@index([groupId])
   // The query availability actually runs: "reservations at this property, of
   // this type, overlapping these dates". A composite index on the columns
   // that filter makes the overlap count cheap.
   @@index([propertyId, roomTypeId, checkIn, checkOut])
   @@map("reservations")
+}
+
+/// A group / block booking — several rooms reserved together under one name
+/// for one party (a wedding, a corporate block, a tour group). It is a thin
+/// header: the actual inventory, dates, pricing and lifecycle live on the
+/// child `Reservation` rows, exactly like a standalone booking, so everything
+/// downstream (availability, calendar, folios, reports) treats a block's
+/// rooms as ordinary reservations. Removing the group SetNulls its children's
+/// `groupId`, leaving each booking intact and standalone — a block is an
+/// organising convenience, never a container the bookings depend on.
+///
+/// Scoped to a Property (tenancy reaches it transitively, like RoomType and
+/// Room); `platform/tenancy/scoped-prisma.ts` scopes it through the relation.
+model ReservationGroup {
+  id             String   @id @default(uuid())
+  propertyId     String   @map("property_id")
+  /// The block's name — the party it's held for ("Sharma Wedding", "Acme Corp").
+  name           String
+  /// Human-friendly block reference (e.g. "BLK-7F3A2C"), unique per property.
+  reference      String
+  /// The guest/contact who owns the block, if one profile represents the party.
+  /// Optional: a block may be held before a lead guest is recorded.
+  contactGuestId String?  @map("contact_guest_id")
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  contactGuest Guest?        @relation("ReservationGroupContact", fields: [contactGuestId], references: [id], onDelete: SetNull)
+  reservations Reservation[]
+
+  @@unique([propertyId, reference])
+  @@index([propertyId])
+  @@map("reservation_groups")
 }
 
 /// One night of a reservation, with the price locked in at booking time.
