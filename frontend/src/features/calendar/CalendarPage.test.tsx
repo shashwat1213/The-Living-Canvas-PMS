@@ -273,4 +273,42 @@ describe('CalendarPage', () => {
       expect(after).toBeGreaterThan(before);
     });
   });
+
+  it('reassigns a booking when its bar is dragged onto another room of the same type', async () => {
+    const fetchMock = stubApi();
+    renderPage(manageSession());
+
+    // The assigned booking's bar is draggable for a manager.
+    const bar = await screen.findByRole('button', { name: /Ada Lovelace/ });
+    expect(bar).toHaveAttribute('draggable', 'true');
+
+    // Room 102 (same type, different room) is the drop target.
+    const room102Lane = (screen.getByText('102').closest('.cal-group-contents') as HTMLElement).querySelector(
+      '.cal-lane',
+    ) as HTMLElement;
+    expect(room102Lane).not.toBeNull();
+
+    // Simulate the HTML5 drag: start on the bar, drop on room 102's lane.
+    const dataTransfer = { setData: vi.fn(), getData: vi.fn(), dropEffect: '', effectAllowed: '' };
+    fireEvent.dragStart(bar, { dataTransfer });
+    fireEvent.dragOver(room102Lane, { dataTransfer });
+    fireEvent.drop(room102Lane, { dataTransfer });
+
+    // assign-room is POSTed for the dragged booking to room-102.
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/resv-1/assign-room'));
+      expect(call).toBeTruthy();
+    });
+    // Success toast surfaces.
+    expect(await screen.findByRole('status')).toHaveTextContent(/Ada Lovelace → room 102/);
+  });
+
+  it('does not make bars draggable for a read-only viewer', async () => {
+    stubApi();
+    renderPage(readOnlySession());
+
+    await screen.findByText('Ada Lovelace');
+    // Read-only bars are static divs, not draggable buttons.
+    expect(screen.queryByRole('button', { name: /Ada Lovelace/ })).not.toBeInTheDocument();
+  });
 });

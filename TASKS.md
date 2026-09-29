@@ -1125,6 +1125,15 @@ phased roadmap in the architecture review; each phase gets its own
   (347/222 total); live end-to-end assign moved a booking (unassigned 40→39,
   assigned 0→1). See DECISIONS.md.
 
+- [x] **Drag a booking bar to another room = reassign** (2026-09-29)
+
+  Direct-manipulation reassignment on the tape chart: grab an (un)assigned
+  stay and drop it on another room row of the same type. Reuses the existing
+  assign-room endpoint (no backend change beyond a room A→B regression test);
+  manager-only, same-type lanes highlight as drop targets, outcome toast.
+  Verified: typecheck/lint/build green; backend +1, frontend +2 tests
+  (349 backend / 224 frontend). See DECISIONS.md.
+
 ## Explicitly out of scope for now
 
 OTA integrations, reviews, and external payment gateways — do not start
