@@ -98,6 +98,17 @@ export const AUDIT_ACTIONS = {
   POS_ORDER_CHARGED: 'pos_order.charged',
   POS_ORDER_PAID: 'pos_order.paid',
   POS_ORDER_VOIDED: 'pos_order.voided',
+  // AI Marketing Studio: the lifecycle of a piece of generated copy. The
+  // generation itself is performed by the system (the job worker) and is
+  // tracked on the content row's status, not audited as a user action; the
+  // entries here are the *human* decisions — requesting, editing, approving,
+  // discarding and regenerating — which are the accountable acts ("who put
+  // this out under the hotel's name").
+  MARKETING_CONTENT_REQUESTED: 'marketing_content.requested',
+  MARKETING_CONTENT_EDITED: 'marketing_content.edited',
+  MARKETING_CONTENT_APPROVED: 'marketing_content.approved',
+  MARKETING_CONTENT_DISCARDED: 'marketing_content.discarded',
+  MARKETING_CONTENT_REGENERATED: 'marketing_content.regenerated',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -122,6 +133,7 @@ export const AUDIT_ENTITY_TYPES = {
   POS_OUTLET: 'pos_outlet',
   POS_PRODUCT: 'pos_product',
   POS_ORDER: 'pos_order',
+  MARKETING_CONTENT: 'marketing_content',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

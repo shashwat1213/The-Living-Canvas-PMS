@@ -2787,3 +2787,88 @@ notifications; no retry-from-UI or manual resend; no scheduled reminders
 (the `runAfter` column and backoff already support scheduling — the trigger
 is a later task). Each slots in behind the interfaces this slice
 established without reshaping them.
+
+## AI Marketing Studio — copy generation (2026-09-09)
+
+The product's signature AI feature, delivered as a property-scoped vertical
+slice: staff describe what they want (a brief), the studio generates
+marketing copy, and they review, edit, approve or discard it. Built on the
+job queue from the notifications slice — the first real consumer of that
+async backbone beyond guest confirmations. Three product forks were put to
+the owner and confirmed before building (copy first, provider-abstraction +
+stub driver, single-vertical scope); everything below was decided in-slice.
+
+**Copy first, behind a provider-agnostic seam.** `AIContentProvider`
+(`platform/ai/provider.ts`) is the one interface the module, the queue job
+and the UI are built around — none of them name a vendor. A real LLM adapter
+(OpenAI, Anthropic, self-hosted) is a drop-in registered against a provider
+key; until credentials exist, the deterministic `stubContentProvider` stands
+in, composing plausible property-grounded copy per format with no external
+call, no credentials and no cost. This is the exact channel-driver pattern
+the notifications slice established, and it matches the `AIMediaProvider`
+direction locked in ARCHITECTURE.md — copy now, image/video adapters behind
+the same shape later. The stub is deterministic on purpose: the same request
+always yields the same output, so tests assert exact strings and the whole
+pipeline runs end-to-end in dev/CI. The provider key (`stub` today,
+`openai:gpt-4o` later) is snapshotted onto each row, so an old piece always
+shows what produced it even after the default provider changes.
+
+**Generation is asynchronous, on the job queue.** Creating a piece enqueues
+a `marketing.generate` job (transactionally with the row) and the row starts
+`GENERATING`; the worker runs the provider and moves it to `DRAFT` on
+success or `FAILED` (with `lastError`) after the job's retry/backoff is
+exhausted. The handler runs in the job's org context, so `scopedPrisma`
+inside it is tenant-filtered exactly as an HTTP request — a payload naming
+another org's content resolves to nothing. It is idempotent: a row no longer
+`GENERATING` (already drafted/edited/approved/discarded) is left untouched,
+so a job that runs twice never overwrites reviewed copy. LLM latency and
+cost make async the right shape regardless of today's instant stub.
+
+**Edits win over generated text; editing un-approves.** The row keeps
+`generatedBody` (the model's output) and `editedBody` (staff edits)
+separately; the service treats a non-null `editedBody` as the authoritative
+body. Editing an APPROVED piece returns it to DRAFT and clears the approver —
+approval attests to specific words, so changing them must re-open review.
+Regenerate clears edits and re-queues a fresh generation (back to
+`GENERATING`); discard is terminal (a second discard is 409). The brief and
+tone are snapshotted on the row so a piece can be regenerated or audited
+against exactly what was asked.
+
+**System generation is not audited as a user action; human decisions are.**
+The generation itself is performed by the worker (system context, sentinel
+actor) and is tracked on the row's `status`, not written to the audit trail —
+consistent with the notification send-handler. The accountable *human* acts
+are audited in real request context: `marketing_content.requested`,
+`.edited`, `.approved`, `.discarded`, `.regenerated` — "who put this out
+under the hotel's name". `createdByUserId`/`approvedByUserId` are `SET NULL`
+FKs so the record outlives the account, like `AuditLog.actor`.
+
+**Permissions: three tiers, MANAGER and above.** `marketing:read`,
+`marketing:manage` (generate/edit/regenerate/discard) and `marketing:approve`
+are split so approval can later be held separately from authoring; all three
+sit at OWNER/ADMIN/MANAGER. STAFF is excluded for the same reason as
+`reports:read` — composing and signing off the hotel's public voice is
+management work, not a front-desk task. Mounted under
+`/properties/:propertyId/marketing`, so `requirePropertyAccess` gates every
+handler and tenancy reaches the model transitively through `property_id`
+(no `organizationId` column; scoped via `scopeByPropertyRelation`).
+
+**Migration `20260909024323_ai_marketing_content` — additive.** One table
+(`marketing_content`) and two enums; no existing table touched. Applied to
+real PostgreSQL 16 (`prisma migrate dev`).
+
+**Verified end-to-end.** typecheck/lint/build green both workspaces; backend
+339/339, frontend 212/212; `prisma migrate status` clean on real
+PostgreSQL 16. Beyond the suites, a 32-assertion live probe against the
+*running server with the real background worker* confirmed the full
+lifecycle: generate → worker drafts property-grounded copy (body grounded in
+brief and property) → edit (editedBody authoritative, isEdited) → approve →
+edit un-approves → regenerate (clears edits, redrafts) → discard (double
+discard 409); all four formats generate; status/format/search filters;
+short-brief 400, bad-status-filter 400; anonymous 401; a second org 404s on
+our property; no passwordHash leak.
+
+**Deferred deliberately.** No real LLM adapter (the seam is ready); no
+image/video generation (same seam, later); no campaigns/scheduling/channel
+publishing; no brand-voice presets beyond the free-text tone hint; no
+multi-language. Each slots in behind the interfaces this slice established.

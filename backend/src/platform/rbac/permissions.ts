@@ -113,6 +113,18 @@ export const ALL_PERMISSIONS = [
     description: "Read the organization's notification log (guest/staff messages and their delivery state).",
   },
   {
+    key: 'marketing:read',
+    description: "Read a property's AI-generated marketing content.",
+  },
+  {
+    key: 'marketing:manage',
+    description: 'Generate, edit, regenerate and discard marketing content.',
+  },
+  {
+    key: 'marketing:approve',
+    description: 'Approve marketing content for use.',
+  },
+  {
     key: 'audit:read',
     description: "Read the organization's audit trail.",
   },
@@ -192,6 +204,14 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     // deliberately excluded below — the front desk takes bookings and money,
     // it does not analyse the property's financial performance.
     'reports:read',
+    // The AI Marketing Studio is management work — a manager decides what
+    // the property publishes and signs it off — so MANAGER holds read,
+    // manage (generate/edit/regenerate/discard) and approve. STAFF is
+    // excluded below for the same reason as reports: composing and approving
+    // the hotel's public voice is not a front-desk task.
+    'marketing:read',
+    'marketing:manage',
+    'marketing:approve',
     // Point of sale: a manager configures outlets and the product catalogue
     // (manage) and can also take and settle orders (operate + read). STAFF
     // below gets read + operate but not manage — the front line rings up

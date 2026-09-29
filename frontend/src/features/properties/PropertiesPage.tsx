@@ -55,6 +55,8 @@ export function PropertiesPage() {
   const mayReadReports = hasPermission(session, 'reports:read');
   // Point of sale lives under a property; front-line read gate.
   const mayReadPos = hasPermission(session, 'pos:read');
+  // AI Marketing Studio lives under a property; management read gate.
+  const mayReadMarketing = hasPermission(session, 'marketing:read');
 
   function flashSuccess(message: string) {
     setSuccess(message);
@@ -181,6 +183,14 @@ export function PropertiesPage() {
           {mayReadPos && (
             <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/pos`}>
               Point of sale
+            </Link>
+          )}
+          {/* AI Marketing Studio — generate/review marketing copy for this
+              property. Presentation-only gating; route and API enforce
+              marketing:read. */}
+          {mayReadMarketing && (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/marketing`}>
+              Marketing
             </Link>
           )}
           {/* The front desk's core screen: bookings for this property.

@@ -1043,6 +1043,55 @@ done; **nothing below it has been started.**
   double-processes under concurrent claims and that a failing job backs off
   then lands in FAILED. See DECISIONS.md.
 
+## AI Marketing Studio — copy generation (2026-09-09)
+
+- [x] **AI Marketing Studio — property-scoped copy generation + review lifecycle** (2026-09-09)
+  The product's signature AI feature and the first real consumer of the job
+  queue beyond guest confirmations. Three product forks were confirmed with
+  the human up front: generate marketing *copy* first (image/video later
+  behind the same seam), a provider-agnostic abstraction with a deterministic
+  stub driver (real LLM adapter drops in when credentials exist), and a single
+  property-scoped vertical (generate → review lifecycle), not a full campaign
+  suite. See DECISIONS.md.
+
+  **AI seam (`platform/ai`).** `AIContentProvider` — the one interface the
+  module, queue job and UI depend on; no vendor named anywhere. Deterministic
+  `stubContentProvider` composes property-grounded copy per format with no
+  credentials/cost, so the whole pipeline runs in dev/CI. A `marketing.generate`
+  job handler runs generation in the job's org context (tenant-correct
+  `scopedPrisma`), is idempotent (a row no longer GENERATING is untouched), and
+  on provider error marks the row FAILED then re-throws so the queue's
+  retry/backoff takes over.
+
+  **Module (`modules/marketing`).** `POST /properties/:propertyId/marketing/content`
+  enqueues generation (row starts GENERATING); `GET` list (paginated,
+  filterable by status/format, searchable) + `GET /:id`; `PATCH /:id` edits
+  (editedBody authoritative, editing an approved piece un-approves it);
+  `POST /:id/regenerate` (clears edits, re-queues), `/discard` (terminal, 409
+  on repeat), `/approve`. Three permission tiers — `marketing:read`,
+  `marketing:manage`, `marketing:approve` — all OWNER/ADMIN/MANAGER (STAFF
+  excluded, like reports: authoring the hotel's public voice is management
+  work). Human decisions audited (`marketing_content.requested/edited/approved/
+  discarded/regenerated`); system generation tracked on `status`, not audited.
+  Tenancy reaches the model through `property_id` (`scopeByPropertyRelation`).
+
+  **Frontend (`features/marketing/`).** Content library page (DataTable +
+  server-side filters/search/pagination) with status badges; a generate dialog
+  (format/brief/tone) and a content dialog (view/edit/approve/discard/regenerate)
+  that auto-refreshes while a piece is GENERATING. Nav entry gated on
+  `marketing:read`.
+
+  **Migration `20260909024323_ai_marketing_content`** — additive (one table,
+  two enums; no existing table touched), applied to real PostgreSQL 16.
+
+  Verified: typecheck/lint/build green both workspaces; backend 339/339,
+  frontend 212/212; `prisma migrate status` clean on real PostgreSQL 16. A
+  32-assertion live probe against the running server *with the real background
+  worker* confirmed the full lifecycle (generate → worker-drafted
+  property-grounded copy → edit → approve → edit-un-approves → regenerate →
+  discard/409), all four formats, filters/search/validation, anonymous 401,
+  and cross-tenant 404. See DECISIONS.md.
+
 Phase 2 onward (rate plans/availability, reservations, folios,
 housekeeping, notifications/jobs infra, reports, AI Marketing Studio,
 OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the
@@ -1051,9 +1100,9 @@ phased roadmap in the architecture review; each phase gets its own
 
 ## Explicitly out of scope for now
 
-OTA integrations, reviews, external payment gateways, and the AI Marketing
-Studio — do not start these until a task here explicitly calls for them.
-(Bookings/reservations, POS and the notifications/jobs backbone have since
-been built; real notification-provider adapters are ready to wire behind the
-existing channel-driver seam when credentials exist.)
+OTA integrations, reviews, and external payment gateways — do not start
+these until a task here explicitly calls for them. (Bookings/reservations,
+POS, the notifications/jobs backbone and the AI Marketing Studio have since
+been built; real notification-provider and LLM adapters are ready to wire
+behind their existing driver seams when credentials exist.)
 

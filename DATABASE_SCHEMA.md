@@ -472,6 +472,48 @@ delivery state. Transmission is performed by a pluggable channel driver
 Indexed on `(organization_id, created_at)` (the log's default ordering),
 `(organization_id, status)`, and `(entity_type, entity_id)`.
 
+### MarketingContent
+
+One piece of AI-generated marketing copy and its review lifecycle — the
+product's signature AI Marketing Studio feature. Staff describe what they
+want (a brief) and the studio generates a social post, email blurb, promo
+description, or tagline that they review, edit, and approve. Generation
+runs on the DB-backed job queue (`platform/jobs`) through a
+provider-agnostic `AIContentProvider` seam (`platform/ai`): a deterministic
+stub driver runs today, and a real LLM adapter drops in behind the same
+interface when credentials exist.
+
+- `property_id` — owning Property (cascade). Scoped to a Property (two
+  hotels in a group market themselves independently), so tenancy reaches
+  this model **transitively through the property relation**, exactly as
+  `Room` does — no `organization_id` column; `platform/tenancy/
+  scoped-prisma.ts` scopes it through `property_id`.
+- `format` — `MarketingContentFormat` (`SOCIAL_POST` / `EMAIL` /
+  `PROMO_DESCRIPTION` / `TAGLINE`).
+- `status` — `MarketingContentStatus` (`GENERATING` / `DRAFT` / `APPROVED`
+  / `DISCARDED` / `FAILED`). A row starts `GENERATING`; the worker moves it
+  to `DRAFT` on success or `FAILED` (with `last_error`) after retries.
+- `tone` — optional voice hint carried into the prompt (e.g. `luxury`),
+  snapshotted onto the row so a later default change never rewrites what
+  this piece was generated with.
+- `brief` — the staff-supplied generation input, kept so a piece can be
+  regenerated or audited against its request.
+- `title` — short subject/label composed by generation, editable by staff.
+- `generated_body` — the model's output, set by the worker on success;
+  null while `GENERATING` or if generation `FAILED`.
+- `edited_body` — staff edits; when non-null the service treats it as the
+  authoritative body (edits win over the generated text). Editing an
+  approved piece returns it to `DRAFT` and clears the approver.
+- `provider` — which provider/model produced the copy, snapshotted (e.g.
+  `stub` today, `openai:gpt-4o` later). Null until generated.
+- `last_error` — last generation error, kept when a piece lands `FAILED`.
+- `created_by_user_id` / `approved_by_user_id` / `approved_at` — who
+  requested and who approved it; both FKs `SET NULL` so the record outlives
+  the account (like `AuditLog.actor`).
+
+Indexed on `(property_id, created_at)` (default ordering) and
+`(property_id, status)`.
+
 ## Relationships
 
 ```
@@ -484,6 +526,7 @@ User *──* Role                            (through UserRoleAssignment)
 Organization 1──* AuditLog *──0..1 User   (actor; SET NULL, not cascade)
 Organization 1──* Job                     (background queue)
 Organization 1──* Notification            (message record; optional polymorphic entity link)
+Property     1──* MarketingContent *──0..1 User  (creator/approver; SET NULL)
 ```
 
 All child rows cascade-delete with their parent (deleting an Organization
@@ -583,6 +626,16 @@ Migrations live in `backend/prisma/migrations/`:
   then exercised by the jobs/notifications test suites and a live e2e probe
   (booking → confirmation notification composed, queued, delivered by the
   worker).
+- `20260909024323_ai_marketing_content` — **additive / non-destructive**.
+  Adds the `MarketingContentFormat` and `MarketingContentStatus` enums and
+  the `marketing_content` table (FK → properties cascade; FK → users
+  `created_by`/`approved_by` set-null; indexed on `(property_id, created_at)`
+  and `(property_id, status)`). Scoped through the property relation, no
+  `organization_id` column. No existing table touched. Applied and verified
+  against real PostgreSQL 16 (`prisma migrate dev`), then exercised by the
+  marketing test suite and a 32-assertion live e2e probe (generate →
+  async worker draft → edit/approve/regenerate/discard lifecycle, format
+  filters, validation, and cross-tenant isolation).
 
 The first two were generated via `prisma migrate diff` against the
 schema file alone and verified against

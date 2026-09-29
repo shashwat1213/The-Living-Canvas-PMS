@@ -295,3 +295,58 @@ describe('AppRouter — notifications route', () => {
     expect(screen.queryByRole('heading', { name: 'Notifications' })).not.toBeInTheDocument();
   });
 });
+
+describe('AppRouter — marketing studio route', () => {
+  it('renders the studio at /app/properties/:propertyId/marketing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              url.includes('/marketing/content')
+                ? { content: [], page: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 } }
+                : url.includes('/organizations/me')
+                  ? { organization: { id: 'org-1', name: 'Canvas Group' } }
+                  : { id: 'prop-1', name: 'Seaside Villa', slug: 'seaside-villa' },
+            ),
+        } as Response),
+      ),
+    );
+
+    const value: AuthContextValue = {
+      status: 'authenticated',
+      session: readSessionClaims(
+        makeToken({
+          sub: 'user-1',
+          organizationId: 'org-1',
+          permissions: ['marketing:read'],
+          roleNames: ['MANAGER'],
+          grantedPropertyIds: ['prop-1'],
+        }),
+      ),
+      login: vi.fn(),
+      logout: vi.fn(),
+    };
+    render(
+      <AuthContext.Provider value={value}>
+        <MemoryRouter initialEntries={['/app/properties/prop-1/marketing']}>
+          <AppRouter />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Marketing Studio' })).toBeInTheDocument();
+  });
+
+  it('sends an anonymous visitor to login instead of the studio', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response));
+
+    renderAt('/app/properties/prop-1/marketing', 'anonymous');
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Marketing Studio' })).not.toBeInTheDocument();
+  });
+});

@@ -436,5 +436,6 @@ export const scopedPrisma = prisma.$extends({
     posProduct: scopeByOutletRelation(),
     posOrder: scopeByPropertyRelation(),
     posOrderItem: scopeByPosOrderRelation(),
+    marketingContent: scopeByPropertyRelation(),
   },
 });
