@@ -1,0 +1,403 @@
+/*
+ * Reservation calendar (tape chart) — the front desk's operational board.
+ * Rooms down the left (a sticky column), nights across the top, reservations
+ * as colored bars. Built on the shared design tokens (index.css :root) so it
+ * re-themes with the rest of the app. The layout is a single CSS grid: a fixed
+ * room-name column plus one equal-width column per night; each room's bars sit
+ * in an inner grid ("lane track") of just the night columns and are positioned
+ * by grid-column, so a stay spanning five nights is one bar five columns wide.
+ */
+
+.calendar-page {
+  --cal-room-col: 168px;
+  --cal-night-col: 44px;
+  --cal-row-h: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+}
+
+.calendar-breadcrumb {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.calendar-breadcrumb a {
+  color: var(--text);
+  text-decoration: none;
+}
+.calendar-breadcrumb a:hover {
+  color: var(--accent);
+}
+
+.calendar-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+}
+.calendar-header h1 {
+  margin: 0;
+  font-family: var(--heading, inherit);
+  font-size: var(--fs-2xl);
+  color: var(--text-h);
+}
+.calendar-subtitle {
+  margin: 0.25rem 0 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.calendar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+}
+.calendar-range {
+  min-width: 12rem;
+  text-align: center;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+/* Legend ---------------------------------------------------------------- */
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4, 1rem);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.cal-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.cal-swatch-oos {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--slate-300),
+    var(--slate-300) 3px,
+    var(--slate-100) 3px,
+    var(--slate-100) 6px
+  );
+  border: 1px solid var(--border-strong);
+}
+
+/* Grid ------------------------------------------------------------------ */
+.calendar-grid-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.calendar-grid {
+  display: grid;
+  /* gridTemplateColumns is set inline (room col + one per night). */
+  min-width: max-content;
+  align-items: stretch;
+}
+
+/* Header row */
+.cal-corner {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+  padding: 0.5rem 0.75rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+}
+.cal-datecol {
+  border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border);
+  padding: 0.3rem 0;
+  text-align: center;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cal-datecol-weekend {
+  background: var(--slate-100);
+}
+.cal-date-weekday {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+.cal-date-day {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+/* Room-type group heading (spans the full width) */
+.cal-group-contents {
+  display: contents;
+}
+.cal-group-head {
+  position: sticky;
+  left: 0;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  padding: 0.35rem 0.75rem;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-h);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cal-group-code {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-full);
+  padding: 0.05rem 0.5rem;
+}
+.cal-group-count {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Room row header (sticky left) */
+.cal-rowhead {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border-strong);
+  padding: 0.3rem 0.75rem;
+  min-height: var(--cal-row-h);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+.cal-room-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-h);
+}
+.cal-room-meta {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.cal-rowhead-oos {
+  background: var(--slate-50);
+}
+.cal-rowhead-oos .cal-room-name {
+  color: var(--text);
+}
+.cal-rowhead-unassigned {
+  background: var(--warning-bg);
+  border-right-color: var(--warning-border);
+}
+.cal-rowhead-unassigned .cal-room-name {
+  color: var(--warning);
+}
+.cal-rowhead-unassigned .cal-room-meta {
+  color: var(--warning);
+}
+
+/* A lane: the horizontal band of night cells for one room. */
+.cal-lane {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  min-height: var(--cal-row-h);
+  /* Faint night gridlines behind the bars, one per night column. */
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent,
+    transparent calc(var(--cal-night-col) - 1px),
+    var(--border) calc(var(--cal-night-col) - 1px),
+    var(--border) var(--cal-night-col)
+  );
+  background-size: 100% 100%;
+}
+.cal-lane-oos {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--slate-100),
+    var(--slate-100) 5px,
+    var(--slate-50) 5px,
+    var(--slate-50) 10px
+  );
+}
+.cal-lane-unassigned {
+  background: var(--warning-bg);
+}
+.cal-lane-track {
+  display: grid;
+  /* gridTemplateColumns set inline (one per night). */
+  grid-auto-rows: min-content;
+  align-content: center;
+  gap: 3px 0;
+  padding: 4px 0;
+  min-height: var(--cal-row-h);
+}
+
+/* A reservation bar. */
+.cal-bar {
+  margin: 0 2px;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.1;
+  cursor: default;
+  min-width: 0;
+  box-shadow: var(--shadow-xs);
+}
+button.cal-bar {
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+button.cal-bar:hover {
+  filter: brightness(0.96);
+}
+button.cal-bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cal-bar-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-bar-ref {
+  font-size: 0.625rem;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-bar-open-start {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.cal-bar-open-end {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Status colors — bars and legend swatches share these. */
+.cal-bar-confirmed {
+  background: var(--brand-100);
+  border-color: var(--brand-200);
+  color: var(--brand-800);
+}
+.cal-bar-checked_in {
+  background: var(--brand-500);
+  border-color: var(--brand-600);
+  color: #fff;
+}
+.cal-bar-checked_in .cal-bar-ref {
+  opacity: 0.9;
+}
+.cal-bar-checked_out {
+  background: var(--slate-200);
+  border-color: var(--slate-300);
+  color: var(--slate-700);
+}
+.cal-bar-cancelled,
+.cal-bar-no_show {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+/* Legend swatches reuse the bar colors but need a fixed size. */
+.cal-swatch.cal-bar-confirmed,
+.cal-swatch.cal-bar-checked_in,
+.cal-swatch.cal-bar-checked_out {
+  padding: 0;
+  margin: 0;
+  box-shadow: none;
+}
+
+/* Detail popover -------------------------------------------------------- */
+.cal-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(28, 26, 23, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.cal-detail {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: min(420px, 100%);
+  overflow: hidden;
+}
+.cal-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.cal-detail-head h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--text-h);
+}
+.cal-detail-body {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.cal-detail-body > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: var(--fs-sm);
+}
+.cal-detail-body dt {
+  color: var(--text-muted);
+}
+.cal-detail-body dd {
+  margin: 0;
+  color: var(--text-h);
+  font-weight: 500;
+  text-align: right;
+}
+.cal-detail-foot {
+  padding: 0.85rem 1.1rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
