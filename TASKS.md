@@ -1157,6 +1157,19 @@ phased roadmap in the architecture review; each phase gets its own
   Verified: typecheck/lint/build green; migrate status clean; backend +7,
   frontend +7 tests (358 backend / 234 frontend). See DECISIONS.md.
 
+- [x] **Online payments on folios — gateway seam + Razorpay** (2026-09-29)
+
+  Take a folio balance online through a `platform/payments` gateway seam.
+  Additive migration: `PaymentIntent` model + nullable unique
+  `Payment.paymentIntentId`. Stub provider (HMAC-signed, constant-time verify)
+  active by default; code-ready Razorpay adapter activates from env. Money
+  posts only on verified capture (one CARD payment per intent, no
+  double-capture); dev `simulate` route drives the demo/CI flow without an
+  account. `payments:manage`/`read`; property-scoped. Frontend: "Pay online"
+  on the folio. Verified: typecheck/lint/build green; migrate status clean;
+  backend +6, frontend +1 tests. ⚠️ Live needs RAZORPAY_KEY_ID/SECRET; stub
+  runs until then. See DECISIONS.md.
+
 ## Explicitly out of scope for now
 
 OTA integrations, reviews, and external payment gateways — do not start

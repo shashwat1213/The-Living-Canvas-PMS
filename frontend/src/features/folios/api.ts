@@ -1,5 +1,5 @@
 import { apiFetch } from '../../lib/api';
-import type { AddChargeInput, AddPaymentInput, Folio } from './types';
+import type { AddChargeInput, AddPaymentInput, Folio, PaymentIntent } from './types';
 
 /**
  * The only place folio endpoints are named. A folio lives under a reservation,
@@ -39,4 +39,35 @@ export function reopenFolio(propertyId: string, reservationId: string): Promise<
   return apiFetch<{ folio: Folio }>(`${base(propertyId, reservationId)}/reopen`, { method: 'POST' }).then(
     (res) => res.folio,
   );
+}
+
+/** Open an online payment intent for an amount owed. Returns the CREATED intent
+ * (with the gateway order id) — the client opens the provider's checkout next. */
+export function createPaymentIntent(
+  propertyId: string,
+  reservationId: string,
+  amountMinor: number,
+): Promise<PaymentIntent> {
+  return apiFetch<{ intent: PaymentIntent }>(`${base(propertyId, reservationId)}/payment-intents`, {
+    method: 'POST',
+    body: { amountMinor },
+  }).then((res) => res.intent);
+}
+
+/**
+ * Complete an intent as if the gateway checkout succeeded. Backed by the
+ * dev/demo `simulate` route (stub gateway only) — with live Razorpay this is
+ * replaced by the SDK's signed return posted to `/verify`. Kept as the single
+ * "the payment went through" call the dialog makes so swapping providers is a
+ * frontend-local change.
+ */
+export function completePaymentIntent(
+  propertyId: string,
+  reservationId: string,
+  intentId: string,
+): Promise<PaymentIntent> {
+  return apiFetch<{ intent: PaymentIntent }>(
+    `${base(propertyId, reservationId)}/payment-intents/${intentId}/simulate`,
+    { method: 'POST' },
+  ).then((res) => res.intent);
 }

@@ -64,3 +64,17 @@ export interface AddPaymentInput {
   reference?: string;
   note?: string;
 }
+
+/** An online payment attempt through the gateway seam. */
+export interface PaymentIntent {
+  id: string;
+  folioId: string;
+  amountMinor: number;
+  status: 'CREATED' | 'PAID' | 'FAILED';
+  provider: string;
+  gatewayOrderId: string | null;
+  gatewayPaymentId: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

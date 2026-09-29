@@ -119,4 +119,45 @@ describe('FolioDialog', () => {
     expect(screen.getByRole('button', { name: 'Reopen folio' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Record' })).not.toBeInTheDocument();
   });
+
+  it('settles the balance online through the payment-gateway seam', async () => {
+    // A stub that speaks both the folio and payment-intent endpoints: opening
+    // an intent returns { intent }, simulating it returns the PAID intent, and
+    // the follow-up GET returns a fully-paid folio.
+    let opened = false;
+    let completed = false;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST' && url.includes('/payment-intents') && url.endsWith('/simulate')) {
+        completed = true;
+        return Promise.resolve(jsonResponse({ intent: { id: 'pi-1', status: 'PAID' } }));
+      }
+      if (method === 'POST' && url.includes('/payment-intents')) {
+        opened = true;
+        return Promise.resolve(jsonResponse({ intent: { id: 'pi-1', status: 'CREATED', gatewayOrderId: 'stub_order_pi-1' } }));
+      }
+      // GET: before completion show the balance due; after, show it settled.
+      const paid = completed;
+      return Promise.resolve(
+        jsonResponse({
+          folio: paid
+            ? folio({ payments: [{ id: 'p1', method: 'CARD', amountMinor: 900000, reference: 'stub_pay_x', note: null, createdAt: '' }] })
+            : folio(),
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<FolioDialog propertyId={PROPERTY_ID} reservationId={RESERVATION_ID} reference="LC-1" mayManage onClose={vi.fn()} />);
+
+    await screen.findByText('Room charge — booking LC-1');
+    fireEvent.click(screen.getByRole('button', { name: /Pay .* online/ }));
+
+    await waitFor(() => {
+      expect(opened).toBe(true);
+      expect(completed).toBe(true);
+    });
+    // The folio refetch now shows it settled.
+    expect(await screen.findByText('Settled')).toBeInTheDocument();
+  });
 });
