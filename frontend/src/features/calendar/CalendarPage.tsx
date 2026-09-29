@@ -67,15 +67,24 @@ function ReservationBar({
   block,
   onSelect,
   interactive,
+  draggable = false,
+  onDragStart,
+  onDragEnd,
+  isDragging = false,
 }: {
   block: CalendarBlock;
   onSelect?: (block: CalendarBlock) => void;
   interactive: boolean;
+  draggable?: boolean;
+  onDragStart?: (block: CalendarBlock) => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
 }) {
   const guests = block.adults + block.children;
   const title =
     `${block.guestName} · ${block.reference}\n` +
-    `${block.checkIn} → ${block.checkOut} · ${guests} guest${guests === 1 ? '' : 's'} · ${STATUS_LABEL[block.status]}`;
+    `${block.checkIn} → ${block.checkOut} · ${guests} guest${guests === 1 ? '' : 's'} · ${STATUS_LABEL[block.status]}` +
+    (draggable ? '\nDrag to a room row to (re)assign' : '');
   const style = {
     // Bars live inside `.cal-lane-track`, a grid of only the night columns
     // (no room-name column), so columns are 1-based on the nights directly.
@@ -85,11 +94,31 @@ function ReservationBar({
   const className =
     `cal-bar cal-bar-${block.status.toLowerCase()}` +
     (block.continuesBefore ? ' cal-bar-open-start' : '') +
-    (block.continuesAfter ? ' cal-bar-open-end' : '');
+    (block.continuesAfter ? ' cal-bar-open-end' : '') +
+    (draggable ? ' cal-bar-draggable' : '') +
+    (isDragging ? ' cal-bar-dragging' : '');
 
   if (interactive && onSelect) {
     return (
-      <button type="button" className={className} style={style} title={title} onClick={() => onSelect(block)}>
+      <button
+        type="button"
+        className={className}
+        style={style}
+        title={title}
+        onClick={() => onSelect(block)}
+        draggable={draggable}
+        onDragStart={
+          draggable && onDragStart
+            ? (e) => {
+                // A payload marks this as an internal reservation drag.
+                e.dataTransfer.setData('text/plain', block.id);
+                e.dataTransfer.effectAllowed = 'move';
+                onDragStart(block);
+              }
+            : undefined
+        }
+        onDragEnd={draggable ? onDragEnd : undefined}
+      >
         <span className="cal-bar-label">
           {block.continuesBefore && <span aria-hidden="true">‹ </span>}
           {block.guestName}
@@ -120,6 +149,13 @@ export function CalendarPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<CalendarBlock | null>(null);
+
+  // Drag-to-(re)assign state. `dragBlock` is the reservation being dragged;
+  // `dropRoomId` is the room lane currently hovered (for a highlight); `toast`
+  // surfaces the outcome of a drop.
+  const [dragBlock, setDragBlock] = useState<CalendarBlock | null>(null);
+  const [dropRoomId, setDropRoomId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
 
   // Presentation only — the route and API both enforce this themselves.
   const mayRead = hasPermission(session, 'reservations:read');
@@ -164,6 +200,44 @@ export function CalendarPage() {
     setTo(addDays(today, DEFAULT_WINDOW_NIGHTS));
   }
 
+  /**
+   * Drop a dragged reservation onto a room row → (re)assign it. Room-type
+   * mismatch and no-op (same room) are caught client-side for instant
+   * feedback; everything else (occupied, out of service, race) is enforced by
+   * the assign-room endpoint and surfaced from its error. On success the board
+   * refetches so the bar lands on its new room.
+   */
+  async function handleDropOnRoom(roomId: string, roomTypeId: string, roomName: string) {
+    const block = dragBlock;
+    setDragBlock(null);
+    setDropRoomId(null);
+    if (!block || !propertyId) return;
+
+    if (block.roomId === roomId) return; // dropped where it already is
+    if (block.roomTypeId !== roomTypeId) {
+      setToast({ kind: 'error', message: `${block.guestName} is a different room type than ${roomName}.` });
+      return;
+    }
+
+    try {
+      await assignRoom(propertyId, block.id, roomId);
+      setToast({ kind: 'success', message: `${block.guestName} → room ${roomName}.` });
+      await load();
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        message: err instanceof ApiError ? err.message : 'Could not reassign the booking.',
+      });
+    }
+  }
+
+  // Auto-dismiss the toast so it doesn't linger.
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const dates = calendar?.dates ?? [];
   // The outer grid template: a fixed room-name column plus one equal column per night.
   const gridStyle = useMemo(
@@ -200,7 +274,7 @@ export function CalendarPage() {
         <div>
           <h1>Reservation calendar{property ? ` — ${property.name}` : ''}</h1>
           <p className="calendar-subtitle">
-            Every room, every night. Bars are stays — drag the window to plan ahead or review arrivals.
+            Every room, every night. Bars are stays{mayManage ? ' — drag one onto another room to reassign' : ''}.
           </p>
         </div>
         <div className="calendar-controls">
@@ -273,6 +347,13 @@ export function CalendarPage() {
                         block={block}
                         onSelect={setSelected}
                         interactive={mayManage}
+                        draggable={mayManage}
+                        onDragStart={setDragBlock}
+                        onDragEnd={() => {
+                          setDragBlock(null);
+                          setDropRoomId(null);
+                        }}
+                        isDragging={dragBlock?.id === block.id}
                       />
                     ))}
                   </div>
@@ -293,6 +374,11 @@ export function CalendarPage() {
                 {rt.rooms.map((room) => {
                   const outOfService = room.status !== 'ACTIVE';
                   const blocks = calendar.assigned[room.id] ?? [];
+                  // A room is a valid drop target while dragging a booking of
+                  // its own type, unless it's out of service.
+                  const canDrop =
+                    !!dragBlock && !outOfService && dragBlock.roomTypeId === rt.id && dragBlock.roomId !== room.id;
+                  const isDropTarget = canDrop && dropRoomId === room.id;
                   return (
                     <div className="cal-group-contents" key={room.id} role="row">
                       <div className={`cal-rowhead${outOfService ? ' cal-rowhead-oos' : ''}`} role="rowheader">
@@ -303,8 +389,39 @@ export function CalendarPage() {
                         </span>
                       </div>
                       <div
-                        className={`cal-lane${outOfService ? ' cal-lane-oos' : ''}`}
+                        className={
+                          `cal-lane${outOfService ? ' cal-lane-oos' : ''}` +
+                          (canDrop ? ' cal-lane-droppable' : '') +
+                          (isDropTarget ? ' cal-lane-dropover' : '')
+                        }
                         style={{ gridColumn: `2 / span ${dates.length}` }}
+                        onDragOver={
+                          canDrop
+                            ? (e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (dropRoomId !== room.id) setDropRoomId(room.id);
+                              }
+                            : undefined
+                        }
+                        onDragLeave={
+                          canDrop
+                            ? (e) => {
+                                // Only clear when leaving the lane itself, not a child.
+                                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                  setDropRoomId((cur) => (cur === room.id ? null : cur));
+                                }
+                              }
+                            : undefined
+                        }
+                        onDrop={
+                          canDrop
+                            ? (e) => {
+                                e.preventDefault();
+                                void handleDropOnRoom(room.id, rt.id, room.name);
+                              }
+                            : undefined
+                        }
                       >
                         <div className="cal-lane-track" style={trackStyle}>
                           {blocks.map((block) => (
@@ -313,6 +430,13 @@ export function CalendarPage() {
                               block={block}
                               onSelect={setSelected}
                               interactive={mayManage}
+                              draggable={mayManage}
+                              onDragStart={setDragBlock}
+                              onDragEnd={() => {
+                                setDragBlock(null);
+                                setDropRoomId(null);
+                              }}
+                              isDragging={dragBlock?.id === block.id}
                             />
                           ))}
                         </div>
@@ -326,6 +450,12 @@ export function CalendarPage() {
         </div>
       ) : (
         !error && <p className="empty-state">Loading the calendar…</p>
+      )}
+
+      {toast && (
+        <div className={`cal-toast cal-toast-${toast.kind}`} role="status" aria-live="polite">
+          {toast.message}
+        </div>
       )}
 
       {selected && (

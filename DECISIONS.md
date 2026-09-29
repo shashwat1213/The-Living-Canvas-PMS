@@ -2917,6 +2917,45 @@ path with free/occupied option state + refetch, read-only no-assign). Verified
 live end-to-end against the running server: assigning a room from the board
 moved a booking (unassigned 40 → 39, assigned rooms 0 → 1) and persisted.
 
-**Deferred deliberately.** Drag-to-move / drag-to-resize a bar (assignment via
-the picker covers the core need first); group/block multi-room bookings; a
-month zoom level. Each builds on the positions this slice already computes.
+**Deferred deliberately.** Drag-to-resize a bar (changing stay dates); group/
+block multi-room bookings; a month zoom level. Each builds on the positions
+this slice already computes.
+
+---
+
+## 2026-09-29 — Drag a booking bar to another room = reassign
+
+**Context:** The tape chart could assign a room via a popover picker, but the
+gesture every commercial PMS trains its front desk on is direct manipulation:
+grab a stay and drop it on another room row. This is the calendar's most
+recognisable interaction and the fastest way to move a guest.
+
+**Decision:** Make assigned and unassigned reservation bars HTML5-draggable
+(managers only) and room lanes drop targets. Dropping a bar on a room of the
+same type calls the existing `assign-room` endpoint and refetches; the bar
+lands on its new row.
+
+- **No backend change.** `assignRoom` already supported re-assignment
+  (audit records `previousRoomId`; `occupiedRoomIds` excludes the booking
+  itself so moving within its own window never false-conflicts). Added a
+  backend regression test proving room A → B frees room A.
+- **Guardrails.** Only same-room-type lanes light up as drop targets while
+  dragging; out-of-service rooms and the booking's current room are excluded.
+  A drop on a different type is refused client-side with a toast; occupancy /
+  out-of-service / races stay enforced by the endpoint and surface its error.
+- **Permission.** Manager-only (`reservations:manage`); read-only viewers keep
+  static, non-draggable bars.
+- **Feedback.** Drop target highlights on hover; an outcome toast (success or
+  the server's error) auto-dismisses.
+
+**Verification.** typecheck/lint/build green; frontend +2 tests (manager drag
+→ assign-room POST + success toast; read-only bars not draggable), backend +1
+(A→B reassignment frees A) — 12 calendar / 349 backend / 224 frontend total.
+Note: real-browser HTML5 drag-and-drop is not reliably scriptable (a known
+automation limitation), so the drop path is covered by dispatched drag events
+in jsdom rather than a headless mouse drag; the underlying assign-room write is
+separately proven live.
+
+**Deferred deliberately.** Drag-to-resize (changing dates); dragging onto a
+different date to shift the stay; group/block bookings; keyboard-accessible
+reassignment (the popover picker remains the a11y path).

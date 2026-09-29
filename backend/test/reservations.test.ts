@@ -353,6 +353,50 @@ describe('reservations — room assignment & check-in/out', () => {
     expect(assign.body.reservation.room.id).toBe(roomId);
   });
 
+  it('re-assigns a booking from one room to another and frees the first', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 2 });
+
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+
+    const rooms = await roomsOf(token, ids.propertyId);
+    const [roomA, roomB] = rooms;
+
+    // First assignment → room A.
+    const first = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assign-room`)
+      .set(...auth)
+      .send({ roomId: roomA.id });
+    expect(first.status).toBe(200);
+    expect(first.body.reservation.room.id).toBe(roomA.id);
+
+    // Re-assign the same booking → room B (the drag-to-reassign case).
+    const second = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/assign-room`)
+      .set(...auth)
+      .send({ roomId: roomB.id });
+    expect(second.status).toBe(200);
+    expect(second.body.reservation.room.id).toBe(roomB.id);
+
+    // Room A is free again: a new overlapping booking can take it.
+    const other = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const otherId = other.body.reservation.id as string;
+    const reuseA = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${otherId}/assign-room`)
+      .set(...auth)
+      .send({ roomId: roomA.id });
+    expect(reuseA.status).toBe(200);
+    expect(reuseA.body.reservation.room.id).toBe(roomA.id);
+  });
+
   it('refuses a room of a different type, out of service, or already occupied', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
