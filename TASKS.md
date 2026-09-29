@@ -1145,6 +1145,18 @@ phased roadmap in the architecture review; each phase gets its own
   build green; backend +3, frontend +3 tests (351 backend / 227 frontend).
   See DECISIONS.md.
 
+- [x] **Group / block bookings — multi-room under one name** (2026-09-29)
+
+  Hold several rooms together as a named block (wedding, corporate, tour).
+  Additive migration: `ReservationGroup` header + nullable `Reservation.groupId`
+  (SetNull) — children stay ordinary reservations. New shared `bookOneInTx`
+  core books each room atomically in one Serializable transaction (whole block
+  rolls back if any room can't be placed). `POST /reservation-groups` (+list/
+  detail/cancel), reuses reservations:read/manage; property-scoped (cross-org
+  404). Frontend: Blocks page + New-block dialog with repeatable room lines.
+  Verified: typecheck/lint/build green; migrate status clean; backend +7,
+  frontend +7 tests (358 backend / 234 frontend). See DECISIONS.md.
+
 ## Explicitly out of scope for now
 
 OTA integrations, reviews, and external payment gateways — do not start

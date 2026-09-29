@@ -20,6 +20,7 @@ import { guestsRouter } from './modules/guests/routes.js';
 import { propertiesRouter } from './modules/properties/routes.js';
 import { ratePlansRouter } from './modules/rate-plans/routes.js';
 import { reservationsRouter } from './modules/reservations/routes.js';
+import { reservationGroupsRouter } from './modules/reservation-groups/routes.js';
 import { reportsRouter } from './modules/reports/routes.js';
 import { posRouter } from './modules/pos/routes.js';
 import { roomTypesRouter } from './modules/room-types/routes.js';
@@ -59,6 +60,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/room-types', roomTypesRouter);
   v1.use('/properties/:propertyId/room-types/:roomTypeId/rate-plans', ratePlansRouter);
   v1.use('/properties/:propertyId/reservations', reservationsRouter);
+  v1.use('/properties/:propertyId/reservation-groups', reservationGroupsRouter);
   v1.use('/properties/:propertyId/reservations/:reservationId/folio', foliosRouter);
   v1.use('/properties/:propertyId/availability', availabilityRouter);
   v1.use('/properties/:propertyId/calendar', calendarRouter);
