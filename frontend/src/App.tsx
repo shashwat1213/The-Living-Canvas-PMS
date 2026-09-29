@@ -24,7 +24,7 @@ function App() {
   }, []);
 
   return (
-    <main className="shell">
+    <main className="home-shell">
       <h1>The Living Canvas PMS</h1>
       <p className="tagline">Multi-property hospitality management platform</p>
       <p className="api-status" data-status={apiStatus}>
