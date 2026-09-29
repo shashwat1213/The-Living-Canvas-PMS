@@ -15,7 +15,7 @@ import {
   type ReservationListRow,
   type ReservationsDb,
 } from './repository.js';
-import type { AssignRoomInput, CancelReservationInput, CheckInInput, CreateReservationInput, ListReservationsQuery } from './schemas.js';
+import type { AssignRoomInput, CancelReservationInput, CheckInInput, CreateReservationInput, ListReservationsQuery, RescheduleReservationInput } from './schemas.js';
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -434,6 +434,97 @@ export async function assignRoom(propertyId: string, id: string, input: AssignRo
             roomId: room.id,
             roomName: room.name,
             ...(before.roomId && before.roomId !== room.id ? { previousRoomId: before.roomId } : {}),
+          },
+        },
+        tx,
+      );
+    },
+    { isolationLevel: 'Serializable' },
+  );
+
+  return getReservation(propertyId, id);
+}
+
+/**
+ * Move a booking to new stay dates (drag-to-resize / drag-to-move on the
+ * calendar). The room type and rate plan are unchanged; only the window moves.
+ *
+ * Only an occupying booking that hasn't departed — CONFIRMED or CHECKED_IN —
+ * can be rescheduled (a cancelled/checked-out/no-show stay is history). The
+ * whole thing runs Serializable and repeats the create-path guards against the
+ * NEW dates: the stay is re-priced from the same rate plan (every new night
+ * must have a rate, or it's a 400 naming the gaps), type-level availability is
+ * re-checked excluding this booking itself, and — if a physical room is already
+ * assigned — that room must still be free across the new window. The per-night
+ * price snapshot and `totalAmountMinor` are regenerated so the folio and
+ * reports bill the new stay, and the move is audited with the old/new dates.
+ */
+export async function rescheduleReservation(
+  propertyId: string,
+  id: string,
+  input: RescheduleReservationInput,
+): Promise<ReservationView> {
+  const before = await getReservation(propertyId, id);
+  if (before.status !== 'CONFIRMED' && before.status !== 'CHECKED_IN') {
+    throw new ConflictError(`A ${before.status.toLowerCase().replace('_', '-')} booking cannot be rescheduled.`);
+  }
+
+  const nights = nightsBetween(input.checkIn, input.checkOut);
+
+  await scopedPrisma.$transaction(
+    async (tx) => {
+      // Re-price the new stay from the same rate plan (400s on any unpriced night).
+      const { pricedNights, totalMinor } = await priceStay(before.ratePlanId, nights, tx);
+
+      // Type-level availability for the new window, excluding this booking.
+      const sellableRooms = await reservationsRepository.countSellableRooms(propertyId, before.roomTypeId, tx);
+      const booked = await reservationsRepository.countOverlapping(
+        propertyId,
+        before.roomTypeId,
+        input.checkIn,
+        input.checkOut,
+        tx,
+        id,
+      );
+      if (booked >= sellableRooms) {
+        throw new ConflictError(
+          `No availability: all ${sellableRooms} room${sellableRooms === 1 ? '' : 's'} of this type are booked for the new dates.`,
+        );
+      }
+
+      // If a specific room is assigned, it must still be free for the new window.
+      if (before.roomId) {
+        const occupied = await reservationsRepository.occupiedRoomIds(propertyId, input.checkIn, input.checkOut, id, tx);
+        if (occupied.has(before.roomId)) {
+          throw new ConflictError('The assigned room is occupied for the new dates. Reassign the room or pick other dates.');
+        }
+      }
+
+      // Replace the per-night snapshot and the total to match the new stay.
+      await tx.reservationNight.deleteMany({ where: { reservationId: id } });
+      await tx.reservation.update({
+        where: { id },
+        data: {
+          checkIn: input.checkIn,
+          checkOut: input.checkOut,
+          totalAmountMinor: totalMinor,
+          nights: { create: pricedNights.map((n) => ({ date: n.date, amountMinor: n.amountMinor })) },
+        },
+      });
+
+      await recordAuditEvent(
+        {
+          action: AUDIT_ACTIONS.RESERVATION_RESCHEDULED,
+          entityType: AUDIT_ENTITY_TYPES.RESERVATION,
+          entityId: id,
+          metadata: {
+            reference: before.reference,
+            previousCheckIn: before.checkIn,
+            previousCheckOut: before.checkOut,
+            checkIn: toIsoDate(input.checkIn),
+            checkOut: toIsoDate(input.checkOut),
+            previousTotalMinor: before.totalAmountMinor,
+            totalMinor,
           },
         },
         tx,

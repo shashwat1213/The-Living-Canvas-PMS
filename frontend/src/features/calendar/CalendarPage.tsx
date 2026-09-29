@@ -1,3 +1,4 @@
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
@@ -7,7 +8,7 @@ import { ApiError } from '../../lib/api';
 import { getProperty } from '../properties/api';
 import type { Property } from '../properties/types';
 import { getCalendar } from './api';
-import { assignRoom, listAssignableRooms } from '../reservations/api';
+import { assignRoom, listAssignableRooms, rescheduleReservation } from '../reservations/api';
 import type { AssignableRoom } from '../reservations/types';
 import {
   DEFAULT_WINDOW_NIGHTS,
@@ -62,6 +63,9 @@ const HK_LABEL: Record<CalendarRoom['housekeepingStatus'], string> = {
   INSPECTED: 'Inspected',
 };
 
+/** Pixel width of one night column — kept in sync with --cal-night-col in the CSS. */
+const NIGHT_COL_PX = 44;
+
 /** A single reservation bar, positioned by grid column. */
 function ReservationBar({
   block,
@@ -71,6 +75,8 @@ function ReservationBar({
   onDragStart,
   onDragEnd,
   isDragging = false,
+  resizable = false,
+  onResize,
 }: {
   block: CalendarBlock;
   onSelect?: (block: CalendarBlock) => void;
@@ -79,12 +85,15 @@ function ReservationBar({
   onDragStart?: (block: CalendarBlock) => void;
   onDragEnd?: () => void;
   isDragging?: boolean;
+  resizable?: boolean;
+  onResize?: (block: CalendarBlock, edge: 'start' | 'end', nightDelta: number) => void;
 }) {
   const guests = block.adults + block.children;
   const title =
     `${block.guestName} · ${block.reference}\n` +
     `${block.checkIn} → ${block.checkOut} · ${guests} guest${guests === 1 ? '' : 's'} · ${STATUS_LABEL[block.status]}` +
-    (draggable ? '\nDrag to a room row to (re)assign' : '');
+    (draggable ? '\nDrag to a room row to (re)assign' : '') +
+    (resizable ? '\nDrag an edge to change the dates' : '');
   const style = {
     // Bars live inside `.cal-lane-track`, a grid of only the night columns
     // (no room-name column), so columns are 1-based on the nights directly.
@@ -98,34 +107,78 @@ function ReservationBar({
     (draggable ? ' cal-bar-draggable' : '') +
     (isDragging ? ' cal-bar-dragging' : '');
 
+  // Pointer-based edge resize: track the horizontal drag, snap to whole nights,
+  // and fire once on release with the night delta (negative = earlier).
+  function startResize(edge: 'start' | 'end') {
+    return (e: ReactPointerEvent) => {
+      if (!resizable || !onResize) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      let lastDelta = 0;
+      const onMove = (ev: PointerEvent) => {
+        lastDelta = Math.round((ev.clientX - startX) / NIGHT_COL_PX);
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        if (lastDelta !== 0) onResize(block, edge, lastDelta);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    };
+  }
+
+  const resizeHandles = resizable ? (
+    <>
+      {!block.continuesBefore && (
+        <span
+          className="cal-bar-handle cal-bar-handle-start"
+          onPointerDown={startResize('start')}
+          role="separator"
+          aria-label="Change check-in date"
+        />
+      )}
+      {!block.continuesAfter && (
+        <span
+          className="cal-bar-handle cal-bar-handle-end"
+          onPointerDown={startResize('end')}
+          role="separator"
+          aria-label="Change check-out date"
+        />
+      )}
+    </>
+  ) : null;
+
   if (interactive && onSelect) {
     return (
-      <button
-        type="button"
-        className={className}
-        style={style}
-        title={title}
-        onClick={() => onSelect(block)}
-        draggable={draggable}
-        onDragStart={
-          draggable && onDragStart
-            ? (e) => {
-                // A payload marks this as an internal reservation drag.
-                e.dataTransfer.setData('text/plain', block.id);
-                e.dataTransfer.effectAllowed = 'move';
-                onDragStart(block);
-              }
-            : undefined
-        }
-        onDragEnd={draggable ? onDragEnd : undefined}
-      >
-        <span className="cal-bar-label">
-          {block.continuesBefore && <span aria-hidden="true">‹ </span>}
-          {block.guestName}
-          {block.continuesAfter && <span aria-hidden="true"> ›</span>}
-        </span>
-        <span className="cal-bar-ref">{block.reference}</span>
-      </button>
+      <div className={className} style={style} title={title}>
+        {resizeHandles}
+        <button
+          type="button"
+          className="cal-bar-body"
+          onClick={() => onSelect(block)}
+          draggable={draggable}
+          onDragStart={
+            draggable && onDragStart
+              ? (e) => {
+                  // A payload marks this as an internal reservation drag.
+                  e.dataTransfer.setData('text/plain', block.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  onDragStart(block);
+                }
+              : undefined
+          }
+          onDragEnd={draggable ? onDragEnd : undefined}
+        >
+          <span className="cal-bar-label">
+            {block.continuesBefore && <span aria-hidden="true">‹ </span>}
+            {block.guestName}
+            {block.continuesAfter && <span aria-hidden="true"> ›</span>}
+          </span>
+          <span className="cal-bar-ref">{block.reference}</span>
+        </button>
+      </div>
     );
   }
   return (
@@ -237,6 +290,41 @@ export function CalendarPage() {
     const t = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  /**
+   * Resize a stay by dragging an edge. `edge` is which end moved and
+   * `nightDelta` how many nights (signed). Dragging the start edge moves
+   * check-in; the end edge moves check-out. We keep at least a one-night stay
+   * and send the new window to the reschedule endpoint, which re-prices and
+   * re-checks availability; its error (or success) surfaces as a toast.
+   */
+  async function handleResize(block: CalendarBlock, edge: 'start' | 'end', nightDelta: number) {
+    if (!propertyId || nightDelta === 0) return;
+    let checkIn = block.checkIn;
+    let checkOut = block.checkOut;
+    if (edge === 'start') {
+      const proposed = addDays(block.checkIn, nightDelta);
+      // Can't move check-in to or past check-out (min one night).
+      if (proposed >= block.checkOut) return;
+      checkIn = proposed;
+    } else {
+      const proposed = addDays(block.checkOut, nightDelta);
+      if (proposed <= block.checkIn) return;
+      checkOut = proposed;
+    }
+    if (checkIn === block.checkIn && checkOut === block.checkOut) return;
+
+    try {
+      await rescheduleReservation(propertyId, block.id, checkIn, checkOut);
+      setToast({ kind: 'success', message: `${block.guestName}: ${checkIn} → ${checkOut}.` });
+      await load();
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        message: err instanceof ApiError ? err.message : 'Could not change the dates.',
+      });
+    }
+  }
 
   const dates = calendar?.dates ?? [];
   // The outer grid template: a fixed room-name column plus one equal column per night.
@@ -354,6 +442,8 @@ export function CalendarPage() {
                           setDropRoomId(null);
                         }}
                         isDragging={dragBlock?.id === block.id}
+                        resizable={mayManage}
+                        onResize={handleResize}
                       />
                     ))}
                   </div>
@@ -437,6 +527,8 @@ export function CalendarPage() {
                                 setDropRoomId(null);
                               }}
                               isDragging={dragBlock?.id === block.id}
+                              resizable={mayManage}
+                              onResize={handleResize}
                             />
                           ))}
                         </div>

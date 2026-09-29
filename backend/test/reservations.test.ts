@@ -397,6 +397,106 @@ describe('reservations — room assignment & check-in/out', () => {
     expect(reuseA.body.reservation.room.id).toBe(roomA.id);
   });
 
+  it('reschedules a booking to new dates, re-pricing and regenerating nights', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 2, price: 500000 });
+
+    // Original stay: 10-10 → 10-13 (3 nights @ 5000 = 15000).
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+    expect(booking.body.reservation.totalAmountMinor).toBe(1500000);
+
+    // Move to 10-15 → 10-20 (5 nights @ 5000 = 25000).
+    const moved = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/reschedule`)
+      .set(...auth)
+      .send({ checkIn: '2026-10-15', checkOut: '2026-10-20' });
+    expect(moved.status).toBe(200);
+    expect(moved.body.reservation.checkIn).toBe('2026-10-15');
+    expect(moved.body.reservation.checkOut).toBe('2026-10-20');
+    expect(moved.body.reservation.totalAmountMinor).toBe(2500000);
+    expect(moved.body.reservation.nights.map((n: { date: string }) => n.date)).toEqual([
+      '2026-10-15',
+      '2026-10-16',
+      '2026-10-17',
+      '2026-10-18',
+      '2026-10-19',
+    ]);
+
+    // The original dates are free again: a new booking can take them.
+    const backfill = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    expect(backfill.status).toBe(201);
+  });
+
+  it('refuses a reschedule onto dates the assigned room is no longer free for', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 1 });
+
+    // Booking A assigned to the single room for 10-10 → 10-12.
+    const a = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids, { checkIn: '2026-10-10', checkOut: '2026-10-12' }));
+    const aId = a.body.reservation.id as string;
+    const room = (await roomsOf(token, ids.propertyId))[0];
+    await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${aId}/assign-room`)
+      .set(...auth)
+      .send({ roomId: room.id });
+
+    // Booking B on 10-15 → 10-17.
+    const b = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids, { checkIn: '2026-10-15', checkOut: '2026-10-17' }));
+    const bId = b.body.reservation.id as string;
+
+    // Moving B onto A's window is a no-availability conflict (only one room).
+    const clash = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${bId}/reschedule`)
+      .set(...auth)
+      .send({ checkIn: '2026-10-10', checkOut: '2026-10-12' });
+    expect(clash.status).toBe(409);
+  });
+
+  it('rejects a reschedule with an inverted window or a cancelled booking', async () => {
+    const { token } = await loginAsNewOwner();
+    const auth = authHeader(token);
+    const ids = await setupBookableProperty(token, { rooms: 1 });
+
+    const booking = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations`)
+      .set(...auth)
+      .send(bookingBody(ids));
+    const id = booking.body.reservation.id as string;
+
+    // Inverted dates → 400.
+    const inverted = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/reschedule`)
+      .set(...auth)
+      .send({ checkIn: '2026-10-20', checkOut: '2026-10-15' });
+    expect(inverted.status).toBe(400);
+
+    // Cancel, then a reschedule is a 409 (a cancelled booking is history).
+    await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/cancel`)
+      .set(...auth)
+      .send({ reason: 'test' });
+    const afterCancel = await request(app)
+      .post(`/api/v1/properties/${ids.propertyId}/reservations/${id}/reschedule`)
+      .set(...auth)
+      .send({ checkIn: '2026-10-15', checkOut: '2026-10-18' });
+    expect(afterCancel.status).toBe(409);
+  });
+
   it('refuses a room of a different type, out of service, or already occupied', async () => {
     const { token } = await loginAsNewOwner();
     const auth = authHeader(token);
