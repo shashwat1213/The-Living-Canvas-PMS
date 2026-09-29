@@ -1098,6 +1098,33 @@ OTA integrations, POS/inventory, direct booking/loyalty/PWA) follows the
 phased roadmap in the architecture review; each phase gets its own
 `TASKS.md` breakdown when it starts, not before.
 
+## Reservation calendar / tape chart (2026-09-29)
+
+- [x] **Reservation calendar (tape chart) — per-room per-night board + assign
+  from the board** (2026-09-29)
+
+  The signature commercial-PMS operational screen (Mews Timeline / Cloudbeds
+  Calendar): rooms down, nights across, each stay a colored bar.
+
+  **Backend (`modules/calendar`).** Read-only
+  `GET /properties/:propertyId/calendar?from=&to=` (half-open window, 62-night
+  cap, `reservations:read`). Returns ACTIVE room types with ALL their rooms
+  (incl. out-of-service), each occupying reservation as a window-clamped bar
+  (`startIndex`/`span` + `continuesBefore`/`continuesAfter`), grouped by
+  assigned room, plus an `unassigned` lane. Tenant-scoped (cross-org 404);
+  cancelled/no-show never shown.
+
+  **Frontend (`features/calendar`).** CSS-grid tape chart on the shared design
+  tokens (Mews-style), sticky room column, weekend shading, status-colored
+  bars, window controls (Back/Today/Forward). Click a bar → detail popover;
+  an unassigned booking offers a manager an in-popover room picker
+  (free/occupied flagged) that calls the existing assign-room endpoint and
+  refetches. Manager-only; read-only viewers see static bars.
+
+  Verified: typecheck/lint/build green; backend +8, frontend +10 tests
+  (347/222 total); live end-to-end assign moved a booking (unassigned 40→39,
+  assigned 0→1). See DECISIONS.md.
+
 ## Explicitly out of scope for now
 
 OTA integrations, reviews, and external payment gateways — do not start

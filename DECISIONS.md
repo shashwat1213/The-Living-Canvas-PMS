@@ -2872,3 +2872,51 @@ our property; no passwordHash leak.
 image/video generation (same seam, later); no campaigns/scheduling/channel
 publishing; no brand-voice presets beyond the free-text tone hint; no
 multi-language. Each slots in behind the interfaces this slice established.
+
+---
+
+## 2026-09-29 — Reservation calendar (tape chart): the front desk's board
+
+**Context:** The PMS could take bookings, quote, assign rooms, check guests
+in/out and show a room-type × night availability grid — but had no
+per-*room* per-night operational board. Every serious commercial PMS
+(Mews "Timeline", Cloudbeds "Calendar", Stayntouch) centres the front desk
+on exactly this screen: rooms down, nights across, each stay a bar. It is the
+single most recognisable PMS screen and the natural home for room assignment.
+
+**Decision:** Add a read-only `GET /properties/:propertyId/calendar?from=&to=`
+(new `modules/calendar`) plus a `features/calendar` tape-chart UI, and make
+room assignment actionable directly from a bar.
+
+- **Reuses, doesn't duplicate.** Same half-open [from, to) window convention
+  and 62-night cap as availability; same `OCCUPYING_STATUSES`; the same
+  `reservations:read` permission (a rearrangement of bookings already
+  visible, not new data). Assignment reuses the existing
+  `assignable-rooms` + `assign-room` endpoints — no new write endpoint.
+- **Positioning computed server-side.** Each booking returns `startIndex` and
+  `span` (its stay intersected with the window, in night columns) plus
+  `continuesBefore`/`continuesAfter` for stays spilling past an edge, so the
+  frontend positions bars by grid-column arithmetic and never re-parses dates.
+- **Every room shown, incl. out of service.** Unlike the availability grid
+  (which counts only sellable ACTIVE rooms), the board lists INACTIVE/
+  MAINTENANCE rooms too — the desk needs to see a blocked room, not have it
+  vanish. Cancelled/no-show bookings never appear.
+- **Unassigned lane.** Occupying bookings with no room yet render in a
+  dedicated amber lane above the rooms — the assignment work list. Assignment
+  from a bar is manager-only (`reservations:manage`); read-only viewers see
+  static bars with no affordance.
+- **Tenant isolation.** Cross-org property 404s (never an empty 200 board),
+  mirroring the reservations/availability property sub-routes.
+
+**Verification.** typecheck/lint/build green both workspaces; backend +8 tests
+(contract, assigned vs unassigned lanes, edge-clamping, cross-tenant 404,
+cancelled-hidden, window validation), frontend +10 tests (groups/rooms,
+assigned bar, unassigned lane, out-of-service marker, click-to-detail,
+read-only non-interactive, access gate, window shift, manager assign happy
+path with free/occupied option state + refetch, read-only no-assign). Verified
+live end-to-end against the running server: assigning a room from the board
+moved a booking (unassigned 40 → 39, assigned rooms 0 → 1) and persisted.
+
+**Deferred deliberately.** Drag-to-move / drag-to-resize a bar (assignment via
+the picker covers the core need first); group/block multi-room bookings; a
+month zoom level. Each builds on the positions this slice already computes.
