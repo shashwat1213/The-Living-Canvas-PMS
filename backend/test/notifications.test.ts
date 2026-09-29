@@ -194,7 +194,7 @@ describe('job worker delivery', () => {
       lastName: 'Kumar',
       email: 'ravi@example.com',
     });
-    const res = await book(token, { ...ctx, guestId });
+    await book(token, { ...ctx, guestId });
     const notifId = (
       await request(app)
         .get('/api/v1/notifications')

@@ -73,6 +73,8 @@ model User {
   auditEvents       AuditLog[]
   housekeepingTasks HousekeepingTask[]     @relation("HousekeepingAssignee")
   workOrders        MaintenanceWorkOrder[] @relation("WorkOrderAssignee")
+  marketingCreated  MarketingContent[]     @relation("MarketingContentCreatedBy")
+  marketingApproved MarketingContent[]     @relation("MarketingContentApprovedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -270,14 +272,15 @@ model Property {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  rooms          Room[]
-  roomTypes      RoomType[]
-  propertyAccess PropertyAccess[]
-  reservations   Reservation[]
-  workOrders     MaintenanceWorkOrder[]
-  posOutlets     PosOutlet[]
-  posOrders      PosOrder[]
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rooms            Room[]
+  roomTypes        RoomType[]
+  propertyAccess   PropertyAccess[]
+  reservations     Reservation[]
+  workOrders       MaintenanceWorkOrder[]
+  posOutlets       PosOutlet[]
+  posOrders        PosOrder[]
+  marketingContent MarketingContent[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -1092,5 +1095,93 @@ enum NotificationChannel {
 enum NotificationStatus {
   PENDING
   SENT
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// AI Marketing Studio (2026-09-09, see DECISIONS.md)
+//
+// The product's signature feature: property staff describe what they want
+// (a brief) and the studio generates marketing copy — social posts, email
+// blurbs, taglines, promo descriptions — that they review, edit, and
+// approve. Generation runs on the DB-backed job queue (platform/jobs)
+// through a provider-agnostic AIContentProvider seam (platform/ai): a
+// deterministic stub driver runs today, and a real LLM adapter drops in
+// behind the same interface when credentials exist. See DECISIONS.md for
+// the abstraction and the async/lifecycle rationale.
+// ---------------------------------------------------------------------------
+
+/// One piece of AI-generated marketing copy and its lifecycle. Scoped to a
+/// Property (two hotels in a group market themselves independently), so
+/// tenancy reaches it transitively through `property_id`, exactly as Room
+/// does — no `organizationId` column, scoped through the relation in
+/// `platform/tenancy/scoped-prisma.ts`.
+///
+/// The generation is asynchronous: creating a row enqueues a
+/// `marketing.generate` job and the row starts GENERATING; the worker fills
+/// `generatedBody` and moves it to DRAFT (or FAILED with `lastError`). Staff
+/// then edit (`editedBody`), APPROVE, or DISCARD it. `body()` in the service
+/// prefers the edited text over the generated text.
+model MarketingContent {
+  id               String                 @id @default(uuid())
+  propertyId       String                 @map("property_id")
+  format           MarketingContentFormat
+  status           MarketingContentStatus @default(GENERATING)
+  /// Optional tone/voice hint carried into the prompt (e.g. "luxury",
+  /// "playful"). Free text, snapshotted onto the row so a later default
+  /// change never rewrites what this piece was generated with.
+  tone             String?
+  /// The staff-supplied brief: what to write about. The generation input,
+  /// kept so a piece can be regenerated or audited against its request.
+  brief            String
+  /// A short title/subject for the piece — for an email it is the subject
+  /// line; for a social post, an internal label. Composed by generation,
+  /// editable by staff.
+  title            String?
+  /// The model's output, set by the worker when generation succeeds. Null
+  /// while GENERATING or if generation FAILED.
+  generatedBody    String?                @map("generated_body")
+  /// Staff edits to the generated copy. Null until someone edits; the
+  /// service treats a non-null value as the authoritative body.
+  editedBody       String?                @map("edited_body")
+  /// Which provider/model produced the copy, snapshotted for the record
+  /// (e.g. "stub" today, "openai:gpt-4o" later). Null until generated.
+  provider         String?
+  /// Last generation error, kept when a piece lands in FAILED.
+  lastError        String?                @map("last_error")
+  /// Who requested it and who approved it — real user ids, SetNull so the
+  /// record outlives the account (like AuditLog.actor).
+  createdByUserId  String?                @map("created_by_user_id")
+  approvedByUserId String?                @map("approved_by_user_id")
+  approvedAt       DateTime?              @map("approved_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdBy  User?    @relation("MarketingContentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  approvedBy User?    @relation("MarketingContentApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, createdAt])
+  @@index([propertyId, status])
+  @@map("marketing_content")
+}
+
+enum MarketingContentFormat {
+  SOCIAL_POST
+  EMAIL
+  PROMO_DESCRIPTION
+  TAGLINE
+}
+
+enum MarketingContentStatus {
+  /// Generation job queued or running; body not yet available.
+  GENERATING
+  /// Generated and awaiting review.
+  DRAFT
+  /// Reviewed and approved for use.
+  APPROVED
+  /// Rejected/retired by staff; kept for the record, not used.
+  DISCARDED
+  /// Generation failed after exhausting retries; see lastError.
   FAILED
 }

@@ -12,6 +12,7 @@ import { dashboardRouter } from './modules/dashboard/routes.js';
 import { foliosRouter } from './modules/folios/routes.js';
 import { housekeepingRouter } from './modules/housekeeping/routes.js';
 import { maintenanceRouter } from './modules/maintenance/routes.js';
+import { marketingRouter } from './modules/marketing/routes.js';
 import { notificationsRouter } from './modules/notifications/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { guestsRouter } from './modules/guests/routes.js';
@@ -25,12 +26,14 @@ import { roomsRouter } from './modules/rooms/routes.js';
 import { staffRouter } from './modules/staff/routes.js';
 import { healthRouter } from './routes/health.js';
 import { registerNotificationHandlers } from './platform/notifications/send-handler.js';
+import { registerMarketingHandlers } from './platform/ai/generate-handler.js';
 
 export function createApp(): Express {
   // Register background-job handlers once, at app construction, so the job
   // registry is populated whether the process also starts the worker
   // (`index.ts`) or drives the queue directly (tests). Idempotent.
   registerNotificationHandlers();
+  registerMarketingHandlers();
 
   const app = express();
 
@@ -62,6 +65,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/pos', posRouter);
   v1.use('/properties/:propertyId/housekeeping', housekeepingRouter);
   v1.use('/properties/:propertyId/maintenance/work-orders', maintenanceRouter);
+  v1.use('/properties/:propertyId/marketing', marketingRouter);
   app.use('/api/v1', v1);
 
   // Nothing matched. Handing a NotFoundError to `errorHandler` rather than
