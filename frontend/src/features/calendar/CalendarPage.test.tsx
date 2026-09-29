@@ -104,6 +104,19 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
 
 function stubApi(response?: CalendarResponse) {
   const fetchMock = vi.fn((url: string) => {
+    if (url.includes('/assignable-rooms')) {
+      return Promise.resolve(
+        jsonResponse({
+          rooms: [
+            { id: 'room-101', name: '101', floor: '1', available: true },
+            { id: 'room-102', name: '102', floor: '1', available: false },
+          ],
+        }),
+      );
+    }
+    if (url.includes('/assign-room')) {
+      return Promise.resolve(jsonResponse({ reservation: { id: 'resv-2', roomId: 'room-101' } }));
+    }
     if (url.includes('/calendar')) {
       return Promise.resolve(jsonResponse(response ?? calendar()));
     }
@@ -209,6 +222,41 @@ describe('CalendarPage', () => {
 
     expect(await screen.findByText(/don't have access to reservations/i)).toBeInTheDocument();
     expect(screen.queryByText('Deluxe King')).not.toBeInTheDocument();
+  });
+
+  it('lets a manager assign a room to an unassigned booking from the board', async () => {
+    const fetchMock = stubApi();
+    renderPage(manageSession());
+
+    // Open the unassigned booking's detail popover.
+    const bar = await screen.findByRole('button', { name: /Alan Turing/ });
+    fireEvent.click(bar);
+    const dialog = await screen.findByRole('dialog', { name: 'Reservation details' });
+    expect(within(dialog).getByText('Not yet assigned')).toBeInTheDocument();
+
+    // Start assignment → assignable rooms load into a select.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Assign a room' }));
+    const select = await within(dialog).findByRole('combobox');
+    // Only the free room is selectable; the occupied one is disabled.
+    expect(within(dialog).getByRole('option', { name: /101/ })).not.toBeDisabled();
+    expect(within(dialog).getByRole('option', { name: /102.*occupied/ })).toBeDisabled();
+    expect((select as HTMLSelectElement).value).toBe('room-101');
+
+    // Confirm → assign-room is POSTed, then the calendar refetches.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/assign-room'))).toBe(true);
+    });
+  });
+
+  it('does not offer room assignment to a read-only viewer', async () => {
+    stubApi();
+    renderPage(readOnlySession());
+
+    // Read-only viewers get static bars, so there is no clickable unassigned bar
+    // to open — and thus no assignment affordance anywhere on the page.
+    await screen.findByText('Alan Turing');
+    expect(screen.queryByRole('button', { name: 'Assign a room' })).not.toBeInTheDocument();
   });
 
   it('shifts the window forward and refetches', async () => {
