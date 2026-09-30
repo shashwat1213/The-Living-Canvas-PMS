@@ -5,6 +5,7 @@ import { requirePermission, requirePropertyAccess } from '../../platform/rbac/gu
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import { assignRoomSchema, cancelReservationSchema, checkInSchema, createReservationSchema, listReservationsQuerySchema, rescheduleReservationSchema } from './schemas.js';
 import * as reservationsService from './service.js';
+import { renderReservationVoucher } from './voucher.js';
 
 /**
  * A property's reservations.
@@ -38,6 +39,27 @@ reservationsRouter.get(
       req.params.reservationId as string,
     );
     res.json({ reservation });
+  }),
+);
+
+/**
+ * The guest-facing booking voucher as a PDF — the printable/emailable
+ * confirmation a guest keeps. `reservations:read`, property-scoped like every
+ * other read; a cross-org id 404s inside the service. Streamed inline so a
+ * browser previews it and the download name carries the booking reference.
+ */
+reservationsRouter.get(
+  '/:reservationId/voucher.pdf',
+  requirePermission('reservations:read'),
+  asyncHandler(async (req, res) => {
+    const propertyId = req.params.propertyId as string;
+    const reservationId = req.params.reservationId as string;
+    const pdf = await renderReservationVoucher(propertyId, reservationId);
+    const reservation = await reservationsService.getReservation(propertyId, reservationId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="voucher-${reservation.reference}.pdf"`);
+    res.setHeader('Content-Length', pdf.length);
+    res.send(pdf);
   }),
 );
 

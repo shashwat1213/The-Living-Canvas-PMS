@@ -240,4 +240,41 @@ describe('ReservationsPage', () => {
     expect(within(dialog).getByRole('radio', { name: /102/ })).toBeDisabled();
     expect(within(dialog).getByText('Occupied')).toBeInTheDocument();
   });
+
+  it('downloads a booking voucher PDF from the row action', async () => {
+    // The list GET is stubbed by stubApi; the voucher fetch returns a PDF blob.
+    let voucherRequested = false;
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes('/voucher.pdf')) {
+        voucherRequested = true;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          blob: () => Promise.resolve(new Blob([new Uint8Array([37, 80, 68, 70])], { type: 'application/pdf' })),
+        } as unknown as Response);
+      }
+      if (url.includes('/reservations')) {
+        return Promise.resolve(jsonResponse(listPage([reservation()])));
+      }
+      return Promise.resolve(jsonResponse({ property: { id: PROPERTY_ID, name: 'Seaside Villa' } }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    // jsdom has no object-URL / real navigation; stub the download plumbing.
+    const createObjectURL = vi.fn(() => 'blob:mock');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPage(readOnlySession());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Voucher' }));
+
+    await waitFor(() => {
+      expect(voucherRequested).toBe(true);
+      expect(createObjectURL).toHaveBeenCalled();
+      expect(clickSpy).toHaveBeenCalled();
+    });
+    clickSpy.mockRestore();
+  });
 });
