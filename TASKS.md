@@ -1170,6 +1170,18 @@ phased roadmap in the architecture review; each phase gets its own
   backend +6, frontend +1 tests. ⚠️ Live needs RAZORPAY_KEY_ID/SECRET; stub
   runs until then. See DECISIONS.md.
 
+- [x] **Guest booking voucher (PDF)** (2026-09-29)
+
+  A server-rendered PDF voucher at `GET /reservations/:id/voucher.pdf` + a
+  "Voucher" download on each reservation row. Generated with `pdfkit` backend-
+  side through a `renderReservationVoucher` seam (reusable for an emailed
+  attachment later); reads via the tenant-scoped `getReservation`, so same
+  `reservations:read` + cross-org 404 guard. Clean single-page layout
+  (letterhead, confirmation no., guest, stay grid, total) in the app palette;
+  font-safe `INR` currency. Auth-aware blob download on the client. Verified:
+  typecheck/lint/build green; backend +3, frontend +1 tests; PDF visually
+  reviewed. See DECISIONS.md.
+
 ## Explicitly out of scope for now
 
 OTA integrations, reviews, and external payment gateways — do not start

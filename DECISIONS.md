@@ -3108,3 +3108,46 @@ refunds through the gateway (manual negative payment still records a refund).
 
 ⚠️ To go live, the operator sets `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`;
 until then the stub provider runs and no real money moves.
+
+---
+
+## 2026-09-29 — Guest booking voucher (PDF)
+
+**Context:** A booking already queues a confirmation *message* (email/SMS text)
+at creation. A serious PMS also gives the guest a document — a printable,
+emailable voucher they present at check-in. This adds that artifact.
+
+**Decision:** A server-rendered PDF voucher at
+`GET /properties/:id/reservations/:id/voucher.pdf`, plus a "Voucher" download on
+each reservation row.
+
+- **`pdfkit` on the server, not the client.** The voucher is generated
+  backend-side so it's identical wherever it's produced (download now, emailed
+  attachment later — the same `renderReservationVoucher(propertyId, id)` seam)
+  and never depends on the browser. One new dependency (`pdfkit` +
+  `@types/pdfkit`); a smoke test confirmed a valid `%PDF-` buffer before wiring.
+- **Reads through the tenant-scoped service.** The renderer calls
+  `getReservation` (which 404s a cross-org/absent booking) and the scoped
+  client for the property letterhead — so the PDF route inherits the exact same
+  tenancy + `reservations:read` guard as viewing the booking; no new authz path.
+- **Money/date come straight from the stored booking** — nothing recomputed in
+  the PDF. Layout is a clean single page: property letterhead, confirmation
+  number + status, guest, a stay-details grid (dates, nights, room type, room,
+  guests), the total, and a check-in footer, in the app's Mews-style palette.
+- **Font-safe currency.** pdfkit's built-in Helvetica has no ₹ glyph (it renders
+  as a stray mark), so the voucher prints `INR 22,500.00` — unambiguous and
+  standard on a formal voucher. Verified by rendering to PNG and eyeballing.
+- **Auth-aware download on the client.** The endpoint needs the Bearer token, so
+  a plain `<a href>` can't fetch it; `downloadReservationVoucher` fetches the
+  bytes with the token, wraps them in an object URL, and clicks a synthetic
+  link named `voucher-<reference>.pdf` (matching the server disposition).
+
+**Verification.** typecheck/lint/build green both workspaces; backend +3 tests
+(valid `%PDF-` with a reference-named inline disposition, auth required,
+cross-org 404), frontend +1 (row action fetches the PDF and triggers the
+download). PDF layout visually reviewed.
+
+**Deferred deliberately.** Attaching the voucher to the confirmation email
+(the render seam is ready — needs the notification worker to carry an
+attachment); a group/block voucher covering all rooms on one document; QR
+check-in code on the voucher.

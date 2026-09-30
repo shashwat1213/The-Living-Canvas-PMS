@@ -15,7 +15,7 @@ import { formatMinor } from '../rate-plans/money';
 import { BookingDialog } from './BookingDialog';
 import { AssignRoomDialog } from './AssignRoomDialog';
 import { FolioDialog } from '../folios/FolioDialog';
-import { cancelReservation, checkOut, listReservations, markNoShow } from './api';
+import { cancelReservation, checkOut, downloadReservationVoucher, listReservations, markNoShow } from './api';
 import { ReservationDetailDialog } from './ReservationDetailDialog';
 import {
   RESERVATION_STATUS_LABEL,
@@ -71,6 +71,8 @@ export function ReservationsPage() {
   const [assignTarget, setAssignTarget] = useState<{ reservation: ReservationListRow; mode: 'assign' | 'check-in' } | null>(null);
   const [checkOutTarget, setCheckOutTarget] = useState<ReservationListRow | null>(null);
   const [folioTarget, setFolioTarget] = useState<ReservationListRow | null>(null);
+  /** The booking whose voucher PDF is being fetched, so its button shows progress. */
+  const [voucherBusyId, setVoucherBusyId] = useState<string | null>(null);
 
   const mayRead = hasPermission(session, 'reservations:read');
   const mayManage = hasPermission(session, 'reservations:manage');
@@ -130,6 +132,20 @@ export function ReservationsPage() {
     setBookingOpen(false);
     void load();
     flashSuccess(`Booked ${reservation.reference} for ${reservationGuestName(reservation.guest)}.`);
+  }
+
+  /** Download a booking's voucher PDF, showing progress on its row button. */
+  async function handleVoucher(r: ReservationListRow) {
+    if (!propertyId) return;
+    setVoucherBusyId(r.id);
+    setError(null);
+    try {
+      await downloadReservationVoucher(propertyId, r.id, r.reference);
+    } catch {
+      setError('Could not download the voucher. Please try again.');
+    } finally {
+      setVoucherBusyId(null);
+    }
   }
 
   function handleAssignDone(_reservation: Reservation, message: string) {
@@ -261,6 +277,16 @@ export function ReservationsPage() {
               Folio
             </button>
           )}
+          {/* The guest booking voucher (PDF) — a printable/emailable
+              confirmation. Same read permission as viewing the booking. */}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void handleVoucher(r)}
+            disabled={voucherBusyId === r.id}
+          >
+            {voucherBusyId === r.id ? 'Preparing…' : 'Voucher'}
+          </button>
           {mayManage && canCheckIn(r.status) && (
             <button
               type="button"

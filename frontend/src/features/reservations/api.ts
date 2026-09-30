@@ -1,4 +1,4 @@
-import { apiFetch } from '../../lib/api';
+import { apiFetch, API_URL, getAccessToken } from '../../lib/api';
 import { toQueryString, type PageMeta } from '../../lib/pagination';
 import type {
   AssignableRoom,
@@ -98,4 +98,39 @@ export function checkOut(propertyId: string, reservationId: string): Promise<Res
   return apiFetch<{ reservation: Reservation }>(`${base(propertyId)}/${reservationId}/check-out`, {
     method: 'POST',
   }).then((res) => res.reservation);
+}
+
+/**
+ * Fetch the booking voucher PDF and trigger a browser download.
+ *
+ * The endpoint is auth-protected (Bearer token), so a plain <a href> can't
+ * carry the credential — we fetch the bytes with the access token, wrap them in
+ * an object URL, and click a synthetic link. The download is named with the
+ * booking reference, matching the server's Content-Disposition.
+ */
+export async function downloadReservationVoucher(
+  propertyId: string,
+  reservationId: string,
+  reference: string,
+): Promise<void> {
+  const res = await fetch(`${API_URL}${base(propertyId)}/${reservationId}/voucher.pdf`, {
+    credentials: 'include',
+    headers: { ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}) },
+  });
+  if (!res.ok) {
+    throw new Error(`Could not download the voucher (${res.status}).`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `voucher-${reference}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    // Revoke on the next tick so the click's navigation has consumed the URL.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 }
