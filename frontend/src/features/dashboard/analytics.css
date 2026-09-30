@@ -1,0 +1,162 @@
+/*
+ * Dashboard performance-analytics section — KPI strip + recharts cards.
+ * Built on the shared design tokens so it re-themes with the app.
+ */
+
+.an-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.an-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.an-head h2 {
+  margin: 0;
+  font-size: var(--fs-xl, 1.25rem);
+  color: var(--text-h);
+  font-family: var(--heading, inherit);
+}
+.an-sub {
+  margin: 0.2rem 0 0;
+  font-size: var(--fs-sm, 0.875rem);
+  color: var(--text);
+}
+
+/* Range toggle */
+.an-range {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--surface);
+}
+.an-range-btn {
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.85rem;
+  font-size: var(--fs-sm, 0.85rem);
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.an-range-btn.is-active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* KPI strip */
+.an-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+.an-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  box-shadow: var(--shadow-xs);
+}
+.an-kpi-label {
+  font-size: var(--fs-xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.an-kpi-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-h);
+  line-height: 1.1;
+}
+.an-kpi-sub {
+  font-size: var(--fs-xs, 0.75rem);
+  color: var(--text);
+}
+.an-kpi-sub-up {
+  color: var(--success);
+  font-weight: 600;
+}
+.an-kpi-sub-down {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Chart cards */
+.an-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem 0.75rem;
+  box-shadow: var(--shadow-xs);
+}
+.an-card-title {
+  margin: 0 0 0.75rem;
+  font-size: var(--fs-sm, 0.9rem);
+  font-weight: 700;
+  color: var(--text-h);
+}
+.an-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.an-loading,
+.an-empty {
+  color: var(--text-muted);
+  font-size: var(--fs-sm, 0.875rem);
+  padding: 1.5rem 0;
+  text-align: center;
+}
+.an-error {
+  color: var(--danger);
+  font-size: var(--fs-sm, 0.875rem);
+}
+
+/* Custom tooltip */
+.an-tooltip {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.65rem;
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-xs, 0.75rem);
+}
+.an-tooltip-title {
+  font-weight: 700;
+  color: var(--text-h);
+  margin-bottom: 0.35rem;
+}
+.an-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0;
+}
+.an-tooltip-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.an-tooltip-name {
+  color: var(--text);
+  margin-right: auto;
+}
+.an-tooltip-val {
+  font-weight: 700;
+  color: var(--text-h);
+}

@@ -3151,3 +3151,53 @@ download). PDF layout visually reviewed.
 (the render seam is ready — needs the notification worker to carry an
 attachment); a group/block voucher covering all rooms on one document; QR
 check-in code on the voucher.
+
+---
+
+## 2026-09-30 — Dashboard performance analytics + login polish
+
+**Context:** The dashboard showed today's operations (arrivals, occupancy, open
+work) but no trend or financial performance, and the owner asked for
+"monthly profit and loss" charts and a more informative, board-grade dashboard.
+
+**Decision:** A monthly-analytics endpoint + a recharts analytics section on the
+dashboard, plus a richer login hero.
+
+- **Honest scope: revenue analytics, NOT profit-and-loss.** The system has no
+  expense ledger (no payroll/utilities/supplier costs), so a real P&L can't be
+  computed. Rather than invent costs or a fake "profit" number, this reports
+  what the data actually supports: room + POS revenue, occupancy, ADR, RevPAR,
+  and collections vs refunds. This is stated in the endpoint doc, the UI
+  subtitle, and the section is labelled "Performance analytics" / "Revenue mix",
+  never "P&L". (A future expense module could add true profit behind the same
+  seam — noted as deferred.)
+- **`GET /properties/:id/reports/monthly?months=N`** (new; `reports:read`,
+  property-scoped). Returns a zero-filled, chronological month series plus a
+  window summary and month-over-month gross-revenue %. Room revenue is accrual
+  (per-night `ReservationNight` ledger, occupying statuses only), POS is settled
+  orders by settlement month, collections/refunds are cash basis.
+- **Three Postgres `date_trunc('month')` aggregates**, not a query per month.
+  Raw SQL bypasses the tenant-scoping extension, so `propertyId` is bound
+  explicitly in every WHERE (and is already `assertPropertyVisible`-verified) —
+  isolation preserved; a cross-org property 404s. `bigint` aggregates are
+  `Number()`-narrowed at the edge.
+- **Frontend uses recharts (already a dependency).** A new `AnalyticsSection`
+  renders a KPI strip (gross revenue + MoM badge, net collected, occupancy, ADR,
+  RevPAR), a stacked room-vs-POS revenue area chart, an occupancy-vs-ADR combo
+  (bar + line, dual axis), a revenue-mix donut, and a collections-vs-refunds bar
+  chart — all on the shared theme tokens, with a 6M/12M/24M range toggle. A
+  `reports:read`-less viewer sees an inline notice, not a crash.
+- **Login polish.** The hero panel gained an eyebrow badge and three concrete
+  feature bullets (calendar, payments/vouchers, analytics); the form gained a
+  demo-credentials hint under the "Explore the live demo" button. No structural
+  change — same two-column front door, just richer and more informative.
+
+**Verification.** typecheck/lint/build green both workspaces; backend +5 tests
+(zero-filled length, current-month booking → revenue/ADR/occupancy, cancelled
+excluded, auth, cross-org 404), frontend +2 (KPIs + MoM render, forbidden
+notice). Dashboard and login visually reviewed against real seeded data
+(gross ₹99.5L across 5 active months, occupancy 3%→30%, MoM +24%).
+
+**Deferred deliberately.** A true P&L via an expense/cost ledger; per-room-type
+revenue breakdown; a downloadable analytics PDF/export; comparison vs the prior
+period.

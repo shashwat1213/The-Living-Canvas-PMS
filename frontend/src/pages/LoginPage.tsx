@@ -63,6 +63,7 @@ export function LoginPage() {
         </div>
 
         <div className="auth-hero-body">
+          <span className="auth-hero-eyebrow">Hospitality platform</span>
           <h2 className="auth-hero-headline">
             Run every property<br />from one calm workspace.
           </h2>
@@ -70,6 +71,21 @@ export function LoginPage() {
             Reservations, front desk, housekeeping, POS, revenue and AI marketing —
             the complete hospitality platform for modern hotels.
           </p>
+
+          <ul className="auth-hero-features">
+            <li>
+              <span className="auth-hero-check" aria-hidden="true">✓</span>
+              Live tape-chart calendar — drag to assign, move &amp; reschedule
+            </li>
+            <li>
+              <span className="auth-hero-check" aria-hidden="true">✓</span>
+              Folios, online payments &amp; PDF booking vouchers
+            </li>
+            <li>
+              <span className="auth-hero-check" aria-hidden="true">✓</span>
+              Board-grade revenue, occupancy, ADR &amp; RevPAR analytics
+            </li>
+          </ul>
 
           <div className="auth-hero-stats">
             <div className="auth-hero-stat">
@@ -162,6 +178,10 @@ export function LoginPage() {
           >
             ✨ Explore the live demo
           </button>
+
+          <p className="auth-demo-hint">
+            Demo owner — <code>owner@grandpalace.com</code> · <code>Password123</code>
+          </p>
 
           <p className="auth-switch">
             New organization? <Link to="/signup">Create one</Link>

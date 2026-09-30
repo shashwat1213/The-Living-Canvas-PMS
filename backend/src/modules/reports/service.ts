@@ -1,5 +1,5 @@
-import { reportsRepository, type NightRevenueRow, type PaymentsByMethodRow } from './repository.js';
-import type { ReportQuery } from './schemas.js';
+import { reportsRepository, type MonthlyRow, type NightRevenueRow, type PaymentsByMethodRow } from './repository.js';
+import type { MonthlyAnalyticsQuery, ReportQuery } from './schemas.js';
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -137,5 +137,152 @@ export async function getRevenueReport(propertyId: string, query: ReportQuery): 
     },
     days,
     paymentsByMethod,
+  };
+}
+
+/** One month's line in the analytics trend — everything the dashboard charts. */
+export interface MonthlyAnalyticsPoint {
+  /** First day of the month, ISO (YYYY-MM-01). */
+  month: string;
+  /** Short label for the axis, e.g. "Oct 2026". */
+  label: string;
+  /** Accrued room revenue, INR paise. */
+  roomRevenueMinor: number;
+  /** Settled POS revenue, INR paise. */
+  posRevenueMinor: number;
+  /** Room + POS revenue, INR paise. */
+  grossRevenueMinor: number;
+  /** Payments collected (cash basis), INR paise. */
+  paymentsCollectedMinor: number;
+  /** Refunds issued (cash basis, shown positive), INR paise. */
+  refundsMinor: number;
+  /** Collected − refunds, INR paise — net cash taken. */
+  netCollectedMinor: number;
+  roomsSold: number;
+  /** Room-nights available: sellableRooms × days in month. */
+  roomNightsAvailable: number;
+  /** roomsSold / roomNightsAvailable, 0–100. */
+  occupancyPct: number;
+  /** Average Daily Rate: roomRevenue / roomsSold, 0 when none sold. */
+  adrMinor: number;
+  /** Revenue per available room: roomRevenue / roomNightsAvailable. */
+  revparMinor: number;
+}
+
+export interface MonthlyAnalytics {
+  from: string;
+  to: string;
+  sellableRooms: number;
+  months: MonthlyAnalyticsPoint[];
+  summary: {
+    grossRevenueMinor: number;
+    roomRevenueMinor: number;
+    posRevenueMinor: number;
+    netCollectedMinor: number;
+    refundsMinor: number;
+    occupancyPct: number;
+    adrMinor: number;
+    revparMinor: number;
+    /** Month-over-month gross-revenue change vs the previous month, %, or null. */
+    revenueMomPct: number | null;
+  };
+}
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Days in the calendar month that `d` falls in (UTC). */
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+/**
+ * Monthly performance analytics — the board-grade revenue trend the dashboard
+ * charts. Real figures only: room revenue is accrual (per-night ledger), POS is
+ * settled orders, and collections/refunds are cash basis. Deliberately *not* a
+ * profit-and-loss: the system has no expense ledger, so it reports revenue,
+ * occupancy and the standard hotel yield metrics (ADR, RevPAR) — never an
+ * invented cost or margin. Zero-filled so every month in the window is a point.
+ */
+export async function getMonthlyAnalytics(propertyId: string, query: MonthlyAnalyticsQuery): Promise<MonthlyAnalytics> {
+  await reportsRepository.assertPropertyVisible(propertyId);
+
+  // Window: first day of (current month − months + 1) up to first day of next
+  // month, all in UTC, so the current partial month is included.
+  const now = new Date();
+  const curYear = now.getUTCFullYear();
+  const curMonth = now.getUTCMonth();
+  const from = new Date(Date.UTC(curYear, curMonth - (query.months - 1), 1));
+  const to = new Date(Date.UTC(curYear, curMonth + 1, 1));
+
+  const [rollup, sellableRooms] = await Promise.all([
+    reportsRepository.monthlyRollup(propertyId, from, to),
+    reportsRepository.countSellableRooms(propertyId),
+  ]);
+
+  const byMonth = new Map<string, MonthlyRow>();
+  for (const r of rollup) byMonth.set(r.month, r);
+
+  const months: MonthlyAnalyticsPoint[] = [];
+  for (let i = 0; i < query.months; i += 1) {
+    const d = new Date(Date.UTC(curYear, curMonth - (query.months - 1) + i, 1));
+    const iso = toIsoDate(d);
+    const row = byMonth.get(iso);
+    const roomRevenueMinor = row?.roomRevenueMinor ?? 0;
+    const posRevenueMinor = row?.posRevenueMinor ?? 0;
+    const roomsSold = row?.roomsSold ?? 0;
+    const collected = row?.paymentsCollectedMinor ?? 0;
+    const refunds = row?.refundsMinor ?? 0;
+    const roomNightsAvailable = sellableRooms * daysInMonth(d.getUTCFullYear(), d.getUTCMonth());
+    months.push({
+      month: iso,
+      label: `${MONTH_LABELS[d.getUTCMonth()]} ${d.getUTCFullYear()}`,
+      roomRevenueMinor,
+      posRevenueMinor,
+      grossRevenueMinor: roomRevenueMinor + posRevenueMinor,
+      paymentsCollectedMinor: collected,
+      refundsMinor: refunds,
+      netCollectedMinor: collected - refunds,
+      roomsSold,
+      roomNightsAvailable,
+      occupancyPct: occupancy(roomsSold, roomNightsAvailable),
+      adrMinor: ratePerUnit(roomRevenueMinor, roomsSold),
+      revparMinor: ratePerUnit(roomRevenueMinor, roomNightsAvailable),
+    });
+  }
+
+  const roomRevenueMinor = months.reduce((a, m) => a + m.roomRevenueMinor, 0);
+  const posRevenueMinor = months.reduce((a, m) => a + m.posRevenueMinor, 0);
+  const roomsSold = months.reduce((a, m) => a + m.roomsSold, 0);
+  const roomNightsAvailable = months.reduce((a, m) => a + m.roomNightsAvailable, 0);
+  const refundsMinor = months.reduce((a, m) => a + m.refundsMinor, 0);
+  const netCollectedMinor = months.reduce((a, m) => a + m.netCollectedMinor, 0);
+
+  // Month-over-month gross revenue change: last full comparison in the window.
+  const n = months.length;
+  let revenueMomPct: number | null = null;
+  const prevMonth = months[n - 2];
+  const lastMonth = months[n - 1];
+  if (prevMonth && lastMonth) {
+    const prev = prevMonth.grossRevenueMinor;
+    const last = lastMonth.grossRevenueMinor;
+    revenueMomPct = prev === 0 ? null : Math.round(((last - prev) / prev) * 100);
+  }
+
+  return {
+    from: toIsoDate(from),
+    to: toIsoDate(to),
+    sellableRooms,
+    months,
+    summary: {
+      grossRevenueMinor: roomRevenueMinor + posRevenueMinor,
+      roomRevenueMinor,
+      posRevenueMinor,
+      netCollectedMinor,
+      refundsMinor,
+      occupancyPct: occupancy(roomsSold, roomNightsAvailable),
+      adrMinor: ratePerUnit(roomRevenueMinor, roomsSold),
+      revparMinor: ratePerUnit(roomRevenueMinor, roomNightsAvailable),
+      revenueMomPct,
+    },
   };
 }

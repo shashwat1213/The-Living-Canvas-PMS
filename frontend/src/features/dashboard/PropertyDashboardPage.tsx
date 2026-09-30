@@ -8,6 +8,7 @@ import { formatMinorCompact } from '../rate-plans/money';
 import { getProperty } from '../properties/api';
 import type { Property } from '../properties/types';
 import { getDashboard } from './api';
+import { AnalyticsSection } from './AnalyticsSection';
 import { canReadDashboard } from './permissions';
 import { addDays, todayUtc, type DashboardReservation, type DashboardView } from './types';
 import './dashboard.css';
@@ -314,6 +315,8 @@ export function PropertyDashboardPage() {
               )}
             </div>
           </div>
+
+          {propertyId && <AnalyticsSection propertyId={propertyId} />}
         </>
       ) : (
         !error && <p className="empty-state">Loading dashboard…</p>
