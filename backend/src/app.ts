@@ -6,6 +6,7 @@ import { env } from './config/env.js';
 import { NotFoundError } from './lib/http-errors.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { auditRouter } from './modules/audit/routes.js';
+import { assistantRouter } from './modules/assistant/routes.js';
 import { authRouter } from './modules/auth/routes.js';
 import { availabilityRouter } from './modules/availability/routes.js';
 import { calendarRouter } from './modules/calendar/routes.js';
@@ -70,6 +71,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/housekeeping', housekeepingRouter);
   v1.use('/properties/:propertyId/maintenance/work-orders', maintenanceRouter);
   v1.use('/properties/:propertyId/marketing', marketingRouter);
+  v1.use('/properties/:propertyId/assistant', assistantRouter);
   app.use('/api/v1', v1);
 
   // Nothing matched. Handing a NotFoundError to `errorHandler` rather than
