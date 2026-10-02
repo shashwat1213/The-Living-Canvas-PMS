@@ -102,13 +102,13 @@ describe('AssistantWidget', () => {
 
     renderWidget();
     fireEvent.click(screen.getByRole('button', { name: 'Open assistant' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Who is arriving today?' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Any VIP guests arriving today?' }));
 
     expect(await screen.findByText('Three guests arrive today.')).toBeInTheDocument();
     const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as {
       messages: Array<{ role: string; content: string }>;
     };
-    expect(body.messages[body.messages.length - 1]).toEqual({ role: 'user', content: 'Who is arriving today?' });
+    expect(body.messages[body.messages.length - 1]).toEqual({ role: 'user', content: 'Any VIP guests arriving today?' });
   });
 
   it('shows an error message when the request fails', async () => {

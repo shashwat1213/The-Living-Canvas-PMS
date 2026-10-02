@@ -86,6 +86,9 @@ describe('assistant chat', () => {
     expect(capturedSystem).toContain('PERFORMANCE');
     expect(capturedSystem).toContain('ADR');
     expect(capturedSystem).toContain('RevPAR');
+    // Availability look-ahead + guest-tag awareness are included.
+    expect(capturedSystem).toContain('AVAILABILITY');
+    expect(capturedSystem).toContain('tags');
     // Full conversation forwarded.
     expect(capturedTurns).toBe(3);
   });

@@ -11,9 +11,9 @@ import './assistant.css';
 /** Starter prompts shown on an empty conversation — one tap to a useful answer. */
 const SUGGESTIONS = [
   "What's our occupancy today?",
-  'Who is arriving today?',
-  'Any unsettled folio balances?',
-  'How many rooms need cleaning?',
+  'Any VIP guests arriving today?',
+  "What's our ADR and RevPAR this month?",
+  'How many rooms are free this week?',
 ];
 
 const GREETING =
