@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../auth/useAuth';
 import { hasPermission } from '../auth/session';
+import { AssistantWidget } from '../features/assistant/AssistantWidget';
 import { canReadGuests } from '../features/guests/permissions';
 import { canReadStaff } from '../features/staff/permissions';
 import { ApiError, apiFetch } from '../lib/api';
@@ -144,6 +145,8 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+
+      <AssistantWidget />
     </div>
   );
 }

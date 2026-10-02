@@ -47,4 +47,25 @@ describe('LoginPage', () => {
 
     expect(await screen.findByRole('link', { name: 'Create one' })).toHaveAttribute('href', '/signup');
   });
+
+  // Design lock: the two-column "front door" (branded deep-green hero panel +
+  // focused sign-in form) is the signed-off login look. This test fails loudly
+  // if future UI work removes the hero showcase, so the premium design can't
+  // silently regress to a plain centered form.
+  it('renders the branded split-screen front door (design lock)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: {} }, false, 401)));
+    const { container } = renderLoginPage();
+
+    // Left: branded hero showcase panel with its headline and proof points.
+    const hero = container.querySelector('.auth-hero');
+    expect(hero).not.toBeNull();
+    expect(hero?.querySelector('.auth-hero-headline')?.textContent).toMatch(/Run every property/i);
+    expect(hero?.querySelectorAll('.auth-hero-features li').length).toBeGreaterThanOrEqual(3);
+    expect(hero?.querySelectorAll('.auth-hero-stat').length).toBeGreaterThanOrEqual(3);
+
+    // Right: focused sign-in form with heading + both fields.
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+  });
 });

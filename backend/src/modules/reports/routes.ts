@@ -3,8 +3,8 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error-handler.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
-import { reportQuerySchema } from './schemas.js';
-import { getRevenueReport } from './service.js';
+import { monthlyAnalyticsQuerySchema, reportQuerySchema } from './schemas.js';
+import { getMonthlyAnalytics, getRevenueReport } from './service.js';
 
 /**
  * A property's management reports.
@@ -25,5 +25,19 @@ reportsRouter.get(
     const query = reportQuerySchema.parse(req.query);
     const report = await getRevenueReport(req.params.propertyId as string, query);
     res.json(report);
+  }),
+);
+
+/**
+ * Monthly performance analytics — the dashboard's revenue-trend charts. Same
+ * `reports:read` management gate and property scoping as the revenue report.
+ */
+reportsRouter.get(
+  '/monthly',
+  requirePermission('reports:read'),
+  asyncHandler(async (req, res) => {
+    const query = monthlyAnalyticsQuerySchema.parse(req.query);
+    const analytics = await getMonthlyAnalytics(req.params.propertyId as string, query);
+    res.json(analytics);
   }),
 );

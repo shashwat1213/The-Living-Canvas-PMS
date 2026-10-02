@@ -269,3 +269,106 @@ describe('reports API — revenue & occupancy', () => {
     expect(asStaff.status).toBe(403);
   });
 });
+
+/**
+ * Sets up a property whose rate plan is priced across the CURRENT calendar
+ * month, so a booking lands inside the monthly-analytics window (which is
+ * anchored on "now"). Returns the ids plus a couple of current-month dates.
+ */
+async function setupCurrentMonthProperty(token: string, rooms = 4) {
+  const auth = authHeader(token);
+  const suffix = randomUUID().slice(0, 8);
+  const property = await request(app).post('/api/v1/properties').set(...auth).send({ name: `Hotel ${suffix}`, slug: `hotel-${suffix}` });
+  const propertyId = property.body.property.id as string;
+  const roomType = await request(app).post(`/api/v1/properties/${propertyId}/room-types`).set(...auth).send({ name: 'Deluxe King', code: 'DLX' });
+  const roomTypeId = roomType.body.roomType.id as string;
+  for (let i = 1; i <= rooms; i += 1) {
+    await request(app).post(`/api/v1/properties/${propertyId}/rooms`).set(...auth).send({ name: `${100 + i}`, roomTypeId });
+  }
+  const ratePlan = await request(app).post(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}/rate-plans`).set(...auth).send({ name: 'BAR', code: 'BAR' });
+  const ratePlanId = ratePlan.body.ratePlan.id as string;
+
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const mm = String(m + 1).padStart(2, '0');
+  const rates = Array.from({ length: dim }, (_, i) => ({ date: `${y}-${mm}-${String(i + 1).padStart(2, '0')}`, amountMinor: NIGHTLY }));
+  const setRates = await request(app).put(`/api/v1/properties/${propertyId}/room-types/${roomTypeId}/rate-plans/${ratePlanId}/rates`).set(...auth).send({ rates });
+  expect(setRates.status).toBe(200);
+
+  const guest = await request(app).post('/api/v1/guests').set(...auth).send({ firstName: 'Ada', lastName: 'Lovelace' });
+  const guestId = guest.body.guest.id as string;
+
+  // Two dates safely inside the current month (avoid month-end rollover).
+  const d1 = `${y}-${mm}-05`;
+  const d2 = `${y}-${mm}-07`;
+  const thisMonthIso = `${y}-${mm}-01`;
+  return { ids: { propertyId, roomTypeId, ratePlanId, guestId }, d1, d2, thisMonthIso };
+}
+
+describe('reports API — monthly analytics', () => {
+  it('requires authentication', async () => {
+    const res = await request(app).get('/api/v1/properties/whatever/reports/monthly');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns a zero-filled trend of the requested length', async () => {
+    const { token } = await loginAsNewOwner();
+    const { ids } = await setupCurrentMonthProperty(token);
+    const res = await request(app).get(`/api/v1/properties/${ids.propertyId}/reports/monthly?months=6`).set(...authHeader(token));
+    expect(res.status).toBe(200);
+    expect(res.body.months).toHaveLength(6);
+    // Continuous, chronological, each with the derived fields present.
+    for (const m of res.body.months) {
+      expect(m).toHaveProperty('grossRevenueMinor');
+      expect(m).toHaveProperty('occupancyPct');
+      expect(m).toHaveProperty('adrMinor');
+      expect(m).toHaveProperty('revparMinor');
+    }
+    // The last point is the current month.
+    const now = new Date();
+    const iso = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    expect(res.body.months[res.body.months.length - 1].month).toBe(iso);
+  });
+
+  it('reflects a current-month booking as room revenue, ADR and occupancy', async () => {
+    const { token } = await loginAsNewOwner();
+    const { ids, d1, d2, thisMonthIso } = await setupCurrentMonthProperty(token, 4);
+    // 2 nights @ 4,500 = 9,000 for one room.
+    const booking = await request(app).post(`/api/v1/properties/${ids.propertyId}/reservations`).set(...authHeader(token)).send({ guestId: ids.guestId, roomTypeId: ids.roomTypeId, ratePlanId: ids.ratePlanId, checkIn: d1, checkOut: d2 });
+    expect(booking.status).toBe(201);
+
+    const res = await request(app).get(`/api/v1/properties/${ids.propertyId}/reports/monthly?months=3`).set(...authHeader(token));
+    expect(res.status).toBe(200);
+    const current = res.body.months.find((m: { month: string }) => m.month === thisMonthIso);
+    expect(current).toBeTruthy();
+    expect(current.roomRevenueMinor).toBe(2 * NIGHTLY);
+    expect(current.roomsSold).toBe(2);
+    // ADR = revenue / rooms sold = 4,500.
+    expect(current.adrMinor).toBe(NIGHTLY);
+    // Occupancy is positive (2 sold of 4 rooms × days in month).
+    expect(current.occupancyPct).toBeGreaterThan(0);
+    expect(res.body.summary.roomRevenueMinor).toBeGreaterThanOrEqual(2 * NIGHTLY);
+  });
+
+  it('excludes a cancelled booking from revenue', async () => {
+    const { token } = await loginAsNewOwner();
+    const { ids, d1, d2, thisMonthIso } = await setupCurrentMonthProperty(token);
+    const booking = await request(app).post(`/api/v1/properties/${ids.propertyId}/reservations`).set(...authHeader(token)).send({ guestId: ids.guestId, roomTypeId: ids.roomTypeId, ratePlanId: ids.ratePlanId, checkIn: d1, checkOut: d2 });
+    await request(app).post(`/api/v1/properties/${ids.propertyId}/reservations/${booking.body.reservation.id}/cancel`).set(...authHeader(token)).send({ reason: 'test' });
+
+    const res = await request(app).get(`/api/v1/properties/${ids.propertyId}/reports/monthly?months=2`).set(...authHeader(token));
+    const current = res.body.months.find((m: { month: string }) => m.month === thisMonthIso);
+    expect(current.roomRevenueMinor).toBe(0);
+    expect(current.roomsSold).toBe(0);
+  });
+
+  it('404s monthly analytics for a property in another organization', async () => {
+    const { token: ownerA } = await loginAsNewOwner();
+    const { ids } = await setupCurrentMonthProperty(ownerA);
+    const { token: ownerB } = await loginAsNewOwner();
+    const res = await request(app).get(`/api/v1/properties/${ids.propertyId}/reports/monthly`).set(...authHeader(ownerB));
+    expect([403, 404]).toContain(res.status);
+  });
+});

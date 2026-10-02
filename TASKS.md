@@ -1182,6 +1182,18 @@ phased roadmap in the architecture review; each phase gets its own
   typecheck/lint/build green; backend +3, frontend +1 tests; PDF visually
   reviewed. See DECISIONS.md.
 
+- [x] **Dashboard performance analytics + login polish** (2026-09-30)
+
+  Board-grade analytics on the dashboard. New `GET /reports/monthly?months=N`
+  (reports:read, property-scoped): zero-filled monthly trend of room + POS
+  revenue, occupancy, ADR, RevPAR, collections vs refunds + MoM %, from three
+  `date_trunc` aggregates. Frontend `AnalyticsSection` (recharts): KPI strip,
+  revenue area chart, occupancy/ADR combo, revenue-mix donut, collections bar,
+  6M/12M/24M toggle. HONEST: revenue analytics, not P&L — no expense ledger, so
+  no invented cost/margin. Login hero enriched (eyebrow, feature bullets, demo
+  hint). Verified: typecheck/lint/build green; backend +5, frontend +2 tests;
+  dashboard + login visually reviewed on real data. See DECISIONS.md.
+
 ## Explicitly out of scope for now
 
 OTA integrations, reviews, and external payment gateways — do not start

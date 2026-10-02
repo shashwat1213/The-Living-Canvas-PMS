@@ -36,3 +36,15 @@ export const reportQuerySchema = z
   });
 
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
+
+/**
+ * The monthly-analytics window: how many months back from the current month to
+ * include, inclusive of the current (partial) month. Defaults to 12 and is
+ * capped at 24 so a single request stays a bounded, board-grade trend rather
+ * than an unbounded scan.
+ */
+export const monthlyAnalyticsQuerySchema = z.object({
+  months: z.coerce.number().int().min(1).max(24).default(12),
+});
+
+export type MonthlyAnalyticsQuery = z.infer<typeof monthlyAnalyticsQuerySchema>;
