@@ -26,8 +26,34 @@ function authValue(claims: SessionClaims | null): AuthContextValue {
   } as unknown as AuthContextValue;
 }
 
-function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
-  return { ok, status, json: () => Promise.resolve(body) } as Response;
+/** A mocked SSE Response whose body streams the given event frames. */
+function sseResponse(frames: string[], ok = true, status = ok ? 200 : 500) {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const body = {
+    getReader() {
+      return {
+        read() {
+          if (i < frames.length) {
+            const chunk = encoder.encode(frames[i]);
+            i += 1;
+            return Promise.resolve({ done: false, value: chunk });
+          }
+          return Promise.resolve({ done: true, value: undefined });
+        },
+      };
+    },
+  };
+  return { ok, status, body } as unknown as Response;
+}
+
+/** Build the SSE frames the backend emits for a full streamed reply. */
+function streamFrames(provider: string, deltas: string[]): string[] {
+  return [
+    `event: meta\ndata: ${JSON.stringify({ provider })}\n\n`,
+    ...deltas.map((t) => `event: delta\ndata: ${JSON.stringify({ text: t })}\n\n`),
+    `event: done\ndata: {}\n\n`,
+  ];
 }
 
 /** Render the widget on a property-scoped route (default) or a non-property
@@ -72,9 +98,9 @@ describe('AssistantWidget', () => {
     expect(screen.getByRole('button', { name: "What's our occupancy today?" })).toBeInTheDocument();
   });
 
-  it('sends a message and renders the assistant reply', async () => {
+  it('streams a message and renders the assistant reply', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ reply: 'Occupancy is 72% today.', provider: 'groq:qwen/qwen3.8-27b' }),
+      sseResponse(streamFrames('groq:qwen/qwen3.8-27b', ['Occupancy ', 'is 72% ', 'today.'])),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -86,18 +112,18 @@ describe('AssistantWidget', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    // User message echoed, then the reply arrives.
+    // User message echoed, then the streamed reply assembles.
     expect(screen.getByText('What is our occupancy?')).toBeInTheDocument();
     expect(await screen.findByText('Occupancy is 72% today.')).toBeInTheDocument();
 
-    // It POSTed to the property-scoped assistant endpoint.
+    // It POSTed to the streaming assistant endpoint.
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(String(url)).toContain('/api/v1/properties/prop-1/assistant/chat');
+    expect(String(url)).toContain('/api/v1/properties/prop-1/assistant/chat/stream');
     expect(init.method).toBe('POST');
   });
 
   it('clicking a suggestion sends it', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ reply: 'Three guests arrive today.', provider: 'stub' }));
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse(streamFrames('stub', ['Three guests arrive today.'])));
     vi.stubGlobal('fetch', fetchMock);
 
     renderWidget();
@@ -111,14 +137,14 @@ describe('AssistantWidget', () => {
     expect(body.messages[body.messages.length - 1]).toEqual({ role: 'user', content: 'Any VIP guests arriving today?' });
   });
 
-  it('shows an error message when the request fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: { code: 'server_error', message: 'Boom.' } }, false, 500)));
+  it('shows an error message when the stream fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([], false, 500)));
 
     renderWidget();
     fireEvent.click(screen.getByRole('button', { name: 'Open assistant' }));
     fireEvent.change(screen.getByLabelText('Message the assistant'), { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Boom.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('The assistant could not respond.');
   });
 });

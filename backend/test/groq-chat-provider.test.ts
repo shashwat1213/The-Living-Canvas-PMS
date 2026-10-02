@@ -20,6 +20,35 @@ function groqResponse(content: string, ok = true, status = ok ? 200 : 500) {
   } as Response;
 }
 
+/** A mocked Groq SSE stream Response: emits one `data:` line per delta. */
+function groqStreamResponse(deltas: string[], ok = true, status = ok ? 200 : 500) {
+  const encoder = new TextEncoder();
+  const lines = [
+    ...deltas.map(
+      (d) => `data: ${JSON.stringify({ choices: [{ delta: { content: d } }] })}\n\n`,
+    ),
+    'data: [DONE]\n\n',
+  ];
+  let i = 0;
+  const body = ok
+    ? {
+        getReader() {
+          return {
+            read() {
+              if (i < lines.length) {
+                const value = encoder.encode(lines[i]);
+                i += 1;
+                return Promise.resolve({ done: false, value });
+              }
+              return Promise.resolve({ done: true, value: undefined });
+            },
+          };
+        },
+      }
+    : null;
+  return { ok, status, body, text: () => Promise.resolve('error') } as unknown as Response;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -58,6 +87,41 @@ describe('groq chat provider', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(groqResponse('   ')));
     const provider = createGroqChatProvider({ apiKey: 'k', model: 'm' });
     await expect(provider.chat(req)).rejects.toThrow(/empty chat completion/);
+  });
+});
+
+describe('groq chat provider streaming', () => {
+  async function collect(iter: AsyncIterable<string>): Promise<string[]> {
+    const out: string[] = [];
+    for await (const d of iter) out.push(d);
+    return out;
+  }
+
+  it('yields content deltas parsed from the SSE stream', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(groqStreamResponse(['Occ', 'upancy ', 'is 80%.']));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createGroqChatProvider({ apiKey: 'gsk_test', model: 'qwen/qwen3.8-27b' });
+    const deltas = await collect(provider.stream!(req));
+
+    expect(deltas).toEqual(['Occ', 'upancy ', 'is 80%.']);
+    expect(deltas.join('')).toBe('Occupancy is 80%.');
+    // Requested a streaming completion.
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as { stream: boolean };
+    expect(body.stream).toBe(true);
+  });
+
+  it('stops at [DONE] and tolerates split chunks', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(groqStreamResponse(['Hello', ' world']));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createGroqChatProvider({ apiKey: 'k', model: 'm' });
+    expect((await collect(provider.stream!(req))).join('')).toBe('Hello world');
+  });
+
+  it('throws on a non-ok stream response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(groqStreamResponse([], false, 429)));
+    const provider = createGroqChatProvider({ apiKey: 'k', model: 'm' });
+    await expect(collect(provider.stream!(req))).rejects.toThrow(/Groq chat stream failed \(429\)/);
   });
 });
 

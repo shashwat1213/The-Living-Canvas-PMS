@@ -162,4 +162,33 @@ describe('assistant chat', () => {
     expect([403, 404]).toContain(cross.status);
     expect(cross.status).not.toBe(200);
   });
+
+  it('streams a reply over SSE (meta, delta, done)', async () => {
+    const { token } = await loginAsNewOwner('Streaming Hotel');
+    const propertyId = await makeProperty(token);
+
+    const res = await request(app)
+      .post(`${chatUrl(propertyId)}/stream`)
+      .set(...authHeader(token))
+      .send({ messages: [{ role: 'user', content: 'What is our occupancy?' }] });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/event-stream');
+    // The stub provider has no stream(), so answerStream falls back to one
+    // delta: we still get a well-formed SSE sequence.
+    expect(res.text).toContain('event: meta');
+    expect(res.text).toContain('"provider":"stub"');
+    expect(res.text).toContain('event: delta');
+    expect(res.text).toContain('event: done');
+  });
+
+  it('validates the body before opening the stream (400, not SSE)', async () => {
+    const { token } = await loginAsNewOwner('Streaming Hotel');
+    const propertyId = await makeProperty(token);
+    const res = await request(app)
+      .post(`${chatUrl(propertyId)}/stream`)
+      .set(...authHeader(token))
+      .send({ messages: [] });
+    expect(res.status).toBe(400);
+  });
 });

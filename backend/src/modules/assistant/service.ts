@@ -149,7 +149,14 @@ async function arrivingGuestTags(guestIds: string[]): Promise<ArrivingGuestTags[
  * asks the active chat provider. Read-only: nothing is written, no audit
  * entry — this reads existing data on the user's behalf.
  */
-export async function answer(propertyId: string, input: ChatRequestInput): Promise<AssistantReply> {
+/**
+ * Build the grounding system prompt for a property from its live data. Shared
+ * by the single-shot and streaming answer paths. Confirms the property is
+ * visible to the caller (cross-org/cross-property id 404s via the scoped
+ * client), then composes the prompt from operational, performance,
+ * availability and guest data — all read-only, all tenant/property-scoped.
+ */
+async function buildGroundedSystem(propertyId: string): Promise<string> {
   const property = await scopedPrisma.property.findFirst({
     where: { id: propertyId },
     select: { id: true, name: true },
@@ -176,10 +183,41 @@ export async function answer(propertyId: string, input: ChatRequestInput): Promi
     getAvailability(propertyId, { from: today, to: availTo }),
   ]);
   const tags = await arrivingGuestTags(dashboard.arrivals.map((a) => a.guest.id));
-  const system = buildSystemPrompt(property.name, dashboard, revenue, availability, tags);
+  return buildSystemPrompt(property.name, dashboard, revenue, availability, tags);
+}
 
+/**
+ * Answer a chat turn for a property (single-shot). Read-only: nothing is
+ * written, no audit entry — this reads existing data on the user's behalf.
+ */
+export async function answer(propertyId: string, input: ChatRequestInput): Promise<AssistantReply> {
+  const system = await buildGroundedSystem(propertyId);
   const provider = getChatProvider();
   const result = await provider.chat({ system, messages: input.messages });
-
   return { reply: result.content, provider: provider.key };
+}
+
+/** The provider key, so a streaming caller can report what answered. */
+export function activeProviderKey(): string {
+  return getChatProvider().key;
+}
+
+/**
+ * Answer a chat turn as a stream of text deltas. Uses the provider's native
+ * `stream()` when available; otherwise falls back to a single-shot `chat()`
+ * emitted as one delta, so the caller's code path is identical either way.
+ * Read-only, same grounding as `answer`.
+ */
+export async function* answerStream(
+  propertyId: string,
+  input: ChatRequestInput,
+): AsyncIterable<string> {
+  const system = await buildGroundedSystem(propertyId);
+  const provider = getChatProvider();
+  if (provider.stream) {
+    yield* provider.stream({ system, messages: input.messages });
+    return;
+  }
+  const result = await provider.chat({ system, messages: input.messages });
+  yield result.content;
 }

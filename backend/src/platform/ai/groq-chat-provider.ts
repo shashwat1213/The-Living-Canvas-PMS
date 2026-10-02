@@ -25,15 +25,17 @@ interface GroqChatResponse {
 export function createGroqChatProvider(config: GroqChatConfig): AIChatProvider {
   const apiBase = config.apiBase ?? 'https://api.groq.com/openai/v1';
 
+  function buildMessages(request: ChatRequest) {
+    return [
+      { role: 'system' as const, content: request.system },
+      ...request.messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+  }
+
   return {
     key: `groq:${config.model}`,
 
     async chat(request: ChatRequest): Promise<ChatResult> {
-      const messages = [
-        { role: 'system' as const, content: request.system },
-        ...request.messages.map((m) => ({ role: m.role, content: m.content })),
-      ];
-
       const res = await fetch(`${apiBase}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -42,7 +44,7 @@ export function createGroqChatProvider(config: GroqChatConfig): AIChatProvider {
         },
         body: JSON.stringify({
           model: config.model,
-          messages,
+          messages: buildMessages(request),
           temperature: 0.3,
           max_tokens: 800,
         }),
@@ -59,6 +61,63 @@ export function createGroqChatProvider(config: GroqChatConfig): AIChatProvider {
         throw new Error('Groq returned an empty chat completion.');
       }
       return { content: content.trim() };
+    },
+
+    /**
+     * Streaming variant: requests `stream: true` and yields each content delta
+     * as Groq's OpenAI-compatible SSE arrives. Each line is `data: {json}`, with
+     * a final `data: [DONE]`; we pull `choices[0].delta.content` from each JSON
+     * chunk. Partial lines are buffered across reads.
+     */
+    async *stream(request: ChatRequest): AsyncIterable<string> {
+      const res = await fetch(`${apiBase}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages: buildMessages(request),
+          temperature: 0.3,
+          max_tokens: 800,
+          stream: true,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        const detail = res.body ? await res.text().catch(() => '') : '';
+        throw new Error(`Groq chat stream failed (${res.status}): ${detail.slice(0, 200)}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE lines; keep the trailing partial in the buffer.
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]') return;
+          try {
+            const json = JSON.parse(payload) as {
+              choices?: Array<{ delta?: { content?: string | null } }>;
+            };
+            const delta = json.choices?.[0]?.delta?.content;
+            if (delta) yield delta;
+          } catch {
+            // Ignore keep-alive / unparseable lines.
+          }
+        }
+      }
     },
   };
 }

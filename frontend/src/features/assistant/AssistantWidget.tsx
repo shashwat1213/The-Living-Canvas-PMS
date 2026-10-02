@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth/useAuth';
-import { ApiError } from '../../lib/api';
-import { sendChat } from './api';
+import { streamChat } from './api';
 import { canUseAssistant } from './permissions';
 import type { AssistantChatMessage } from './types';
 import './assistant.css';
@@ -69,19 +68,35 @@ export function AssistantWidget() {
     if (!trimmed || sending || !propertyId) return;
 
     const next: AssistantChatMessage[] = [...messages, { role: 'user', content: trimmed }];
-    setMessages(next);
+    // Add the user turn plus an empty assistant turn we'll stream text into.
+    setMessages([...next, { role: 'assistant', content: '' }]);
     setInput('');
     setError(null);
     setSending(true);
-    try {
-      // Send a bounded tail of the conversation (the backend also caps it).
-      const res = await sendChat(propertyId, next.slice(-19));
-      setMessages((prev) => [...prev, { role: 'assistant', content: res.reply }]);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong. Try again.');
-    } finally {
-      setSending(false);
+
+    let streamed = '';
+    let failed = false;
+    await streamChat(propertyId, next.slice(-19), {
+      onDelta: (textChunk) => {
+        streamed += textChunk;
+        // Replace the trailing (assistant) message with the accumulated text.
+        setMessages((prev) => {
+          const copy = prev.slice();
+          copy[copy.length - 1] = { role: 'assistant', content: streamed };
+          return copy;
+        });
+      },
+      onError: (message) => {
+        failed = true;
+        setError(message);
+      },
+    });
+
+    // If the stream errored before any text, drop the empty assistant bubble.
+    if (failed && streamed === '') {
+      setMessages((prev) => prev.slice(0, -1));
     }
+    setSending(false);
   }
 
   function handleSubmit(event: FormEvent) {
@@ -143,18 +158,20 @@ export function AssistantWidget() {
               </div>
             )}
 
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`assistant-msg ${m.role === 'user' ? 'assistant-msg-user' : 'assistant-msg-bot'}`}
-              >
-                {m.content.split('\n').map((line, j) => (
-                  <p key={j}>{line}</p>
-                ))}
-              </div>
-            ))}
+            {messages.map((m, i) =>
+              m.content === '' ? null : (
+                <div
+                  key={i}
+                  className={`assistant-msg ${m.role === 'user' ? 'assistant-msg-user' : 'assistant-msg-bot'}`}
+                >
+                  {m.content.split('\n').map((line, j) => (
+                    <p key={j}>{line}</p>
+                  ))}
+                </div>
+              ),
+            )}
 
-            {sending && (
+            {sending && (messages.length === 0 || messages[messages.length - 1]?.content === '') && (
               <div className="assistant-msg assistant-msg-bot assistant-typing" aria-live="polite">
                 <span className="assistant-dot" />
                 <span className="assistant-dot" />

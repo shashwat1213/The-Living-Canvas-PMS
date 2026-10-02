@@ -39,5 +39,11 @@ export interface AIChatProvider {
    * "groq:qwen/qwen3.8-27b"), returned alongside the reply so the client can
    * show what answered. */
   readonly key: string;
+  /** Single-shot: resolve the full reply. */
   chat(request: ChatRequest): Promise<ChatResult>;
+  /** Streaming: yield reply text deltas as they arrive. Optional — a provider
+   * that doesn't implement it is driven in single-shot mode by the route,
+   * which emits the whole reply as one delta so the client code path is the
+   * same either way. */
+  stream?(request: ChatRequest): AsyncIterable<string>;
 }
