@@ -82,6 +82,10 @@ describe('assistant chat', () => {
     // Grounding: the live snapshot mentions occupancy + is read-only framed.
     expect(capturedSystem).toContain('Occupancy');
     expect(capturedSystem).toContain('READ-ONLY');
+    // Performance window (revenue/ADR/RevPAR) is included for business questions.
+    expect(capturedSystem).toContain('PERFORMANCE');
+    expect(capturedSystem).toContain('ADR');
+    expect(capturedSystem).toContain('RevPAR');
     // Full conversation forwarded.
     expect(capturedTurns).toBe(3);
   });
