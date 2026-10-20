@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { getRequestContext } from './context.js';
+import { withRowLevelSecurity } from './rls.js';
 
 const WHERE_OPERATIONS = new Set([
   'findFirst',
@@ -412,7 +413,7 @@ function scopeByRoomRelation() {
  * but `findFirst` states the intent, works uniformly, and is what every
  * repository here uses.)
  */
-export const scopedPrisma = prisma.$extends({
+const appScopedPrisma = prisma.$extends({
   name: 'tenant-scoping',
   query: {
     property: scopeByOrganizationColumn(),
@@ -441,3 +442,12 @@ export const scopedPrisma = prisma.$extends({
     marketingContent: scopeByPropertyRelation(),
   },
 });
+
+/**
+ * The tenant-scoped client every module uses: the app-layer filter above,
+ * wrapped so each statement also runs under Postgres Row Level Security as
+ * the caller's organization (see `rls.ts` and the
+ * `row_level_security` migration). Two independent layers — a bug in one is
+ * caught by the other.
+ */
+export const scopedPrisma = withRowLevelSecurity(appScopedPrisma);
