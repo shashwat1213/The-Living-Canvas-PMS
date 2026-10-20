@@ -54,6 +54,11 @@ function property(overrides: Partial<Property> = {}): Property {
   };
 }
 
+/** Row actions live in the "Open ▾" overflow menu; open it before querying them. */
+function openRowMenu() {
+  fireEvent.click(screen.getByRole('button', { name: /^Open/ }));
+}
+
 function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
   return { ok, status, json: () => Promise.resolve(body) } as Response;
 }
@@ -140,7 +145,9 @@ describe('PropertiesPage — loading, empty and error states', () => {
     stubApi({ properties: [property()] });
     renderPage(ownerSession());
 
-    expect(await screen.findByRole('link', { name: 'Rooms' })).toHaveAttribute(
+    await screen.findByText('Seaside Villa');
+    openRowMenu();
+    expect(screen.getAllByRole('link', { name: 'Rooms' })[0]).toHaveAttribute(
       'href',
       '/app/properties/prop-1/rooms',
     );
@@ -149,6 +156,8 @@ describe('PropertiesPage — loading, empty and error states', () => {
   it('links to the room-type catalogue only for a caller who may read it', async () => {
     stubApi({ properties: [property()] });
     const { unmount } = renderPage(session(['properties:read', 'room-types:read']));
+    await screen.findByText('Seaside Villa');
+    openRowMenu();
 
     expect(await screen.findByRole('link', { name: 'Room types' })).toHaveAttribute(
       'href',
@@ -160,6 +169,7 @@ describe('PropertiesPage — loading, empty and error states', () => {
     stubApi({ properties: [property()] });
     renderPage(readOnlySession());
     await screen.findByText('Seaside Villa');
+    openRowMenu();
     expect(screen.queryByRole('link', { name: 'Room types' })).not.toBeInTheDocument();
   });
 
@@ -277,11 +287,12 @@ describe('PropertiesPage — permission gating (presentation only)', () => {
     renderPage(readOnlySession());
 
     await screen.findByText('Seaside Villa');
+    openRowMenu();
     expect(screen.queryByRole('button', { name: 'Add property' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
     // Reading rooms is still offered.
-    expect(screen.getByRole('link', { name: 'Rooms' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Rooms' }).length).toBeGreaterThan(0);
   });
 
   it('offers them to a caller who holds the permissions', async () => {
@@ -289,6 +300,7 @@ describe('PropertiesPage — permission gating (presentation only)', () => {
     renderPage(ownerSession());
 
     await screen.findByText('Seaside Villa');
+    openRowMenu();
     expect(screen.getByRole('button', { name: 'Add property' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
@@ -362,6 +374,8 @@ describe('PropertiesPage — create and edit', () => {
     renderPage(ownerSession());
     await screen.findByText('Seaside Villa');
 
+    openRowMenu();
+
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Seaside Resort' } });
@@ -381,6 +395,8 @@ describe('PropertiesPage — create and edit', () => {
     });
     renderPage(ownerSession());
     await screen.findByText('Seaside Villa');
+
+    openRowMenu();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog');
@@ -429,6 +445,8 @@ describe('PropertiesPage — delete', () => {
     renderPage(ownerSession());
     await screen.findByText('Seaside Villa');
 
+    openRowMenu();
+
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/every room recorded against it/i)).toBeInTheDocument();
@@ -446,6 +464,8 @@ describe('PropertiesPage — delete', () => {
     stubApi({ properties: [property()], onMutate: () => mutations.push(true) });
     renderPage(ownerSession());
     await screen.findByText('Seaside Villa');
+
+    openRowMenu();
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     const dialog = await screen.findByRole('dialog');

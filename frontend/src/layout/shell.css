@@ -302,3 +302,51 @@
     padding: var(--sp-5) var(--sp-4) var(--sp-10);
   }
 }
+
+/* ---------- Account banners (verify email / demo workspace) ---------- */
+
+.shell-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3) var(--sp-8);
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-border);
+  color: var(--warning);
+  font-size: var(--fs-sm);
+}
+
+.shell-banner-info {
+  background: var(--accent-bg);
+  border-bottom-color: var(--accent-border);
+  color: var(--accent-hover);
+}
+
+.shell-banner a {
+  color: inherit;
+  font-weight: 700;
+}
+
+.shell-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.shell-banner-actions button {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--sp-1);
+}
+
+@media (max-width: 960px) {
+  .shell-banner {
+    padding: var(--sp-3) var(--sp-4);
+  }
+}

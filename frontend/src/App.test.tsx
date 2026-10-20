@@ -3,33 +3,41 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
+import { AuthProvider } from './auth/AuthContext';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('App', () => {
-  it('renders the product name and an API status indicator', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true } as Response),
-    );
+function renderHome() {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response));
+  return render(
+    <AuthProvider>
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
+    </AuthProvider>,
+  );
+}
 
-    render(<App />, { wrapper: MemoryRouter });
-
-    expect(screen.getByText('The Living Canvas PMS')).toBeInTheDocument();
-    expect(await screen.findByText('API: online')).toBeInTheDocument();
+describe('App (public landing page)', () => {
+  it('presents the product with a clear headline and feature list', async () => {
+    renderHome();
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(/Run every property/);
+    expect(screen.getByRole('heading', { name: 'Tape-chart calendar' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'AI assistant & marketing' })).toBeInTheDocument();
   });
 
-  it('links to login and signup', () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true } as Response),
-    );
+  it('offers the live demo, sign-up and login', async () => {
+    renderHome();
+    expect(await screen.findByRole('link', { name: /Try the live demo/ })).toHaveAttribute('href', '/login');
+    expect(screen.getByRole('link', { name: 'Start free' })).toHaveAttribute('href', '/signup');
+    expect(screen.getAllByRole('link', { name: 'Log in' })[0]).toHaveAttribute('href', '/login');
+  });
 
-    render(<App />, { wrapper: MemoryRouter });
-
-    expect(screen.getByRole('link', { name: 'Log in' })).toHaveAttribute('href', '/login');
-    expect(screen.getByRole('link', { name: 'Create an organization' })).toHaveAttribute('href', '/signup');
+  it('links to the privacy policy and terms from the footer', async () => {
+    renderHome();
+    expect(await screen.findByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
   });
 });

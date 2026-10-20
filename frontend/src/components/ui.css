@@ -84,6 +84,199 @@
   padding: 0.35rem 0.7rem;
 }
 
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  text-decoration: none;
+}
+
+.btn-secondary {
+  background: var(--accent-bg);
+  color: var(--accent-hover);
+  border-color: var(--accent-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--brand-100);
+}
+
+/* ---------- Loading: spinner + skeletons ---------- */
+
+@keyframes lc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.btn-spinner,
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: lc-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.spinner-lg {
+  width: 36px;
+  height: 36px;
+  border-width: 3px;
+  color: var(--accent);
+}
+
+@keyframes lc-shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+.skeleton {
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--surface-3) 0%, var(--surface-2) 50%, var(--surface-3) 100%);
+  background-size: 800px 100%;
+  animation: lc-shimmer 1.3s ease-in-out infinite;
+}
+
+.skeleton-title {
+  height: 36px;
+  width: min(420px, 80%);
+}
+
+.skeleton-kpi {
+  height: 104px;
+}
+
+.skeleton-card {
+  height: 180px;
+}
+
+.skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .btn-spinner,
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+/* ---------- Form field + inline validation ---------- */
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.form-field > label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.form-field input {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-h);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.form-field input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.form-field-invalid input {
+  border-color: var(--danger);
+}
+
+.form-field-invalid input:focus-visible {
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}
+
+.form-error {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--danger);
+}
+
+.form-hint {
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+.pw-strength {
+  margin-top: var(--sp-2);
+}
+
+.pw-strength-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.pw-strength-bar span {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+.pw-strength-bar[data-score='1'] span.on {
+  background: var(--danger);
+}
+
+.pw-strength-bar[data-score='2'] span.on {
+  background: var(--warning);
+}
+
+.pw-strength-bar[data-score='3'] span.on,
+.pw-strength-bar[data-score='4'] span.on {
+  background: var(--success);
+}
+
+.pw-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--sp-3);
+  list-style: none;
+  padding: 0;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+.pw-checks li.ok {
+  color: var(--success);
+}
+
+.pw-checks .pw-label {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.turnstile {
+  min-height: 65px;
+}
+
 /* ---------- Form controls ---------- */
 
 .field {
@@ -440,4 +633,117 @@
   color: var(--text-muted, #6b7280);
   font-size: 0.9rem;
   margin: 0 0 1rem;
+}
+
+/* App boot (RequireAuth while the silent refresh runs) */
+.app-boot {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-4);
+  background: var(--bg);
+}
+
+.app-boot-text {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* ---------- Row overflow menu (ActionMenu) ---------- */
+
+.action-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.action-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  min-width: 200px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--sp-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.action-menu-list > a,
+.action-menu-list > button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-h);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action-menu-list > a:hover,
+.action-menu-list > button:hover,
+.action-menu-list > a:focus-visible,
+.action-menu-list > button:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+
+.action-menu-list hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--sp-1) 0;
+}
+
+.action-menu-list .action-menu-danger {
+  color: var(--danger);
+}
+
+/* ---------- Tables on small screens ----------
+ * Dense operational tables keep their columns and scroll horizontally inside
+ * their card (with momentum + an edge fade as the "more →" cue) rather than
+ * crushing every cell into a one-word-per-line column. */
+@media (max-width: 720px) {
+  .data-table-wrap {
+    -webkit-overflow-scrolling: touch;
+    background:
+      linear-gradient(to right, var(--surface) 30%, transparent) left / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--surface) 30%, transparent) right / 24px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.12), transparent) left / 10px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.12), transparent) right / 10px 100% no-repeat scroll,
+      var(--surface);
+  }
+
+  .data-table {
+    min-width: 640px;
+    font-size: 0.85rem;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 0.6rem 0.75rem;
+  }
+
+  .reports-table,
+  .pos-orders-table,
+  .folio-table,
+  .guest-stays,
+  .reservation-nights-table,
+  .audit-change-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
 }

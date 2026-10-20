@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../auth/useAuth';
 import { hasPermission } from '../auth/session';
@@ -7,6 +7,8 @@ import { AssistantWidget } from '../features/assistant/AssistantWidget';
 import { canReadGuests } from '../features/guests/permissions';
 import { canReadStaff } from '../features/staff/permissions';
 import { ApiError, apiFetch } from '../lib/api';
+import { setFlash } from '../lib/flash';
+import { fetchProfile, type Profile } from '../lib/profile';
 import { NavIcon } from './NavIcon';
 import './shell.css';
 
@@ -19,6 +21,21 @@ export function AppShell() {
   const { logout, session } = useAuth();
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const location = useLocation();
+
+  // Close the mobile drawer on navigation and move focus to the top.
+  useEffect(() => {
+    setMobileOpen(false);
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    fetchProfile()
+      .then(setProfile)
+      .catch(() => undefined);
+  }, [location.pathname]);
 
   useEffect(() => {
     apiFetch<{ organization: Organization }>('/api/v1/organizations/me')
@@ -32,6 +49,7 @@ export function AppShell() {
   }, []);
 
   async function handleLogout() {
+    setFlash('You’ve been signed out.');
     try {
       await logout();
     } catch (error) {
@@ -40,7 +58,8 @@ export function AppShell() {
   }
 
   const orgName = organization?.name ?? 'The Living Canvas';
-  const orgInitials = orgName
+  const displayName = profile ? `${profile.firstName} ${profile.lastName}` : orgName;
+  const orgInitials = displayName
     .split(/\s+/)
     .slice(0, 2)
     .map((word) => word.charAt(0).toUpperCase())
@@ -103,6 +122,14 @@ export function AppShell() {
               </NavLink>
             )}
           </div>
+
+          <div className="nav-group">
+            <span className="nav-group-label">Account</span>
+            <NavLink to="/app/settings" className={navLinkClass}>
+              <NavIcon name="settings" />
+              <span>Settings</span>
+            </NavLink>
+          </div>
         </nav>
 
         <div className="sidebar-footer">
@@ -111,7 +138,7 @@ export function AppShell() {
               {orgInitials || 'LC'}
             </span>
             <span className="sidebar-user-text">
-              <span className="sidebar-user-name">{orgName}</span>
+              <span className="sidebar-user-name">{displayName}</span>
               <span className="sidebar-user-role">{primaryRole}</span>
             </span>
           </div>
@@ -141,7 +168,31 @@ export function AppShell() {
           </button>
           <span className="shell-topbar-org">{orgName}</span>
         </header>
-        <main className="shell-main">
+        {profile?.isDemo && (
+          <div className="shell-banner shell-banner-info" role="note">
+            <span>
+              You’re exploring the <strong>shared demo hotel</strong> — data resets periodically and is visible to other
+              visitors.
+            </span>
+            <Link to="/signup" onClick={() => void logout()}>
+              Create your own workspace →
+            </Link>
+          </div>
+        )}
+        {profile && !profile.isDemo && !profile.emailVerifiedAt && !bannerDismissed && (
+          <div className="shell-banner" role="status">
+            <span>
+              Please verify your email — we sent a link to <strong>{profile.email}</strong>.
+            </span>
+            <span className="shell-banner-actions">
+              <Link to="/app/settings">Resend link</Link>
+              <button type="button" aria-label="Dismiss" onClick={() => setBannerDismissed(true)}>
+                ×
+              </button>
+            </span>
+          </div>
+        )}
+        <main className="shell-main" id="main">
           <Outlet />
         </main>
       </div>

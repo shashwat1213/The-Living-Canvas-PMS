@@ -1,6 +1,7 @@
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
+import helmet from 'helmet';
 
 import { env } from './config/env.js';
 import { NotFoundError } from './lib/http-errors.js';
@@ -9,6 +10,7 @@ import { auditRouter } from './modules/audit/routes.js';
 import { assistantRouter } from './modules/assistant/routes.js';
 import { authRouter } from './modules/auth/routes.js';
 import { availabilityRouter } from './modules/availability/routes.js';
+import { bookingEngineRouter } from './modules/booking-engine/routes.js';
 import { calendarRouter } from './modules/calendar/routes.js';
 import { dashboardRouter } from './modules/dashboard/routes.js';
 import { foliosRouter } from './modules/folios/routes.js';
@@ -28,6 +30,7 @@ import { roomTypesRouter } from './modules/room-types/routes.js';
 import { roomsRouter } from './modules/rooms/routes.js';
 import { staffRouter } from './modules/staff/routes.js';
 import { healthRouter } from './routes/health.js';
+import { ipRateLimit } from './platform/http/ip-rate-limit.js';
 import { registerNotificationHandlers } from './platform/notifications/send-handler.js';
 import { registerMarketingHandlers } from './platform/ai/generate-handler.js';
 
@@ -40,17 +43,44 @@ export function createApp(): Express {
 
   const app = express();
 
-  // `credentials: true` + an explicit (not wildcard) origin is required
-  // for the browser to send/accept the httpOnly refresh-token cookie
-  // across the frontend/backend origin split (see platform/auth/cookies.ts).
-  app.use(cors({ origin: env.frontendUrl, credentials: true }));
-  app.use(express.json());
+  // Behind Vercel / a load balancer: trust the first proxy hop so `req.ip`
+  // is the real client (rate limiting keys on it) and `secure` cookies work.
+  app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+
+  // Security headers (HSTS, nosniff, frame-ancestors, referrer policy…).
+  // This is a JSON API, so the CSP is the strictest possible.
+  app.use(
+    helmet({
+      contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
+      crossOriginResourcePolicy: { policy: 'same-site' },
+    }),
+  );
+
+  // `credentials: true` + an explicit (not wildcard) origin allowlist is
+  // required for the browser to send/accept the httpOnly refresh-token
+  // cookie across the frontend/backend origin split (platform/auth/cookies.ts).
+  const allowedOrigins = new Set([env.frontendUrl, ...env.extraCorsOrigins]);
+  app.use(
+    cors({
+      origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)),
+      credentials: true,
+    }),
+  );
+  app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
   app.use(healthRouter);
 
   const v1 = express.Router();
+  // Global per-IP budget for the whole API (per-route limits on login,
+  // signup, password reset and booking are tighter still).
+  v1.use(ipRateLimit({ name: 'api-global', windowMs: 60_000, max: 300, skipInTest: true }));
   v1.use(authRouter);
+  // The public booking engine is mounted FIRST and is NOT behind `authenticate`
+  // — it's the one guest-facing surface. Addressed by property slug under
+  // /api/v1/book; the org is resolved server-side. See modules/booking-engine.
+  v1.use('/book', bookingEngineRouter);
   v1.use(organizationsRouter);
   v1.use(staffRouter);
   v1.use(auditRouter);

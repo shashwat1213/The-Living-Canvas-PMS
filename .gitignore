@@ -33,3 +33,9 @@ coverage/
 
 # Design exploration scratch (throwaway mockups + large screenshots)
 design-mockups/
+.vercel
+.env*
+.agents/
+.claude/
+skills-lock.json
+.env.production.local
