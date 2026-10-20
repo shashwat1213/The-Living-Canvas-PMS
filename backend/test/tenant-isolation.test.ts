@@ -465,7 +465,7 @@ describe('cross-organization isolation: staff', () => {
       .set(...authHeader(token))
       .send({
         email: `isolation-${suffix}@example.com`,
-        password: 'correct-horse-battery-staple',
+        password: 'correct-horse-battery-staple-1',
         firstName: 'Iso',
         lastName: 'Lated',
         role,
@@ -502,7 +502,7 @@ describe('cross-organization isolation: staff', () => {
       .set(...authHeader(orgA.token))
       .send({
         email: `probe-${suffix}@example.com`,
-        password: 'correct-horse-battery-staple',
+        password: 'correct-horse-battery-staple-1',
         firstName: secretName,
         lastName: 'Beeblebrox',
         role: 'STAFF',
@@ -608,7 +608,7 @@ describe('cross-organization isolation: staff', () => {
       .set(...authHeader(orgA.token))
       .send({
         email: `smuggle-${suffix}@example.com`,
-        password: 'correct-horse-battery-staple',
+        password: 'correct-horse-battery-staple-1',
         firstName: 'Smug',
         lastName: 'Gler',
         role: 'STAFF',

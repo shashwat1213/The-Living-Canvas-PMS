@@ -21,9 +21,28 @@ if (!isTest && !process.env.JWT_SECRET) {
 
 export const env = {
   nodeEnv,
+  isTest,
   port: Number(process.env.PORT ?? 4000),
   databaseUrl: process.env.DATABASE_URL,
   frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+  /** Extra allowed CORS origins (comma-separated), e.g. Vercel preview URLs. */
+  extraCorsOrigins: (process.env.CORS_EXTRA_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
+  /** Public base URL used to build links in emails (defaults to FRONTEND_URL). */
+  appUrl: process.env.APP_URL ?? process.env.FRONTEND_URL ?? 'http://localhost:5173',
+  smtp: {
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT ?? 465),
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+    from: process.env.MAIL_FROM ?? `The Living Canvas <${process.env.SMTP_USER ?? 'no-reply@livingcanvas.app'}>`,
+  },
+  turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+  sentryDsn: process.env.SENTRY_DSN,
+  /** Email of the shared read-mostly demo account (cannot be deleted / password-reset). */
+  demoEmail: (process.env.DEMO_EMAIL ?? 'demo@livingcanvas.app').toLowerCase(),
   auth: {
     // Test-only fallback so `npm run test -w backend` doesn't require a
     // real .env — only reachable when isTest is true (see above), i.e.

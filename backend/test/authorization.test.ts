@@ -22,7 +22,7 @@ import { setPropertyAccess } from '../src/modules/staff/service.js';
 import { runWithRequestContext } from '../src/platform/tenancy/context.js';
 import { app, authHeader, loginAs, loginAsNewOwner } from './helpers.js';
 
-const PASSWORD = 'correct-horse-battery-staple';
+const PASSWORD = 'correct-horse-battery-staple-1';
 
 /**
  * One organization containing two properties, a room in each, and one

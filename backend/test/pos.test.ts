@@ -271,7 +271,7 @@ describe('POS API — orders', () => {
     const outletId = (await createOutlet(token, propertyId)).body.outlet.id as string;
     const p = (await createProduct(token, propertyId, outletId, { name: 'Espresso', priceMinor: 15000 })).body.product.id as string;
 
-    const password = 'correct-horse-battery-staple';
+    const password = 'correct-horse-battery-staple-1';
     const stf = await request(app)
       .post('/api/v1/staff')
       .set(...auth)

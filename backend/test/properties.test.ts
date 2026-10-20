@@ -212,7 +212,7 @@ describe('properties listing: PropertyAccess is applied in the query', () => {
       .set(...authHeader(owner.token))
       .send({
         email: `grant-${randomUUID().slice(0, 8)}@example.com`,
-        password: 'correct-horse-battery-staple',
+        password: 'correct-horse-battery-staple-1',
         firstName: 'Mary',
         lastName: 'Manager',
         role: 'MANAGER',
@@ -221,7 +221,7 @@ describe('properties listing: PropertyAccess is applied in the query', () => {
 
     const login = await request(app)
       .post('/api/v1/auth/login')
-      .send({ email: staff.body.staff.email, password: 'correct-horse-battery-staple' });
+      .send({ email: staff.body.staff.email, password: 'correct-horse-battery-staple-1' });
 
     return { owner, ids, managerToken: login.body.accessToken as string };
   }

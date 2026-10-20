@@ -132,14 +132,14 @@ describe('assistant chat', () => {
       .set(...authHeader(owner.token))
       .send({
         email: staffEmail,
-        password: 'correct-horse-battery-staple',
+        password: 'correct-horse-battery-staple-1',
         firstName: 'Sam',
         lastName: 'Staffer',
         role: 'STAFF',
         propertyIds: [propertyId],
       });
     expect(created.status).toBe(201);
-    const staffToken = await loginAs(staffEmail, 'correct-horse-battery-staple');
+    const staffToken = await loginAs(staffEmail, 'correct-horse-battery-staple-1');
 
     const res = await request(app)
       .post(chatUrl(propertyId))

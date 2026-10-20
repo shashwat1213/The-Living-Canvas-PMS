@@ -22,7 +22,7 @@ function staffBody(role: 'OWNER' | 'ADMIN' | 'MANAGER' | 'STAFF', overrides: Rec
   const suffix = randomUUID().slice(0, 8);
   return {
     email: `audit-${role.toLowerCase()}-${suffix}@example.com`,
-    password: 'correct-horse-battery-staple',
+    password: 'correct-horse-battery-staple-1',
     firstName: 'Ada',
     lastName: 'Auditee',
     role,

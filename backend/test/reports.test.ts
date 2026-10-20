@@ -230,7 +230,7 @@ describe('reports API — revenue & occupancy', () => {
     const ids = await setupBookableProperty(token, { rooms: 2 });
 
     // Provision a MANAGER and a STAFF, both granted this property.
-    const password = 'correct-horse-battery-staple';
+    const password = 'correct-horse-battery-staple-1';
     const mgr = await request(app)
       .post('/api/v1/staff')
       .set(...auth)

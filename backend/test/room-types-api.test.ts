@@ -27,7 +27,7 @@ async function createProperty(token: string) {
 async function createStaff(token: string, role: 'MANAGER' | 'STAFF', propertyIds: string[]) {
   const suffix = randomUUID().slice(0, 8);
   const email = `${role.toLowerCase()}-${suffix}@example.com`;
-  const password = 'correct-horse-battery-staple';
+  const password = 'correct-horse-battery-staple-1';
   const created = await request(app)
     .post('/api/v1/staff')
     .set(...authHeader(token))
