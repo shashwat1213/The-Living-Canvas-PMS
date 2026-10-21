@@ -1,50 +1,401 @@
 /*
- * Landing (unauthenticated) page only. These are scoped under `.home-shell`
- * so they never collide with the authenticated app shell in layout/shell.css,
- * which also owns a `.shell` class. (Previously both used `.shell`, and this
- * global 640px-centered rule leaked into the whole app, squeezing every
- * screen into a narrow centered column.)
+ * Public marketing home. Every rule is scoped under `.home-shell` so nothing
+ * leaks into the authenticated app shell (layout/shell.css also owns a
+ * `.shell` class — an earlier unscoped rule here squeezed the whole app).
  */
 .home-shell {
-  max-width: 640px;
-  margin: 4rem auto;
-  padding: 0 1.5rem;
-  text-align: center;
-  font-family: system-ui, sans-serif;
-}
-
-.home-shell .tagline {
-  color: var(--text);
-}
-
-.home-shell .api-status {
-  display: inline-block;
-  margin-top: 1rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 999px;
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.home-shell .api-status[data-status='checking'] {
-  background: #eee;
-  color: #555;
-}
-
-.home-shell .api-status[data-status='online'] {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.home-shell .api-status[data-status='offline'] {
-  background: #fee2e2;
-  color: #991b1b;
+  min-height: 100vh;
+  background:
+    radial-gradient(1100px 620px at 85% -10%, rgba(20, 163, 150, 0.14), transparent 60%),
+    radial-gradient(900px 520px at -10% 10%, rgba(31, 61, 51, 0.08), transparent 60%),
+    var(--bg);
+  color: var(--text-body);
 }
 
 .home-shell .home-nav {
+  max-width: 1160px;
+  margin: 0 auto;
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-5) var(--sp-5);
+}
+
+.home-shell .home-nav nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.home-shell .home-link {
+  font-weight: 600;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.home-shell .home-btn {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  gap: 1.25rem;
-  margin-top: 1.75rem;
-  font-size: 0.9rem;
+  gap: var(--sp-2);
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+}
+
+.home-shell .home-btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 6px 16px -6px rgba(15, 118, 110, 0.55);
+}
+
+.home-shell .home-btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.home-shell .home-btn-ghost {
+  background: var(--surface);
+  color: var(--text-h);
+  border-color: var(--border-strong, var(--border));
+}
+
+.home-shell .home-btn-ghost:hover {
+  border-color: var(--accent-border);
+}
+
+.home-shell .home-btn-lg {
+  padding: 0.85rem 1.4rem;
+  font-size: var(--fs-md);
+  border-radius: var(--radius-md);
+}
+
+.home-shell .home-hero {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: var(--sp-12) var(--sp-5) var(--sp-8);
+  text-align: center;
+}
+
+.home-shell .home-eyebrow {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius-full);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-hover);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.home-shell .home-hero h1 {
+  margin: var(--sp-5) auto var(--sp-4);
+  font-size: clamp(2.2rem, 5.5vw, 4rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--text-h);
+}
+
+.home-shell .home-hero h1 span {
+  color: var(--accent);
+}
+
+.home-shell .home-lead {
+  max-width: 62ch;
+  margin: 0 auto;
+  font-size: clamp(1rem, 1.6vw, 1.15rem);
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.home-shell .home-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-8);
+}
+
+.home-shell .home-cta-note {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/* Faux product screenshot — pure CSS, so it never goes stale or 404s. */
+.home-shell .home-preview {
+  max-width: 980px;
+  margin: var(--sp-12) auto 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 40px 80px -30px rgba(28, 26, 23, 0.35);
+  overflow: hidden;
+  text-align: left;
+}
+
+.home-shell .home-preview-bar {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.home-shell .home-preview-bar span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--slate-300);
+}
+
+.home-shell .home-preview-body {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  min-height: 300px;
+}
+
+.home-shell .home-preview-side {
+  background: linear-gradient(180deg, #1b2a2a, #10201d);
+  padding: var(--sp-5) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-shell .home-preview-side i {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.home-shell .home-preview-side i.on {
+  background: var(--brand-400);
+}
+
+.home-shell .home-preview-main {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  background: var(--bg);
+}
+
+.home-shell .home-preview-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+}
+
+.home-shell .home-preview-kpis div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+}
+
+.home-shell .home-preview-kpis small {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.home-shell .home-preview-kpis b {
+  font-family: var(--heading);
+  font-size: 1.4rem;
+  color: var(--text-h);
+}
+
+.home-shell .home-preview-chart {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 140px;
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.home-shell .home-preview-chart span {
+  flex: 1;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--brand-400), var(--brand-600));
+  opacity: 0.85;
+}
+
+.home-shell .home-features,
+.home-shell .home-trust,
+.home-shell .home-final {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: var(--sp-12) var(--sp-5);
+}
+
+.home-shell .home-features h2,
+.home-shell .home-final h2 {
+  text-align: center;
+  margin: 0 0 var(--sp-8);
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  color: var(--text-h);
+  letter-spacing: -0.02em;
+}
+
+.home-shell .home-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+.home-shell .home-feature {
+  padding: var(--sp-6);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.home-shell .home-feature:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.home-shell .home-feature-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--accent-bg);
+  font-size: 1.3rem;
+}
+
+.home-shell .home-feature h3 {
+  margin: var(--sp-4) 0 var(--sp-2);
+  font-size: var(--fs-lg);
+  color: var(--text-h);
+}
+
+.home-shell .home-feature p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.home-shell .home-trust {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-8);
+  align-items: center;
+  background: linear-gradient(160deg, #1b2a2a 0%, #0e1817 100%);
+  color: #d8e6e2;
+  border-radius: var(--radius-lg);
+  padding: var(--sp-10);
+  margin: var(--sp-4) auto;
+  max-width: 1120px;
+  box-sizing: border-box;
+}
+
+.home-shell .home-trust h2 {
+  margin: 0 0 var(--sp-3);
+  color: #fff;
+  font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+}
+
+.home-shell .home-trust p {
+  margin: 0;
+  line-height: 1.7;
+  color: #b9cbc6;
+}
+
+.home-shell .home-trust ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.home-shell .home-trust li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-weight: 500;
+}
+
+.home-shell .home-trust li span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(45, 212, 191, 0.18);
+  color: var(--brand-400);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.home-shell .home-final {
+  text-align: center;
+}
+
+.home-shell .home-final h2 {
+  margin-bottom: var(--sp-6);
+}
+
+@media (max-width: 900px) {
+  .home-shell .home-feature-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .home-shell .home-trust {
+    grid-template-columns: 1fr;
+    margin: var(--sp-4) var(--sp-4);
+    padding: var(--sp-8) var(--sp-6);
+  }
+}
+
+@media (max-width: 600px) {
+  .home-shell .home-feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-shell .home-hero {
+    padding-top: var(--sp-8);
+  }
+
+  .home-shell .home-cta .home-btn {
+    width: 100%;
+  }
+
+  .home-shell .home-preview-body {
+    grid-template-columns: 1fr;
+  }
+
+  .home-shell .home-preview-side {
+    display: none;
+  }
+
+  .home-shell .home-preview-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .home-shell .home-nav .home-link {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-shell .home-btn,
+  .home-shell .home-feature {
+    transition: none;
+  }
 }

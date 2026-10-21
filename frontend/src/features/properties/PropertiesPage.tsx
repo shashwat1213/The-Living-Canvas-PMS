@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { useAuth } from '../../auth/useAuth';
 import { hasPermission } from '../../auth/session';
+import { ActionMenu } from '../../components/ActionMenu';
 import { Badge } from '../../components/Badge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { DataTable, type Column } from '../../components/DataTable';
@@ -161,114 +162,53 @@ export function PropertiesPage() {
       align: 'end',
       render: (property) => (
         <div className="table-actions">
-          {/* The operational cockpit for this property — arrivals, occupancy,
-              housekeeping and maintenance load at a glance. First action
-              because it's the front desk's daily landing screen.
-              Presentation-only gating; the route and API enforce
-              `dashboard:read` themselves. */}
-          {mayReadDashboard && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/dashboard`}>
+          {/* One primary action (the front desk's daily landing screen) plus an
+              overflow menu, so a row stays scannable on any screen size.
+              Presentation-only gating — every route and API enforces its own
+              permission. */}
+          {mayReadDashboard ? (
+            <Link className="btn btn-primary btn-sm" to={`/app/properties/${property.id}/dashboard`}>
               Dashboard
             </Link>
-          )}
-          {/* Revenue & occupancy reports — management analytics, gated on
-              reports:read (presentation only; route and API enforce it). */}
-          {mayReadReports && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/reports`}>
-              Reports
+          ) : (
+            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/rooms`}>
+              Rooms
             </Link>
           )}
-          {/* Point of sale — outlet sales charged to a room or paid directly.
-              Presentation-only gating; route and API enforce pos:read. */}
-          {mayReadPos && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/pos`}>
-              Point of sale
-            </Link>
-          )}
-          {/* AI Marketing Studio — generate/review marketing copy for this
-              property. Presentation-only gating; route and API enforce
-              marketing:read. */}
-          {mayReadMarketing && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/marketing`}>
-              Marketing
-            </Link>
-          )}
-          {/* The front desk's core screen: bookings for this property.
-              Presentation-only gating; the route and API enforce
-              `reservations:read` themselves. */}
-          {mayReadReservations && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/reservations`}>
-              Reservations
-            </Link>
-          )}
-          {/* The reservation tape chart: every room × night with stays as
-              bars, the front desk's operational board. Same read permission
-              as reservations; route and API enforce it themselves. */}
-          {mayReadReservations && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/calendar`}>
-              Calendar
-            </Link>
-          )}
-          {/* Block / group bookings — several rooms held under one name.
-              Presentation-only gating; route + API enforce reservations:read. */}
-          {mayReadReservations && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/blocks`}>
-              Blocks
-            </Link>
-          )}
-          {/* The room-type × night occupancy grid; same read permission as
-              reservations. Presentation-only gating — the route and API
-              both enforce `reservations:read` themselves. */}
-          {mayReadReservations && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/availability`}>
-              Availability
-            </Link>
-          )}
-          {/* Housekeeping board + cleaning tasks; presentation-only gating,
-              the route and API enforce `housekeeping:read` themselves. */}
-          {mayReadHousekeeping && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/housekeeping`}>
-              Housekeeping
-            </Link>
-          )}
-          {/* Maintenance work orders; presentation-only gating, the route and
-              API enforce `maintenance:read` themselves. */}
-          {mayReadMaintenance && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/maintenance`}>
-              Maintenance
-            </Link>
-          )}
-          <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/rooms`}>
-            Rooms
-          </Link>
-          {/* Presentation-only gating, like every other control here: the
-              route and the API both enforce `room-types:read` themselves. */}
-          {mayReadRoomTypes && (
-            <Link className="btn btn-ghost btn-sm" to={`/app/properties/${property.id}/room-types`}>
-              Room types
-            </Link>
-          )}
-          {mayUpdate && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                setDialogProperty(property);
-                setDialogOpen(true);
-              }}
-            >
-              Edit
-            </button>
-          )}
-          {mayDelete && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm property-danger-text"
-              onClick={() => setPendingDelete(property)}
-            >
-              Delete
-            </button>
-          )}
+          <ActionMenu label="Open">
+            {mayReadReservations && <Link to={`/app/properties/${property.id}/calendar`}>Calendar</Link>}
+            {mayReadReservations && <Link to={`/app/properties/${property.id}/reservations`}>Reservations</Link>}
+            {mayReadReservations && <Link to={`/app/properties/${property.id}/blocks`}>Blocks</Link>}
+            {mayReadReservations && <Link to={`/app/properties/${property.id}/availability`}>Availability</Link>}
+            {mayReadHousekeeping && <Link to={`/app/properties/${property.id}/housekeeping`}>Housekeeping</Link>}
+            {mayReadMaintenance && <Link to={`/app/properties/${property.id}/maintenance`}>Maintenance</Link>}
+            {mayReadPos && <Link to={`/app/properties/${property.id}/pos`}>Point of sale</Link>}
+            {mayReadReports && <Link to={`/app/properties/${property.id}/reports`}>Reports</Link>}
+            {mayReadMarketing && <Link to={`/app/properties/${property.id}/marketing`}>Marketing</Link>}
+            <hr />
+            <Link to={`/app/properties/${property.id}/rooms`}>Rooms</Link>
+            {mayReadRoomTypes && <Link to={`/app/properties/${property.id}/room-types`}>Room types</Link>}
+            <a href={`/book/${property.slug}`} target="_blank" rel="noreferrer">
+              Public booking page ↗
+            </a>
+            {(mayUpdate || mayDelete) && <hr />}
+            {mayUpdate && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDialogProperty(property);
+                  setDialogOpen(true);
+                }}
+              >
+                Edit
+              </button>
+            )}
+            {mayDelete && (
+              <button type="button" className="action-menu-danger" onClick={() => setPendingDelete(property)}>
+                Delete
+              </button>
+            )}
+          </ActionMenu>
         </div>
       ),
     },

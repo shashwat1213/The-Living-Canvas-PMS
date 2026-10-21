@@ -1,0 +1,90 @@
+.settings {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.settings-head h1 {
+  margin: 0;
+}
+
+.settings-head p {
+  margin: var(--sp-1) 0 0;
+  color: var(--text);
+}
+
+.settings-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6);
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.settings-card h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.settings-muted {
+  margin: 0;
+  color: var(--text);
+  max-width: 62ch;
+}
+
+.settings-dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4) var(--sp-6);
+  margin: 0;
+  width: 100%;
+}
+
+.settings-dl dt {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.settings-dl dd {
+  margin: 0;
+  color: var(--text-h);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.settings-danger {
+  border-color: var(--danger-border);
+}
+
+.settings-danger h2 {
+  color: var(--danger);
+}
+
+.settings-delete-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.settings-delete-form p {
+  margin: 0;
+  color: var(--text-body);
+}
+
+@media (max-width: 560px) {
+  .settings-dl {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card {
+    padding: var(--sp-4);
+  }
+}

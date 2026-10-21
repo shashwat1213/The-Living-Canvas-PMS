@@ -127,6 +127,31 @@
   opacity: 0.9;
 }
 
+/* Active-hotel switcher heading the property-scoped "Hotel" nav group. */
+.nav-property-name,
+.nav-property-select {
+  margin: 0 var(--sp-3) var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--side-text-active);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-property-select {
+  padding: 0.4rem var(--sp-2);
+  border-radius: var(--radius);
+  border: 1px solid var(--side-hover-bg);
+  background: var(--side-hover-bg);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.nav-property-select option {
+  color: #1a1a1a;
+}
+
 .nav-link-active .nav-icon {
   opacity: 1;
 }
@@ -300,5 +325,53 @@
 
   .shell-main {
     padding: var(--sp-5) var(--sp-4) var(--sp-10);
+  }
+}
+
+/* ---------- Account banners (verify email / demo workspace) ---------- */
+
+.shell-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3) var(--sp-8);
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-border);
+  color: var(--warning);
+  font-size: var(--fs-sm);
+}
+
+.shell-banner-info {
+  background: var(--accent-bg);
+  border-bottom-color: var(--accent-border);
+  color: var(--accent-hover);
+}
+
+.shell-banner a {
+  color: inherit;
+  font-weight: 700;
+}
+
+.shell-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.shell-banner-actions button {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--sp-1);
+}
+
+@media (max-width: 960px) {
+  .shell-banner {
+    padding: var(--sp-3) var(--sp-4);
   }
 }

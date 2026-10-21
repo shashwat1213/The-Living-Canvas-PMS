@@ -184,11 +184,11 @@ describe('a failed audit write rolls the mutation back', () => {
     const created = await request(app)
       .post('/api/v1/staff')
       .set(...authHeader(owner.token))
-      .send({ email, password: 'correct-horse-battery-staple', firstName: 'Rolls', lastName: 'Back', role: 'STAFF' });
+      .send({ email, password: 'correct-horse-battery-staple-1', firstName: 'Rolls', lastName: 'Back', role: 'STAFF' });
     const staffId = created.body.staff.id as string;
 
     // Give them a live session, so the revoke has something to undo.
-    await request(app).post('/api/v1/auth/login').send({ email, password: 'correct-horse-battery-staple' });
+    await request(app).post('/api/v1/auth/login').send({ email, password: 'correct-horse-battery-staple-1' });
     const sessionsBefore = await prisma.session.count({ where: { userId: staffId, revokedAt: null } });
     expect(sessionsBefore).toBeGreaterThan(0);
 
@@ -208,7 +208,7 @@ describe('a failed audit write rolls the mutation back', () => {
     // And they can still sign in, which is the user-visible proof.
     const relogin = await request(app)
       .post('/api/v1/auth/login')
-      .send({ email, password: 'correct-horse-battery-staple' });
+      .send({ email, password: 'correct-horse-battery-staple-1' });
     expect(relogin.status).toBe(200);
   });
 
@@ -263,7 +263,7 @@ describe('role and property-access changes invalidate the token in the same tran
     const created = await request(app)
       .post('/api/v1/staff')
       .set(...authHeader(owner.token))
-      .send({ email, password: 'correct-horse-battery-staple', firstName: 'Ria', lastName: 'Pace', role: 'STAFF' });
+      .send({ email, password: 'correct-horse-battery-staple-1', firstName: 'Ria', lastName: 'Pace', role: 'STAFF' });
     return { owner, email, staffId: created.body.staff.id as string };
   }
 

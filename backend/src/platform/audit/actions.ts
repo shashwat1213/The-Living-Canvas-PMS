@@ -115,6 +115,11 @@ export const AUDIT_ACTIONS = {
   MARKETING_CONTENT_APPROVED: 'marketing_content.approved',
   MARKETING_CONTENT_DISCARDED: 'marketing_content.discarded',
   MARKETING_CONTENT_REGENERATED: 'marketing_content.regenerated',
+  // Marketing Studio media library: who put which photo/video into (or took
+  // it out of) the hotel's brand library.
+  MEDIA_ASSET_UPLOADED: 'media_asset.uploaded',
+  MEDIA_ASSET_UPDATED: 'media_asset.updated',
+  MEDIA_ASSET_DELETED: 'media_asset.deleted',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -142,6 +147,7 @@ export const AUDIT_ENTITY_TYPES = {
   POS_PRODUCT: 'pos_product',
   POS_ORDER: 'pos_order',
   MARKETING_CONTENT: 'marketing_content',
+  MEDIA_ASSET: 'media_asset',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

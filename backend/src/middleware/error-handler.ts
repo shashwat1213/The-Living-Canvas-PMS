@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 
 import { HttpError } from '../lib/http-errors.js';
+import { captureError } from '../platform/observability/sentry.js';
 
 /**
  * Centralized error handler — every route delegates errors here via
@@ -9,7 +10,7 @@ import { HttpError } from '../lib/http-errors.js';
  * response inline. Keeps the error shape consistent and keeps unexpected
  * error details (stack traces, raw Prisma errors) out of the response.
  */
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof HttpError) {
     res.status(err.status).json({ error: { code: err.code, message: err.message } });
     return;
@@ -26,7 +27,14 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     return;
   }
 
+  // Malformed JSON body from express.json(): a client error, not a bug.
+  if (err instanceof SyntaxError && 'body' in err) {
+    res.status(400).json({ error: { code: 'invalid_json', message: 'The request body is not valid JSON.' } });
+    return;
+  }
+
   console.error('[backend] unhandled error', err);
+  captureError(err, { method: req.method, path: req.route?.path ?? req.path });
   res.status(500).json({ error: { code: 'internal_error', message: 'Something went wrong.' } });
 }
 

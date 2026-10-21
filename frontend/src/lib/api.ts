@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+// Production builds talk to the API on the same origin (SPA + API are one
+// Vercel deployment → first-party cookies, no CORS). Dev defaults to the
+// local backend; VITE_API_URL overrides either.
+const API_URL: string =
+  (import.meta.env.VITE_API_URL as string | undefined) ?? (import.meta.env.PROD ? '' : 'http://localhost:4000');
 
 /**
  * The access token lives only in this module's memory, never
@@ -62,6 +66,8 @@ interface RequestOptions {
   /** Skip the automatic refresh-and-retry on a 401 — used by the auth
    * endpoints themselves to avoid a refresh loop. */
   skipAuthRetry?: boolean;
+  /** Extra request headers (e.g. the Turnstile CAPTCHA token). */
+  headers?: Record<string, string>;
 }
 
 // Coalesces concurrent 401s into a single refresh call rather than
@@ -99,11 +105,22 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
       headers: {
         'Content-Type': 'application/json',
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...options.headers,
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
 
-  let res = await doFetch();
+  let res: Response;
+  try {
+    res = await doFetch();
+  } catch {
+    // fetch only rejects on network failure (offline, DNS, CORS, server down).
+    throw new ApiError(
+      0,
+      'network_error',
+      "Can't reach the server. Check your internet connection and try again.",
+    );
+  }
 
   if (res.status === 401 && !options.skipAuthRetry) {
     const refreshed = await refreshAccessToken();
@@ -122,7 +139,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     throw new ApiError(
       res.status,
       body?.error?.code ?? 'unknown_error',
-      body?.error?.message ?? `Request failed (${res.status}).`,
+      body?.error?.message ?? friendlyStatusMessage(res.status),
       body?.error?.issues,
     );
   }
@@ -131,6 +148,24 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     return undefined as T;
   }
   return res.json() as Promise<T>;
+}
+
+/** Human wording for an error response that carried no message of its own. */
+function friendlyStatusMessage(status: number): string {
+  if (status === 429) return 'Too many requests — please wait a moment and try again.';
+  if (status >= 500) return 'Something went wrong on our side. Please try again in a moment.';
+  if (status === 404) return 'We couldn’t find what you were looking for.';
+  if (status === 403) return 'You don’t have permission to do that.';
+  return `Request failed (${status}).`;
+}
+
+/**
+ * The first field-level validation message for `field` (e.g. "owner.password"),
+ * so forms can show the server's reason next to the right input.
+ */
+export function fieldError(error: unknown, field: string): string | undefined {
+  if (!(error instanceof ApiError) || !error.issues) return undefined;
+  return error.issues.find((issue) => issue.path === field || issue.path.endsWith(`.${field}`))?.message;
 }
 
 export { API_URL };

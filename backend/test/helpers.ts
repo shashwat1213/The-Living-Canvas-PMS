@@ -16,7 +16,7 @@ interface SignupResult {
 export async function signupOrganization(namePrefix = 'Test Hotel'): Promise<SignupResult> {
   const suffix = randomUUID().slice(0, 8);
   const ownerEmail = `owner-${suffix}@example.com`;
-  const ownerPassword = 'correct-horse-battery-staple';
+  const ownerPassword = 'correct-horse-battery-staple-1';
 
   const res = await request(app)
     .post('/api/v1/organizations')

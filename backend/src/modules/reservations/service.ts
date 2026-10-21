@@ -140,6 +140,49 @@ async function priceStay(
  * the UI to show a price before the guest commits, without writing anything.
  * The same validation the create path runs, minus the write.
  */
+/**
+ * Price and availability for a stay of a given room type + rate plan, with no
+ * guest involved. The shared core behind both the staff `quoteReservation`
+ * (which resolves a guest too) and the public booking engine's search/quote.
+ * Validates the room type + rate plan belong to the property; prices every
+ * night from the rate calendar; counts availability. Writes nothing.
+ */
+export async function quoteStay(
+  propertyId: string,
+  input: { roomTypeId: string; ratePlanId: string; checkIn: Date; checkOut: Date },
+): Promise<{ available: boolean; sellableRooms: number; booked: number; nights: number; totalMinor: number; pricedNights: { date: string; amountMinor: number }[] }> {
+  const roomType = await scopedPrisma.roomType.findFirst({ where: { id: input.roomTypeId, propertyId } });
+  if (!roomType) {
+    throw new NotFoundError('Room type not found at this property.');
+  }
+  const ratePlan = await scopedPrisma.ratePlan.findFirst({
+    where: { id: input.ratePlanId, roomTypeId: input.roomTypeId },
+  });
+  if (!ratePlan) {
+    throw new NotFoundError('Rate plan not found for this room type.');
+  }
+
+  const nights = nightsBetween(input.checkIn, input.checkOut);
+  const { pricedNights, totalMinor } = await priceStay(input.ratePlanId, nights, scopedPrisma);
+
+  const sellableRooms = await reservationsRepository.countSellableRooms(propertyId, input.roomTypeId);
+  const booked = await reservationsRepository.countOverlapping(
+    propertyId,
+    input.roomTypeId,
+    input.checkIn,
+    input.checkOut,
+  );
+
+  return {
+    available: booked < sellableRooms,
+    sellableRooms,
+    booked,
+    nights: nights.length,
+    totalMinor,
+    pricedNights: pricedNights.map((n) => ({ date: toIsoDate(n.date), amountMinor: n.amountMinor })),
+  };
+}
+
 export async function quoteReservation(
   propertyId: string,
   input: CreateReservationInput,

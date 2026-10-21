@@ -62,12 +62,13 @@ function renderWidget({
   claims = session(['dashboard:read']),
   path = '/app/properties/prop-1/dashboard',
   route = '/app/properties/:propertyId/dashboard',
-}: { claims?: SessionClaims | null; path?: string; route?: string } = {}) {
+  propertyId,
+}: { claims?: SessionClaims | null; path?: string; route?: string; propertyId?: string } = {}) {
   return render(
     <AuthContext.Provider value={authValue(claims)}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path={route} element={<AssistantWidget />} />
+          <Route path={route} element={<AssistantWidget propertyId={propertyId} />} />
         </Routes>
       </MemoryRouter>
     </AuthContext.Provider>,
@@ -83,6 +84,11 @@ describe('AssistantWidget', () => {
   it('renders nothing without a propertyId in the route', () => {
     const { container } = renderWidget({ path: '/app/guests', route: '/app/guests' });
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('is available off a property route when the shell passes the active property', () => {
+    renderWidget({ path: '/app', route: '/app', propertyId: 'prop-1' });
+    expect(screen.getByRole('button', { name: 'Open assistant' })).toBeInTheDocument();
   });
 
   it('renders nothing without dashboard:read permission', () => {

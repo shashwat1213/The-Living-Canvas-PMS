@@ -1,34 +1,63 @@
-import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/useAuth';
+import { FormField } from '../components/FormField';
 import { ApiError } from '../lib/api';
-import './auth-pages.css';
+import { takeFlash } from '../lib/flash';
+import { validateEmail } from '../lib/validation';
+import { AuthLayout } from './AuthLayout';
 
-const DEMO_EMAIL = 'owner@grandpalace.com';
-const DEMO_PASSWORD = 'Password123';
+// Public demo workspace (seeded with a realistic hotel). Overridable per
+// deployment; the backend blocks deleting / password-resetting this account.
+const DEMO_EMAIL = (import.meta.env.VITE_DEMO_EMAIL as string | undefined) ?? 'owner@grandpalace.com';
+const DEMO_PASSWORD = (import.meta.env.VITE_DEMO_PASSWORD as string | undefined) ?? 'Password123';
 
 export function LoginPage() {
   const { status, login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeState = location.state as { notice?: string; demo?: boolean; from?: string } | null;
+  const [flash] = useState(() => takeFlash());
+  const notice = routeState?.notice ?? flash;
+  const returnTo = routeState?.from?.startsWith('/app') ? routeState.from : '/app';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const autoDemoStarted = useRef(false);
+
+  useEffect(() => {
+    document.title = 'Log in · The Living Canvas';
+  }, []);
+
+  // "Try the live demo" on the landing page arrives here with state.demo —
+  // sign straight in once the silent-refresh check says nobody is logged in.
+  useEffect(() => {
+    if (routeState?.demo && status === 'anonymous' && !autoDemoStarted.current) {
+      autoDemoStarted.current = true;
+      fillDemo();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   if (status === 'authenticated') {
-    return <Navigate to="/app/properties" replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   async function submit(nextEmail: string, nextPassword: string) {
     setError(null);
     setSubmitting(true);
     try {
-      await login(nextEmail, nextPassword);
-      navigate('/app/properties');
+      await login(nextEmail.trim(), nextPassword);
+      navigate(returnTo);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong. Try again.');
+      if (err instanceof ApiError && err.status === 429) {
+        setError('Too many sign-in attempts. Please wait 15 minutes, or reset your password.');
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Something went wrong. Try again.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -36,158 +65,86 @@ export function LoginPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    const next = {
+      email: validateEmail(email),
+      password: password ? undefined : 'Enter your password.',
+    };
+    setErrors(next);
+    if (next.email || next.password) return;
     void submit(email, password);
   }
 
   function fillDemo() {
     setEmail(DEMO_EMAIL);
     setPassword(DEMO_PASSWORD);
+    setErrors({});
     void submit(DEMO_EMAIL, DEMO_PASSWORD);
   }
 
   return (
-    <main className="auth-page">
-      {/* Left: branded product showcase (Mews/Cloudbeds-class front door) */}
-      <aside className="auth-hero" aria-hidden="true">
-        <div className="auth-hero-glow" />
-        <div className="auth-hero-grid" />
-        <div className="auth-hero-top">
-          <span className="auth-hero-mark">
-            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 21h18" />
-              <path d="M5 21V7l7-4 7 4v14" />
-              <path d="M9 21v-6h6v6" />
-            </svg>
-          </span>
-          <span className="auth-hero-brand">The Living Canvas</span>
+    <AuthLayout>
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        <h1>Welcome back</h1>
+        <p className="auth-subtitle">Sign in to your property management workspace</p>
+
+        {notice && (
+          <p className="auth-notice" role="status">
+            {notice}
+          </p>
+        )}
+
+        <FormField
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          autoComplete="email"
+          placeholder="you@hotel.com"
+          error={errors.email}
+        />
+
+        <div className="auth-field-row">
+          <FormField
+            label="Password"
+            revealable
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+            placeholder="••••••••"
+            error={errors.password}
+          />
+          <Link to="/forgot-password" className="auth-forgot">
+            Forgot password?
+          </Link>
         </div>
 
-        <div className="auth-hero-body">
-          <span className="auth-hero-eyebrow">Hospitality platform</span>
-          <h2 className="auth-hero-headline">
-            Run every property<br />from one calm workspace.
-          </h2>
-          <p className="auth-hero-sub">
-            Reservations, front desk, housekeeping, POS, revenue and AI marketing —
-            the complete hospitality platform for modern hotels.
+        {error && (
+          <p className="auth-error" role="alert">
+            {error}
           </p>
+        )}
 
-          <ul className="auth-hero-features">
-            <li>
-              <span className="auth-hero-check" aria-hidden="true">✓</span>
-              Live tape-chart calendar — drag to assign, move &amp; reschedule
-            </li>
-            <li>
-              <span className="auth-hero-check" aria-hidden="true">✓</span>
-              Folios, online payments &amp; PDF booking vouchers
-            </li>
-            <li>
-              <span className="auth-hero-check" aria-hidden="true">✓</span>
-              Board-grade revenue, occupancy, ADR &amp; RevPAR analytics
-            </li>
-          </ul>
+        <button type="submit" className="auth-submit" disabled={submitting}>
+          {submitting ? <span className="btn-spinner" aria-hidden="true" /> : null}
+          {submitting ? 'Signing in…' : 'Log in'}
+        </button>
 
-          <div className="auth-hero-stats">
-            <div className="auth-hero-stat">
-              <span className="auth-hero-stat-num">19</span>
-              <span className="auth-hero-stat-label">Connected modules</span>
-            </div>
-            <div className="auth-hero-stat">
-              <span className="auth-hero-stat-num">Real-time</span>
-              <span className="auth-hero-stat-label">Occupancy &amp; revenue</span>
-            </div>
-            <div className="auth-hero-stat">
-              <span className="auth-hero-stat-num">Multi</span>
-              <span className="auth-hero-stat-label">Property &amp; tenant</span>
-            </div>
-          </div>
+        <div className="auth-divider">
+          <span>or</span>
         </div>
 
-        <p className="auth-hero-foot">Trusted operations, from front desk to boardroom.</p>
-      </aside>
+        <button type="button" className="auth-demo" onClick={fillDemo} disabled={submitting}>
+          ✨ Explore the live demo
+        </button>
 
-      {/* Right: sign-in form */}
-      <div className="auth-panel">
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="auth-brand auth-brand-mobile">
-            <span className="auth-brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 21h18" />
-                <path d="M5 21V7l7-4 7 4v14" />
-                <path d="M9 21v-6h6v6" />
-              </svg>
-            </span>
-            <span className="auth-brand-name">The Living Canvas</span>
-          </div>
+        <p className="auth-demo-hint">
+          One click — a fully stocked demo hotel. No sign-up needed.
+        </p>
 
-          <h1>Welcome back</h1>
-          <p className="auth-subtitle">Sign in to your property management workspace</p>
-
-          <label>
-            Email
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              autoComplete="email"
-              placeholder="you@hotel.com"
-            />
-          </label>
-
-          <label>
-            Password
-            <span className="auth-password">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                autoComplete="current-password"
-                placeholder="••••••••"
-              />
-              <button
-                type="button"
-                className="auth-password-toggle"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                tabIndex={-1}
-              >
-                {showPassword ? 'Hide' : 'Show'}
-              </button>
-            </span>
-          </label>
-
-          {error && (
-            <p className="auth-error" role="alert">
-              {error}
-            </p>
-          )}
-
-          <button type="submit" className="auth-submit" disabled={submitting}>
-            {submitting ? 'Signing in…' : 'Log in'}
-          </button>
-
-          <div className="auth-divider"><span>or</span></div>
-
-          <button
-            type="button"
-            className="auth-demo"
-            onClick={fillDemo}
-            disabled={submitting}
-          >
-            ✨ Explore the live demo
-          </button>
-
-          <p className="auth-demo-hint">
-            Demo owner — <code>owner@grandpalace.com</code> · <code>Password123</code>
-          </p>
-
-          <p className="auth-switch">
-            New organization? <Link to="/signup">Create one</Link>
-          </p>
-        </form>
-      </div>
-    </main>
+        <p className="auth-switch">
+          New organization? <Link to="/signup">Create one</Link>
+        </p>
+      </form>
+    </AuthLayout>
   );
 }

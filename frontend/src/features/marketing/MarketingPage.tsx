@@ -12,6 +12,7 @@ import type { Property } from '../properties/types';
 import { listContent } from './api';
 import { ContentDialog } from './ContentDialog';
 import { GenerateDialog } from './GenerateDialog';
+import { MediaLibrary } from './MediaLibrary';
 import { canApproveMarketing, canManageMarketing, canReadMarketing } from './permissions';
 import {
   FORMAT_LABEL,
@@ -43,6 +44,7 @@ export function MarketingPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [page, setPage] = useState(1);
 
+  const [tab, setTab] = useState<'content' | 'media'>('content');
   const [generating, setGenerating] = useState(false);
   const [selected, setSelected] = useState<MarketingContent | null>(null);
 
@@ -170,94 +172,119 @@ export function MarketingPage() {
             <Link to="/app/properties">Properties</Link> / {propertyName}
           </p>
           <h1>Marketing Studio</h1>
-          <p className="marketing-subtitle">
-            AI-drafted marketing copy for {propertyName} — generate, review, edit and approve.
-          </p>
+          <p className="marketing-subtitle">AI-drafted copy and the photo &amp; video library for {propertyName}.</p>
         </div>
-        {mayManage && (
+        {mayManage && tab === 'content' && (
           <button type="button" className="btn btn-primary" onClick={() => setGenerating(true)}>
             Generate content
           </button>
         )}
       </header>
 
-      {error && (
-        <p className="page-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <div className="marketing-filters">
-        <div className="field marketing-search">
-          <label htmlFor="mk-search">Search</label>
-          <input
-            id="mk-search"
-            type="search"
-            placeholder="Brief, title or body…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="mk-format">Format</label>
-          <select id="mk-format" value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)}>
-            <option value="ALL">All formats</option>
-            {MARKETING_FORMATS.map((f) => (
-              <option key={f} value={f}>
-                {FORMAT_LABEL[f]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="mk-status">Status</label>
-          <select id="mk-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="ALL">All statuses</option>
-            {MARKETING_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
-        </div>
-        {filtersActive && (
-          <button type="button" className="btn btn-ghost btn-sm marketing-reset" onClick={clearFilters}>
-            Clear filters
-          </button>
-        )}
+      <div className="marketing-tabs" role="tablist" aria-label="Marketing studio sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'content'}
+          className={`btn btn-sm ${tab === 'content' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setTab('content')}
+        >
+          AI content
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'media'}
+          className={`btn btn-sm ${tab === 'media' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setTab('media')}
+        >
+          Media library
+        </button>
       </div>
 
-      <DataTable
-        columns={columns}
-        rows={items}
-        rowKey={(c) => c.id}
-        caption={`Marketing content for ${propertyName}`}
-        loadingLabel="Loading content…"
-        emptyState={
-          filtersActive ? (
-            <>
-              <p>No content matches those filters.</p>
+      {tab === 'media' && propertyId && <MediaLibrary propertyId={propertyId} canManage={mayManage} />}
+
+      {tab === 'content' && (
+        <>
+          {error && (
+            <p className="page-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="marketing-filters">
+            <div className="field marketing-search">
+              <label htmlFor="mk-search">Search</label>
+              <input
+                id="mk-search"
+                type="search"
+                placeholder="Brief, title or body…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="mk-format">Format</label>
+              <select id="mk-format" value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)}>
+                <option value="ALL">All formats</option>
+                {MARKETING_FORMATS.map((f) => (
+                  <option key={f} value={f}>
+                    {FORMAT_LABEL[f]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="mk-status">Status</label>
+              <select id="mk-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="ALL">All statuses</option>
+                {MARKETING_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {filtersActive && (
               <button type="button" className="btn btn-ghost btn-sm marketing-reset" onClick={clearFilters}>
                 Clear filters
               </button>
-            </>
-          ) : (
-            <p>
-              No marketing content yet.{' '}
-              {mayManage ? 'Generate your first piece to get started.' : 'A manager can generate content here.'}
-            </p>
-          )
-        }
-      />
+            )}
+          </div>
 
-      {pageMeta && (
-        <Pagination
-          page={pageMeta}
-          onPageChange={setPage}
-          itemLabel="pieces"
-          itemLabelSingular="piece"
-          busy={refreshing}
-        />
+          <DataTable
+            columns={columns}
+            rows={items}
+            rowKey={(c) => c.id}
+            caption={`Marketing content for ${propertyName}`}
+            loadingLabel="Loading content…"
+            emptyState={
+              filtersActive ? (
+                <>
+                  <p>No content matches those filters.</p>
+                  <button type="button" className="btn btn-ghost btn-sm marketing-reset" onClick={clearFilters}>
+                    Clear filters
+                  </button>
+                </>
+              ) : (
+                <p>
+                  No marketing content yet.{' '}
+                  {mayManage ? 'Generate your first piece to get started.' : 'A manager can generate content here.'}
+                </p>
+              )
+            }
+          />
+
+          {pageMeta && (
+            <Pagination
+              page={pageMeta}
+              onPageChange={setPage}
+              itemLabel="pieces"
+              itemLabelSingular="piece"
+              busy={refreshing}
+            />
+          )}
+        </>
       )}
 
       {generating && propertyId && (

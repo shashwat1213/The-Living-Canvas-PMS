@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+backend/dist
+frontend/dist
+design-mockups
+docs/screenshots
+.env
+**/.env
+**/.env.*
+!**/.env.example
+.hermes
+.agents
+.claude
+coverage
+*.log

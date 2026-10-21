@@ -30,7 +30,7 @@ function staffPayload(role: StaffPayload['role'], overrides: Partial<StaffPayloa
   const suffix = randomUUID().slice(0, 8);
   return {
     email: `${role.toLowerCase()}-${suffix}@example.com`,
-    password: 'correct-horse-battery-staple',
+    password: 'correct-horse-battery-staple-1',
     firstName: 'Sam',
     lastName: 'Staffer',
     role,

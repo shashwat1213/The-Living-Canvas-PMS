@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 
 import { prisma } from '../../lib/prisma.js';
+import { SYSTEM_ACTOR_ID } from '../jobs/system-context.js';
 import { getRequestContext } from '../tenancy/context.js';
 import type { AuditAction, AuditEntityType } from './actions.js';
 
@@ -93,6 +94,27 @@ export interface AuditEvent {
  */
 export async function recordAuditEvent(event: AuditEvent, client: AuditDb = prisma): Promise<void> {
   const ctx = getRequestContext();
+
+  // System-originated actions (e.g. the public booking engine, or a background
+  // job running in a system context) are NOT attributable to a real User — the
+  // sentinel `SYSTEM_ACTOR_ID` is not a `User.id`, so writing it as
+  // `actorUserId` would dangle the FK. Record these as a SYSTEM actor with a
+  // null user, which is exactly what `AuditActorType.SYSTEM` models.
+  if (ctx.userId === SYSTEM_ACTOR_ID) {
+    await client.auditLog.create({
+      data: {
+        organizationId: ctx.organizationId,
+        actorType: 'SYSTEM',
+        actorUserId: null,
+        actorEmail: null,
+        action: event.action,
+        entityType: event.entityType,
+        entityId: event.entityId,
+        metadata: event.metadata ? redact(event.metadata) : undefined,
+      },
+    });
+    return;
+  }
 
   // Captured at write time so the row stays meaningful even if the account
   // is later removed (the FK is SetNull for exactly that reason).

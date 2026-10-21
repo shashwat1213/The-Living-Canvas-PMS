@@ -226,14 +226,14 @@ describe('list, filters, permissions & tenancy', () => {
       .set(...authHeader(owner.token))
       .send({
         email: staffEmail,
-        password: 'correct-horse-battery-staple',
+        password: 'correct-horse-battery-staple-1',
         firstName: 'Sam',
         lastName: 'Staffer',
         role: 'STAFF',
         propertyIds: [propertyId],
       });
     expect(created.status).toBe(201);
-    const staffToken = await loginAs(staffEmail, 'correct-horse-battery-staple');
+    const staffToken = await loginAs(staffEmail, 'correct-horse-battery-staple-1');
 
     // STAFF has property access but not marketing:read → 403, not 404.
     const read = await request(app)
