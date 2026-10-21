@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { asyncHandler } from '../../middleware/error-handler.js';
+import { denyDemoAccount } from '../../platform/rbac/demo-guard.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import { createPropertySchema, listPropertiesQuerySchema, updatePropertySchema } from './schemas.js';
@@ -23,6 +24,7 @@ propertiesRouter.get(
 propertiesRouter.post(
   '/properties',
   requirePermission('properties:create'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = createPropertySchema.parse(req.body);
     const property = await propertiesService.createProperty(input);
@@ -43,6 +45,7 @@ propertiesRouter.get(
 propertiesRouter.patch(
   '/properties/:propertyId',
   requirePermission('properties:update'),
+  denyDemoAccount,
   requirePropertyAccess(),
   asyncHandler(async (req, res) => {
     const input = updatePropertySchema.parse(req.body);
@@ -54,6 +57,7 @@ propertiesRouter.patch(
 propertiesRouter.delete(
   '/properties/:propertyId',
   requirePermission('properties:delete'),
+  denyDemoAccount,
   requirePropertyAccess(),
   asyncHandler(async (req, res) => {
     await propertiesService.deleteProperty(req.params.propertyId as string);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { asyncHandler } from '../../middleware/error-handler.js';
+import { denyDemoAccount } from '../../platform/rbac/demo-guard.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import { createRoomTypeSchema, listRoomTypesQuerySchema, updateRoomTypeSchema } from './schemas.js';
@@ -47,6 +48,7 @@ roomTypesRouter.get(
 roomTypesRouter.post(
   '/',
   requirePermission('room-types:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = createRoomTypeSchema.parse(req.body);
     const roomType = await roomTypesService.createRoomType(req.params.propertyId as string, input);
@@ -57,6 +59,7 @@ roomTypesRouter.post(
 roomTypesRouter.patch(
   '/:roomTypeId',
   requirePermission('room-types:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = updateRoomTypeSchema.parse(req.body);
     const roomType = await roomTypesService.updateRoomType(
@@ -71,6 +74,7 @@ roomTypesRouter.patch(
 roomTypesRouter.delete(
   '/:roomTypeId',
   requirePermission('room-types:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     await roomTypesService.deleteRoomType(req.params.propertyId as string, req.params.roomTypeId as string);
     res.status(204).send();

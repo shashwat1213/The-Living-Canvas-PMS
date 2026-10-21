@@ -13,7 +13,7 @@ Reservations · front desk · housekeeping · maintenance · POS · folios & pay
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06B6D4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-638_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-696_passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 </div>
@@ -24,7 +24,7 @@ Reservations · front desk · housekeeping · maintenance · POS · folios & pay
 
 **The Living Canvas** is a production-shaped PMS for hospitality groups: one organization runs many properties, each with its own rooms, rates, staff, bookings and books. It is benchmarked against the workflows of leading commercial systems (Mews, Cloudbeds, Stayntouch) rather than built as an internal admin panel — strict **multi-tenant isolation**, **permission-based RBAC with property scoping**, **transactional integrity**, and a full **audit trail** run through every module.
 
-It is a full-stack TypeScript monorepo: a React 19 SPA, a Node/Express API, and PostgreSQL via Prisma — **638 automated tests** across both workspaces.
+It is a full-stack TypeScript monorepo: a React 19 SPA, a Node/Express API, and PostgreSQL via Prisma — **696 automated tests** across both workspaces.
 
 > **Demo login:** `owner@grandpalace.com` / `Password123` — or click **✨ Explore the live demo** on the sign-in screen.
 
@@ -114,13 +114,13 @@ backend/     Node + Express + TypeScript API
                 rbac, payments, ai (content + chat seams), jobs, audit
     modules/    22 business domains, one dir each (routes/service/schemas)
     prisma/     schema + 19 migrations
-  test/         Vitest (393 tests)
+  test/         Vitest (431 tests)
 frontend/    React 19 + Vite + TypeScript SPA
   src/
     features/   20 feature modules (api/types/permissions/components)
     components/ shared design-system primitives
     layout/     app shell + AI assistant widget
-  (Vitest, 245 tests)
+  (Vitest, 265 tests)
 ```
 
 **Design principles**
@@ -135,7 +135,7 @@ frontend/    React 19 + Vite + TypeScript SPA
 | Backend | Node, Express 4, TypeScript 6, Zod 4 validation, JWT auth |
 | Data | PostgreSQL 16, Prisma 6 (19 migrations) |
 | AI | Groq (OpenAI-compatible) behind a swappable provider seam |
-| Testing | Vitest (both workspaces) · 638 tests |
+| Testing | Vitest (both workspaces) · 696 tests |
 | Tooling | npm workspaces, ESLint (backend), oxlint (frontend), GitHub Actions CI |
 
 ---
@@ -187,7 +187,7 @@ node scripts/demo-history-seed.mjs  # historical stays for analytics
 npm run typecheck   # backend tsc + frontend tsc -b
 npm run lint        # eslint (backend) + oxlint (frontend)
 npm run build       # production build, both workspaces
-npm run test        # Vitest — 638 tests (backend 393 · frontend 245)
+npm run test        # Vitest — 696 tests (backend 431 · frontend 265)
 ```
 
 Tenant isolation, RBAC, and cross-tenant 404 behavior are covered by dedicated regression suites; AI adapters are unit-tested with mocked transport, and the assistant/marketing routes are exercised end-to-end against a real database with the deterministic stub.

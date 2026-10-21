@@ -256,8 +256,8 @@ export function AppShell() {
         {profile?.isDemo && (
           <div className="shell-banner shell-banner-info" role="note">
             <span>
-              You’re exploring the <strong>shared demo hotel</strong> — data resets periodically and is visible to other
-              visitors.
+              You’re exploring the <strong>shared demo hotel</strong> — everyone sees the same data, so setup changes
+              (properties, rooms, rates, staff) are locked.
             </span>
             <Link to="/signup" onClick={() => void logout()}>
               Create your own workspace →

@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
 import { ipRateLimit } from '../../platform/http/ip-rate-limit.js';
 import { requireHuman } from '../../platform/http/turnstile.js';
 import { sendVerificationEmail } from '../auth/account.service.js';
+import { denyDemoAccount } from '../../platform/rbac/demo-guard.js';
 import { requirePermission } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import { createOrganizationSchema, updateOrganizationSchema } from './schemas.js';
@@ -48,6 +49,7 @@ organizationsRouter.patch(
   '/organizations/me',
   authenticate,
   requirePermission('organizations:update'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = updateOrganizationSchema.parse(req.body);
     const organization = await organizationsService.updateOwnOrganization(input);
