@@ -440,6 +440,7 @@ const appScopedPrisma = prisma.$extends({
     posOrder: scopeByPropertyRelation(),
     posOrderItem: scopeByPosOrderRelation(),
     marketingContent: scopeByPropertyRelation(),
+    mediaAsset: scopeByPropertyRelation(),
   },
 });
 

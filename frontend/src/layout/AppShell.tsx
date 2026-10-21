@@ -10,6 +10,7 @@ import { ApiError, apiFetch } from '../lib/api';
 import { setFlash } from '../lib/flash';
 import { fetchProfile, type Profile } from '../lib/profile';
 import { NavIcon } from './NavIcon';
+import { useActiveProperty } from './useActiveProperty';
 import './shell.css';
 
 interface Organization {
@@ -24,6 +25,60 @@ export function AppShell() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const location = useLocation();
+  const mayReadProperties = hasPermission(session, 'properties:read');
+  const { properties, activeId, active, select } = useActiveProperty(mayReadProperties);
+  const can = (perm: string) => hasPermission(session, perm);
+  const hotelLinks: {
+    to: string;
+    label: string;
+    icon: Parameters<typeof NavIcon>[0]['name'];
+    perm?: string;
+  }[] = [
+    {
+      to: 'dashboard',
+      label: 'Front desk',
+      icon: 'frontdesk',
+      perm: 'dashboard:read',
+    },
+    {
+      to: 'calendar',
+      label: 'Tape chart',
+      icon: 'calendar',
+      perm: 'reservations:read',
+    },
+    {
+      to: 'reservations',
+      label: 'Reservations',
+      icon: 'reservations',
+      perm: 'reservations:read',
+    },
+    {
+      to: 'housekeeping',
+      label: 'Housekeeping',
+      icon: 'housekeeping',
+      perm: 'housekeeping:read',
+    },
+    {
+      to: 'maintenance',
+      label: 'Maintenance',
+      icon: 'maintenance',
+      perm: 'maintenance:read',
+    },
+    { to: 'pos', label: 'Point of sale', icon: 'pos', perm: 'pos:read' },
+    {
+      to: 'reports',
+      label: 'Revenue & reports',
+      icon: 'reports',
+      perm: 'reports:read',
+    },
+    {
+      to: 'marketing',
+      label: 'Marketing studio',
+      icon: 'marketing',
+      perm: 'marketing:read',
+    },
+    { to: 'rooms', label: 'Rooms & rates', icon: 'rooms' },
+  ];
 
   // Close the mobile drawer on navigation and move focus to the top.
   useEffect(() => {
@@ -66,8 +121,7 @@ export function AppShell() {
     .join('');
   const primaryRole = session?.roleNames[0] ?? 'Member';
 
-  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-    isActive ? 'nav-link nav-link-active' : 'nav-link';
+  const navLinkClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'nav-link nav-link-active' : 'nav-link');
 
   return (
     <div className={`shell ${mobileOpen ? 'shell-mobile-open' : ''}`}>
@@ -94,6 +148,37 @@ export function AppShell() {
               <span>Properties</span>
             </NavLink>
           </div>
+
+          {activeId && (
+            <div className="nav-group" aria-label="Hotel">
+              <span className="nav-group-label">Hotel</span>
+              {properties.length > 1 ? (
+                <select
+                  className="nav-property-select"
+                  aria-label="Active property"
+                  value={activeId}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => select(e.target.value)}
+                >
+                  {properties.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                active && <span className="nav-property-name">{active.name}</span>
+              )}
+              {hotelLinks
+                .filter((l) => !l.perm || can(l.perm))
+                .map((l) => (
+                  <NavLink key={l.to} to={`/app/properties/${activeId}/${l.to}`} className={navLinkClass}>
+                    <NavIcon name={l.icon} />
+                    <span>{l.label}</span>
+                  </NavLink>
+                ))}
+            </div>
+          )}
 
           <div className="nav-group">
             <span className="nav-group-label">Management</span>
@@ -197,7 +282,7 @@ export function AppShell() {
         </main>
       </div>
 
-      <AssistantWidget />
+      <AssistantWidget propertyId={activeId ?? undefined} />
     </div>
   );
 }

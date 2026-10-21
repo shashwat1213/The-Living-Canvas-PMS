@@ -6,7 +6,12 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
-export const prisma = globalThis.__prisma ?? new PrismaClient();
+// Serverless + remote Postgres (Neon) adds per-query network latency, so the
+// 5s default interactive-transaction timeout is too tight for multi-statement
+// writes (e.g. bulk rate upserts + audit). Give transactions more headroom.
+export const prisma =
+  globalThis.__prisma ??
+  new PrismaClient({ transactionOptions: { maxWait: 10_000, timeout: 30_000 } });
 
 if (process.env.NODE_ENV !== 'production') {
   globalThis.__prisma = prisma;

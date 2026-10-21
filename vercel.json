@@ -4,6 +4,7 @@
   "buildCommand": "npm run db:generate -w backend && npm run build -w backend && npm run build -w frontend",
   "outputDirectory": "frontend/dist",
   "framework": null,
+  "regions": ["sin1"],
   "functions": {
     "api/index.mjs": {
       "includeFiles": "{backend/dist/**,node_modules/.prisma/client/**,node_modules/@prisma/client/**}"

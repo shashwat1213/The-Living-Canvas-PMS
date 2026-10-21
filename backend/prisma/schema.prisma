@@ -80,6 +80,7 @@ model User {
   workOrders        MaintenanceWorkOrder[] @relation("WorkOrderAssignee")
   marketingCreated  MarketingContent[]     @relation("MarketingContentCreatedBy")
   marketingApproved MarketingContent[]     @relation("MarketingContentApprovedBy")
+  mediaUploaded     MediaAsset[]           @relation("MediaAssetCreatedBy")
   paymentIntents    PaymentIntent[]        @relation("PaymentIntentCreatedBy")
 
   @@index([organizationId])
@@ -288,6 +289,7 @@ model Property {
   posOutlets        PosOutlet[]
   posOrders         PosOrder[]
   marketingContent  MarketingContent[]
+  mediaAssets       MediaAsset[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -1316,4 +1318,60 @@ model AuthToken {
 
   @@index([userId, purpose])
   @@map("auth_tokens")
+}
+
+/// A photo or video in a property's Marketing Studio media library — event
+/// pictures, room shots, campaign creatives. The binary lives in object
+/// storage (S3); this row is the catalogue entry. Uploads go browser → S3
+/// directly via a presigned URL, so the row starts PENDING and becomes READY
+/// only after the server has verified the stored object (size + type).
+///
+/// Video-ready by design: `kind` covers VIDEO, `durationMs` is reserved for
+/// it, and `sourceAssetId` links a derived asset (an AI edit / cut / render)
+/// back to its original so a future editing pipeline can store outputs as
+/// first-class library items without a schema change.
+model MediaAsset {
+  id              String           @id @default(uuid())
+  propertyId      String           @map("property_id")
+  kind            MediaAssetKind
+  status          MediaAssetStatus @default(PENDING)
+  /// Object key in the storage bucket. Server-generated, never client input.
+  storageKey      String           @unique @map("storage_key")
+  fileName        String           @map("file_name")
+  contentType     String           @map("content_type")
+  sizeBytes       Int              @default(0) @map("size_bytes")
+  title           String?
+  description     String?
+  /// Event / album grouping, e.g. "Diwali 2026" or "Sharma wedding".
+  album           String?
+  tags            String[]         @default([])
+  width           Int?
+  height          Int?
+  durationMs      Int?             @map("duration_ms")
+  sourceAssetId   String?          @map("source_asset_id")
+  createdByUserId String?          @map("created_by_user_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdBy   User?        @relation("MediaAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  sourceAsset MediaAsset?  @relation("MediaAssetDerivatives", fields: [sourceAssetId], references: [id], onDelete: SetNull)
+  derivatives MediaAsset[] @relation("MediaAssetDerivatives")
+
+  @@index([propertyId, createdAt])
+  @@index([propertyId, album])
+  @@index([propertyId, kind, status])
+  @@map("media_assets")
+}
+
+enum MediaAssetKind {
+  IMAGE
+  VIDEO
+}
+
+enum MediaAssetStatus {
+  /// Upload URL issued; object not yet verified in storage.
+  PENDING
+  /// Verified in storage and visible in the library.
+  READY
 }

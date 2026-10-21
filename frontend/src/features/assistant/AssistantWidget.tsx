@@ -27,8 +27,11 @@ const GREETING =
  * user without `dashboard:read`. Read-only — it only ever POSTs the
  * conversation and renders the reply.
  */
-export function AssistantWidget() {
-  const { propertyId } = useParams<{ propertyId: string }>();
+export function AssistantWidget({ propertyId: propertyIdProp }: { propertyId?: string } = {}) {
+  const params = useParams<{ propertyId: string }>();
+  // The URL's property wins; otherwise the shell's active property, so the
+  // assistant is also available on the org-level dashboard.
+  const propertyId = params.propertyId ?? propertyIdProp;
   const { session } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<AssistantChatMessage[]>([]);

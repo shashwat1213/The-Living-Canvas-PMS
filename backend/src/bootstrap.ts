@@ -5,6 +5,7 @@ import { setContentProvider } from './platform/ai/registry.js';
 import { initErrorTracking } from './platform/observability/sentry.js';
 import { setPaymentProvider } from './platform/payments/registry.js';
 import { tryActivateRazorpayFromEnv } from './platform/payments/razorpay-provider.js';
+import { tryActivateS3FromEnv } from './platform/storage/registry.js';
 
 /**
  * Process-level wiring shared by the long-running server (`index.ts`) and
@@ -27,5 +28,7 @@ export function configureProviders(): void {
   const groqModel = tryActivateGroqFromEnv(setContentProvider);
   console.log(groqModel ? `[backend] AI content provider: groq (${groqModel})` : '[backend] AI content provider: stub');
   const groqChatModel = tryActivateGroqChatFromEnv(setChatProvider);
+  const bucket = tryActivateS3FromEnv();
+  console.log(bucket ? `[backend] media storage: s3 (${bucket})` : '[backend] media storage: stub (no MEDIA_S3_BUCKET)');
   console.log(groqChatModel ? `[backend] AI chat provider: groq (${groqChatModel})` : '[backend] AI chat provider: stub');
 }

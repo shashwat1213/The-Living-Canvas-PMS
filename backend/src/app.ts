@@ -17,6 +17,7 @@ import { foliosRouter } from './modules/folios/routes.js';
 import { housekeepingRouter } from './modules/housekeeping/routes.js';
 import { maintenanceRouter } from './modules/maintenance/routes.js';
 import { marketingRouter } from './modules/marketing/routes.js';
+import { mediaRouter } from './modules/media/routes.js';
 import { notificationsRouter } from './modules/notifications/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { guestsRouter } from './modules/guests/routes.js';
@@ -100,6 +101,7 @@ export function createApp(): Express {
   v1.use('/properties/:propertyId/pos', posRouter);
   v1.use('/properties/:propertyId/housekeeping', housekeepingRouter);
   v1.use('/properties/:propertyId/maintenance/work-orders', maintenanceRouter);
+  v1.use('/properties/:propertyId/marketing/media', mediaRouter);
   v1.use('/properties/:propertyId/marketing', marketingRouter);
   v1.use('/properties/:propertyId/assistant', assistantRouter);
   app.use('/api/v1', v1);

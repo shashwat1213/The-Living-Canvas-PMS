@@ -127,6 +127,31 @@
   opacity: 0.9;
 }
 
+/* Active-hotel switcher heading the property-scoped "Hotel" nav group. */
+.nav-property-name,
+.nav-property-select {
+  margin: 0 var(--sp-3) var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--side-text-active);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-property-select {
+  padding: 0.4rem var(--sp-2);
+  border-radius: var(--radius);
+  border: 1px solid var(--side-hover-bg);
+  background: var(--side-hover-bg);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.nav-property-select option {
+  color: #1a1a1a;
+}
+
 .nav-link-active .nav-icon {
   opacity: 1;
 }
