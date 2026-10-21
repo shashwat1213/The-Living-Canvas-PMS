@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { asyncHandler } from '../../middleware/error-handler.js';
+import { denyDemoAccount } from '../../platform/rbac/demo-guard.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import { createRoomSchema, listRoomsQuerySchema, updateRoomSchema } from './schemas.js';
@@ -54,6 +55,7 @@ roomsRouter.patch(
 roomsRouter.delete(
   '/:roomId',
   requirePermission('rooms:delete'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     await roomsService.deleteRoom(req.params.propertyId as string, req.params.roomId as string);
     res.status(204).end();

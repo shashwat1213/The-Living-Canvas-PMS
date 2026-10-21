@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { asyncHandler } from '../../middleware/error-handler.js';
+import { denyDemoAccount } from '../../platform/rbac/demo-guard.js';
 import { requirePermission } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import { createStaffSchema, listStaffQuerySchema, setPropertyAccessSchema, updateStaffSchema } from './schemas.js';
@@ -47,6 +48,7 @@ staffRouter.get(
 staffRouter.post(
   '/staff',
   requirePermission('staff:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = createStaffSchema.parse(req.body);
     const member = await staffService.createStaff(input);
@@ -57,6 +59,7 @@ staffRouter.post(
 staffRouter.patch(
   '/staff/:userId',
   requirePermission('staff:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = updateStaffSchema.parse(req.body);
     const member = await staffService.updateStaff(req.params.userId as string, input);
@@ -67,6 +70,7 @@ staffRouter.patch(
 staffRouter.put(
   '/staff/:userId/property-access',
   requirePermission('staff:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const { propertyIds } = setPropertyAccessSchema.parse(req.body);
     const member = await staffService.setPropertyAccess(req.params.userId as string, propertyIds);

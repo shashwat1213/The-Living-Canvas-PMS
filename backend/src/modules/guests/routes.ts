@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { asyncHandler } from '../../middleware/error-handler.js';
+import { denyDemoAccount } from '../../platform/rbac/demo-guard.js';
 import { requirePermission } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import { createGuestSchema, listGuestsQuerySchema, setGuestTagsSchema, updateGuestSchema } from './schemas.js';
@@ -80,6 +81,7 @@ guestsRouter.patch(
 guestsRouter.delete(
   '/guests/:guestId',
   requirePermission('guests:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     await guestsService.deleteGuest(req.params.guestId as string);
     res.status(204).send();

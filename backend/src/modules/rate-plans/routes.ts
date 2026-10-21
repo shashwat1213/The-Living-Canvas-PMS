@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { asyncHandler } from '../../middleware/error-handler.js';
+import { denyDemoAccount } from '../../platform/rbac/demo-guard.js';
 import { requirePermission, requirePropertyAccess } from '../../platform/rbac/guard.js';
 import { authenticate } from '../../platform/tenancy/middleware.js';
 import {
@@ -58,6 +59,7 @@ ratePlansRouter.get(
 ratePlansRouter.post(
   '/',
   requirePermission('rate-plans:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = createRatePlanSchema.parse(req.body);
     const ratePlan = await ratePlansService.createRatePlan(
@@ -72,6 +74,7 @@ ratePlansRouter.post(
 ratePlansRouter.patch(
   '/:ratePlanId',
   requirePermission('rate-plans:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = updateRatePlanSchema.parse(req.body);
     const ratePlan = await ratePlansService.updateRatePlan(
@@ -87,6 +90,7 @@ ratePlansRouter.patch(
 ratePlansRouter.delete(
   '/:ratePlanId',
   requirePermission('rate-plans:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     await ratePlansService.deleteRatePlan(
       req.params.propertyId as string,
@@ -115,6 +119,7 @@ ratePlansRouter.get(
 ratePlansRouter.put(
   '/:ratePlanId/rates',
   requirePermission('rate-plans:manage'),
+  denyDemoAccount,
   asyncHandler(async (req, res) => {
     const input = setRatesSchema.parse(req.body);
     const result = await ratePlansService.setRates(

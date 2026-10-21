@@ -3201,3 +3201,35 @@ notice). Dashboard and login visually reviewed against real seeded data
 **Deferred deliberately.** A true P&L via an expense/cost ledger; per-room-type
 revenue breakdown; a downloadable analytics PDF/export; comparison vs the prior
 period.
+
+## 2026-10-21 — Shared demo workspace: lock structure, keep operations open
+
+**Context.** The public demo login (`DEMO_EMAIL`, linked from the owner's
+resume) is an OWNER shared by every visitor. The owner wants one demo that
+everyone sees with the same data; anyone who wants to experiment freely signs
+up for their own workspace. Account delete and password reset were already
+blocked for it, but any visitor could still delete the property, room types,
+rates or guests, rename the org, or mint/demote staff — breaking the demo for
+everyone after them.
+
+**Decision.** A `denyDemoAccount` route guard (`platform/rbac/demo-guard.ts`),
+placed after `requirePermission`, returns 403 with a "create your own
+workspace" message for the demo user on structural routes only: properties
+create/update/delete, room types and rate plans (incl. nightly rates)
+create/update/delete, room delete, guest delete, organization update, and
+staff create/update/property-access. Day-to-day operations — bookings,
+check-in/out, folios and payments, POS, housekeeping, maintenance, marketing —
+stay open so the demo remains hands-on. The demo banner text now says exactly
+this instead of promising a periodic reset that does not exist.
+
+**Why a route guard, not a read-only role.** A read-only role would make the
+demo look empty of actions; recruiters should be able to click through real
+workflows. The guard identifies the demo by user email (one PK lookup on
+rarely-called routes) rather than a new JWT claim, so no token shape changes.
+
+**Verification.** `test/demo-guard.test.ts`: 8 structural calls → 403 with
+nothing changed; reads + guest create still work for the demo; a normal owner
+can still create/update/delete a property.
+
+**Deferred.** A nightly demo-data reset to undo operational edits
+(new/cancelled bookings) — not needed while the base structure is protected.
